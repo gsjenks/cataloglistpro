@@ -1,10 +1,18 @@
 // src/context/AppContext.tsx
-// FIXED: Better error handling, uses cached companies on query failures, prevents unnecessary reloads
+// MOBILE-FIRST: Added refreshActiveSalesData for comprehensive sync with progress tracking
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import type { Company } from '../types';
+import SyncService from '../services/SyncService';
+
+interface RefreshProgress {
+  stage: string;
+  current: number;
+  total: number;
+  isRefreshing: boolean;
+}
 
 interface AppContextType {
   user: User | null;
@@ -15,6 +23,8 @@ interface AppContextType {
   companySwitched: boolean;
   setCompanySwitched: (switched: boolean) => void;
   refreshCompanies: () => Promise<void>;
+  refreshActiveSalesData: () => Promise<void>;
+  refreshProgress: RefreshProgress;
   signOut: () => Promise<void>;
   isPasswordRecovery: boolean;
   setIsPasswordRecovery: (isRecovery: boolean) => void;
@@ -39,23 +49,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [companySwitched, setCompanySwitched] = useState(false);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+  const [refreshProgress, setRefreshProgress] = useState<RefreshProgress>({
+    stage: '',
+    current: 0,
+    total: 0,
+    isRefreshing: false,
+  });
   
   const loadingTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
-  const companiesLoadedRef = useRef(false); // Track if we've successfully loaded companies at least once
+  const companiesLoadedRef = useRef(false);
 
   const loadCompanies = async (userId: string, isInitialLoad: boolean = false) => {
     try {
       console.log('📦 Loading companies for user:', userId);
       
-      // 🔧 FIX 1: If companies are already loaded and this isn't the initial load, skip
       if (companiesLoadedRef.current && !isInitialLoad) {
         console.log('✓ Companies already loaded, skipping reload');
         return;
       }
       
-      // PARALLEL execution with individual timeouts (reduced to 5 seconds)
       const [ownedResult, linkedResult] = await Promise.allSettled([
-        // Query 1: Direct owned companies (5 second timeout)
         withTimeout(
           (async () => {
             return await supabase
@@ -64,11 +77,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               .eq('user_id', userId)
               .order('created_at', { ascending: false });
           })(),
-          5000, // Reduced from 8000
+          5000,
           'Owned companies query timeout'
         ),
         
-        // Query 2: User_companies relationships (5 second timeout)
         withTimeout(
           (async () => {
             return await supabase
@@ -76,12 +88,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               .select('company_id, role, companies(*)')
               .eq('user_id', userId);
           })(),
-          5000, // Reduced from 8000
+          5000,
           'User companies query timeout'
         )
       ]);
 
-      // Process owned companies result
       let ownedCompanies: Company[] = [];
       if (ownedResult.status === 'fulfilled') {
         const { data, error } = ownedResult.value;
@@ -95,7 +106,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.error('❌ Owned companies query failed:', ownedResult.reason);
       }
 
-      // Process linked companies result
       let linkedCompanies: Company[] = [];
       if (linkedResult.status === 'fulfilled') {
         const { data, error } = linkedResult.value;
@@ -113,7 +123,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.error('❌ User companies query failed:', linkedResult.reason);
       }
 
-      // 🔧 FIX 2: If BOTH queries failed, use cached companies
       if (ownedCompanies.length === 0 && linkedCompanies.length === 0) {
         console.warn('⚠️ Both queries failed or returned no data - checking cache');
         
@@ -125,7 +134,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               console.log('✅ Using cached companies:', parsed.length);
               setCompanies(parsed);
               
-              // Restore current company
               const savedCompanyId = localStorage.getItem('currentCompanyId');
               if (savedCompanyId) {
                 const saved = parsed.find((c: Company) => c.id === savedCompanyId);
@@ -133,11 +141,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   setCurrentCompanyState(saved);
                   console.log('✅ Restored cached company:', saved.name);
                   companiesLoadedRef.current = true;
-                  return; // Exit early - we have cached data
+                  return;
                 }
               }
               
-              // If no saved company but we have companies, use first
               if (parsed.length > 0) {
                 setCurrentCompanyState(parsed[0]);
                 localStorage.setItem('currentCompanyId', parsed[0].id);
@@ -151,7 +158,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
         
-        // If we get here, we have no data and no cache
         console.error('❌ No companies loaded and no cache available');
         setCompanies([]);
         setCurrentCompanyState(null);
@@ -159,7 +165,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Combine and deduplicate companies
       const allCompaniesMap = new Map<string, Company>();
       
       ownedCompanies.forEach(company => allCompaniesMap.set(company.id, company));
@@ -178,16 +183,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       
       setCompanies(companiesData);
-      companiesLoadedRef.current = true; // Mark as successfully loaded
+      companiesLoadedRef.current = true;
 
-      // Cache companies
       try {
         localStorage.setItem('cachedCompanies', JSON.stringify(companiesData));
       } catch (e) {
         console.error('Failed to cache companies:', e);
       }
 
-      // Set current company
       const savedCompanyId = localStorage.getItem('currentCompanyId');
       
       if (savedCompanyId && companiesData.length > 0) {
@@ -212,42 +215,265 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('❌ Failed to load companies:', error);
       
-      // 🔧 FIX 3: Always try to use cache on any error
       const cachedCompanies = localStorage.getItem('cachedCompanies');
       if (cachedCompanies) {
         try {
           const parsed = JSON.parse(cachedCompanies);
-          console.log('✅ Using cached companies after error:', parsed.length);
-          setCompanies(parsed);
-          if (parsed.length > 0) {
+          if (parsed && parsed.length > 0) {
+            console.log('✅ Using cached companies after error:', parsed.length);
+            setCompanies(parsed);
+            
             const savedCompanyId = localStorage.getItem('currentCompanyId');
-            const saved = parsed.find((c: Company) => c.id === savedCompanyId);
-            setCurrentCompanyState(saved || parsed[0]);
-            companiesLoadedRef.current = true;
+            if (savedCompanyId) {
+              const saved = parsed.find((c: Company) => c.id === savedCompanyId);
+              if (saved) {
+                setCurrentCompanyState(saved);
+                companiesLoadedRef.current = true;
+                return;
+              }
+            }
+            
+            if (parsed.length > 0) {
+              setCurrentCompanyState(parsed[0]);
+              localStorage.setItem('currentCompanyId', parsed[0].id);
+              companiesLoadedRef.current = true;
+              return;
+            }
           }
-          return;
         } catch (e) {
-          console.error('❌ Failed to parse cached companies');
+          console.error('❌ Failed to use cached companies:', e);
         }
       }
       
       setCompanies([]);
       setCurrentCompanyState(null);
+      localStorage.removeItem('currentCompanyId');
     }
   };
 
   const setCurrentCompany = (company: Company) => {
     console.log('🔄 Switching to company:', company.name);
     setCurrentCompanyState(company);
-    setCompanySwitched(true);
     localStorage.setItem('currentCompanyId', company.id);
+    setCompanySwitched(true);
   };
 
   const refreshCompanies = async () => {
     if (user) {
       console.log('🔄 Refreshing companies...');
-      companiesLoadedRef.current = false; // Force reload
+      companiesLoadedRef.current = false;
       await loadCompanies(user.id, true);
+    }
+  };
+
+  /**
+   * MOBILE-FIRST: Comprehensive refresh of active sales data
+   * Syncs: Sales, Lots, Photos, Contacts, Documents for active sales
+   * Shows progress and handles offline scenarios
+   */
+  const refreshActiveSalesData = async () => {
+    if (!currentCompany || !user) {
+      console.warn('⚠️ No company selected or user not logged in');
+      return;
+    }
+
+    try {
+      console.log('🔄 Starting comprehensive refresh for active sales...');
+      setRefreshProgress({
+        stage: 'Starting refresh...',
+        current: 0,
+        total: 6,
+        isRefreshing: true,
+      });
+
+      // Check internet connectivity
+      const isOnline = navigator.onLine;
+      if (!isOnline) {
+        console.warn('⚠️ No internet connection - cannot refresh');
+        setRefreshProgress({
+          stage: 'No internet connection',
+          current: 0,
+          total: 0,
+          isRefreshing: false,
+        });
+        
+        // Show offline message for 2 seconds
+        setTimeout(() => {
+          setRefreshProgress({
+            stage: '',
+            current: 0,
+            total: 0,
+            isRefreshing: false,
+          });
+        }, 2000);
+        return;
+      }
+
+      // Subscribe to sync progress
+      const unsubscribe = SyncService.onProgressChange((progress) => {
+        setRefreshProgress({
+          stage: progress.stage,
+          current: progress.current,
+          total: progress.total,
+          isRefreshing: true,
+        });
+      });
+
+      // Step 1: Refresh company data
+      setRefreshProgress({
+        stage: 'Refreshing company data...',
+        current: 1,
+        total: 6,
+        isRefreshing: true,
+      });
+
+      const { data: companyData, error: companyError } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', currentCompany.id)
+        .single();
+
+      if (companyError) {
+        console.error('❌ Error refreshing company:', companyError);
+      } else if (companyData) {
+        // Update current company in state
+        setCurrentCompanyState(companyData as Company);
+        
+        // Update in companies list
+        setCompanies(prev => 
+          prev.map(c => c.id === companyData.id ? companyData as Company : c)
+        );
+        
+        // Update cache
+        const cachedCompanies = localStorage.getItem('cachedCompanies');
+        if (cachedCompanies) {
+          try {
+            const parsed = JSON.parse(cachedCompanies);
+            const updated = parsed.map((c: Company) => 
+              c.id === companyData.id ? companyData : c
+            );
+            localStorage.setItem('cachedCompanies', JSON.stringify(updated));
+          } catch (e) {
+            console.error('Failed to update cached companies:', e);
+          }
+        }
+        
+        console.log('✅ Company data refreshed');
+      }
+
+      // Step 2: Perform initial sync for active sales
+      setRefreshProgress({
+        stage: 'Syncing active sales...',
+        current: 2,
+        total: 6,
+        isRefreshing: true,
+      });
+
+      await SyncService.performInitialSync(currentCompany.id);
+
+      // Step 3: Refresh contacts
+      setRefreshProgress({
+        stage: 'Refreshing contacts...',
+        current: 3,
+        total: 6,
+        isRefreshing: true,
+      });
+
+      const { data: salesData } = await supabase
+        .from('sales')
+        .select('id')
+        .eq('company_id', currentCompany.id)
+        .in('status', ['upcoming', 'active']);
+
+      if (salesData && salesData.length > 0) {
+        const saleIds = salesData.map(s => s.id);
+        
+        // Refresh contacts for active sales
+        const { data: contacts } = await supabase
+          .from('contacts')
+          .select('*')
+          .or(`company_id.eq.${currentCompany.id},sale_id.in.(${saleIds.join(',')})`);
+
+        console.log(`✅ Refreshed ${contacts?.length || 0} contacts`);
+      }
+
+      // Step 4: Refresh documents
+      setRefreshProgress({
+        stage: 'Refreshing documents...',
+        current: 4,
+        total: 6,
+        isRefreshing: true,
+      });
+
+      if (salesData && salesData.length > 0) {
+        const saleIds = salesData.map(s => s.id);
+        
+        // Refresh documents for active sales
+        const { data: documents } = await supabase
+          .from('documents')
+          .select('*')
+          .or(`company_id.eq.${currentCompany.id},sale_id.in.(${saleIds.join(',')})`);
+
+        console.log(`✅ Refreshed ${documents?.length || 0} documents`);
+      }
+
+      // Step 5: Refresh lookup categories
+      setRefreshProgress({
+        stage: 'Refreshing categories...',
+        current: 5,
+        total: 6,
+        isRefreshing: true,
+      });
+
+      const { data: categories } = await supabase
+        .from('lookup_categories')
+        .select('*')
+        .eq('company_id', currentCompany.id);
+
+      console.log(`✅ Refreshed ${categories?.length || 0} categories`);
+
+      // Step 6: Complete
+      setRefreshProgress({
+        stage: 'Refresh complete!',
+        current: 6,
+        total: 6,
+        isRefreshing: true,
+      });
+
+      // Unsubscribe from progress updates
+      unsubscribe();
+
+      console.log('✅ Comprehensive refresh complete');
+
+      // Clear progress after 2 seconds
+      setTimeout(() => {
+        setRefreshProgress({
+          stage: '',
+          current: 0,
+          total: 0,
+          isRefreshing: false,
+        });
+      }, 2000);
+
+    } catch (error) {
+      console.error('❌ Failed to refresh active sales data:', error);
+      
+      setRefreshProgress({
+        stage: 'Refresh failed',
+        current: 0,
+        total: 0,
+        isRefreshing: false,
+      });
+
+      // Clear error message after 2 seconds
+      setTimeout(() => {
+        setRefreshProgress({
+          stage: '',
+          current: 0,
+          total: 0,
+          isRefreshing: false,
+        });
+      }, 2000);
     }
   };
 
@@ -268,7 +494,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.log('✅ Signed out successfully');
     } catch (error) {
       console.error('❌ Failed to sign out:', error);
-      // Force logout even if API call fails
       setUser(null);
       setCurrentCompanyState(null);
       setCompanies([]);
@@ -281,7 +506,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    // 15-second master timeout (reduced from 20)
     loadingTimeoutRef.current = setTimeout(() => {
       console.warn('⏰ Master timeout (15s) - forcing app to load');
       setLoading(false);
@@ -291,7 +515,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         console.log('🔍 Checking session...');
         
-        // Get session WITH timeout (5 seconds)
         const sessionResult = await withTimeout(
           (async () => {
             return await supabase.auth.getSession();
@@ -305,7 +528,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (error) {
           console.error('❌ Session error:', error);
           
-          // Clean up corrupted session data
           const keys = Object.keys(localStorage);
           keys.forEach(key => {
             if (key.startsWith('sb-') || key.includes('supabase')) {
@@ -320,9 +542,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.log('✅ Session found for user:', session.user.email);
           setUser(session.user);
           
-          // Load companies with initial load flag
           console.log('📦 Loading companies...');
-          await loadCompanies(session.user.id, true); // true = initial load
+          await loadCompanies(session.user.id, true);
         } else {
           console.log('ℹ️ No session found');
           setUser(null);
@@ -332,7 +553,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } catch (err) {
         console.error('❌ Failed to check session:', err);
         
-        // Clean up on error
         const keys = Object.keys(localStorage);
         keys.forEach(key => {
           if (key.startsWith('sb-') || key.includes('supabase') || key === 'currentCompanyId') {
@@ -356,7 +576,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     checkAndCleanSession();
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -366,7 +585,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.log('✅ User signed in:', session?.user?.email);
         setUser(session?.user ?? null);
         
-        // 🔧 FIX 4: Only load companies on initial sign in, not on token refresh
         if (session?.user && !companiesLoadedRef.current) {
           console.log('📦 Loading companies (initial sign in)');
           await loadCompanies(session.user.id, true);
@@ -385,7 +603,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } else if (event === 'TOKEN_REFRESHED') {
         console.log('✅ Token refreshed');
         setUser(session?.user ?? null);
-        // 🔧 FIX 5: Don't reload companies on token refresh
         console.log('✓ Token refreshed, keeping existing companies');
       } else if (event === 'USER_UPDATED') {
         console.log('✅ User updated');
@@ -420,7 +637,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Cache companies whenever they change (but don't overwrite if empty due to error)
   useEffect(() => {
     if (companies.length > 0) {
       try {
@@ -442,6 +658,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         companySwitched,
         setCompanySwitched,
         refreshCompanies,
+        refreshActiveSalesData,
+        refreshProgress,
         signOut,
         isPasswordRecovery,
         setIsPasswordRecovery,
