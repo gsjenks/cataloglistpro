@@ -11,13 +11,15 @@ import {
   FileText,
   Users,
   Plus,
-  Upload
+  Upload,
+  FileUp
 } from 'lucide-react';
 import SalesList from './SalesList';
 import ContactsList from './ContactsList';
 import DocumentsList from './DocumentsList';
 import ScrollableTabs from './ScrollableTabs';
 import SaleModal from './SaleModal';
+import ReportsAndTools from './ReportsAndTools';
 
 export default function Dashboard() {
   const { user, currentCompany } = useApp();
@@ -151,6 +153,10 @@ export default function Dashboard() {
             variant: 'primary'
           }
         ]);
+        break;
+      case 'reports':
+        // No footer actions for reports & tools tab
+        clearActions();
         break;
       default:
         clearActions();
@@ -318,6 +324,12 @@ export default function Dashboard() {
       icon: <FileText className="w-4 h-4" />,
       count: filteredDocuments.length,
     },
+    {
+      id: 'reports',
+      label: 'Reports & Tools',
+      icon: <FileUp className="w-4 h-4" />,
+      count: 0,
+    },
   ];
 
   // Define filters for each tab
@@ -356,6 +368,12 @@ export default function Dashboard() {
         { id: 'report', label: 'Reports', value: 'report' },
         { id: 'other', label: 'Other', value: 'other' },
       ],
+    },
+    reports: {
+      searchPlaceholder: '',
+      showSearch: false,
+      showFilter: false,
+      filterOptions: [],
     },
   };
 
@@ -448,6 +466,9 @@ export default function Dashboard() {
                 companyId={currentCompany?.id}
                 onRefresh={loadDashboardData} 
               />
+            )}
+            {activeTab === 'reports' && (
+              <ReportsAndTools />
             )}
           </div>
         </div>

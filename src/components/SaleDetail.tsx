@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, Download, FileSpreadsheet, Archive, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document } from '../types';
@@ -9,6 +9,7 @@ import LotsList from './LotsList';
 import ContactsList from './ContactsList';
 import DocumentsList from './DocumentsList';
 import ExportService from '../services/ExportService';
+import SaleReportsTools from './SaleReportsTools';
 
 export default function SaleDetail() {
   const { saleId } = useParams<{ saleId: string }>();
@@ -659,159 +660,14 @@ export default function SaleDetail() {
         )}
 
         {activeTab === 'reports' && (
-          <div className="space-y-6">
-            {/* Export Message */}
-            {exportMessage && (
-              <div className={`
-                p-4 rounded-lg border flex items-start gap-3
-                ${exportMessage.type === 'success' 
-                  ? 'bg-green-50 border-green-200 text-green-800' 
-                  : exportMessage.type === 'error'
-                  ? 'bg-red-50 border-red-200 text-red-800'
-                  : 'bg-blue-50 border-blue-200 text-blue-800'
-                }
-              `}>
-                {exportMessage.type === 'success' ? (
-                  <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                ) : (
-                  <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                )}
-                <p className="text-sm font-medium">{exportMessage.text}</p>
-              </div>
-            )}
-
-            {/* Export Stats Card */}
-            {exportStats && (
-              <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Export Overview</h3>
-                
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className="text-3xl font-bold text-indigo-600">{exportStats.totalLots}</div>
-                    <div className="text-sm text-gray-600 mt-1">Total Lots</div>
-                  </div>
-                  
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className="text-3xl font-bold text-indigo-600">{exportStats.lotsWithPhotos}</div>
-                    <div className="text-sm text-gray-600 mt-1">With Photos</div>
-                  </div>
-                  
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className="text-3xl font-bold text-indigo-600">{exportStats.totalPhotos}</div>
-                    <div className="text-sm text-gray-600 mt-1">Total Photos</div>
-                  </div>
-                  
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <div className="text-3xl font-bold text-yellow-600">{exportStats.missingData.length}</div>
-                    <div className="text-sm text-gray-600 mt-1">Issues Found</div>
-                  </div>
-                </div>
-
-                {/* Data Issues Warning */}
-                {exportStats.missingData.length > 0 && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <h4 className="text-sm font-semibold text-yellow-800 mb-2">
-                          Data Quality Issues
-                        </h4>
-                        <ul className="text-sm text-yellow-700 space-y-1">
-                          {exportStats.missingData.map((issue, index) => (
-                            <li key={index}>• {issue}</li>
-                          ))}
-                        </ul>
-                        {exportStats.missingData.length >= 10 && (
-                          <p className="text-xs text-yellow-600 mt-2 italic">
-                            Showing first 10 issues. Fix these before exporting.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* LiveAuctioneers Export Card */}
-            <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <FileSpreadsheet className="w-8 h-8 text-indigo-600" />
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">LiveAuctioneers Export</h3>
-                  <p className="text-sm text-gray-600">Export catalog in LiveAuctioneers CSV format</p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {/* Export CSV Only */}
-                <button
-                  onClick={() => handleExportCSV(false)}
-                  disabled={exporting || !exportStats || exportStats.totalLots === 0}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                >
-                  {exporting ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      <span>Exporting...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4" />
-                      <span>Export CSV Only</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Export CSV + Photos */}
-                <button
-                  onClick={() => handleExportCSV(true)}
-                  disabled={exporting || !exportStats || exportStats.totalLots === 0}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
-                >
-                  {exporting ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-indigo-700 border-t-transparent"></div>
-                      <span>Exporting...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Archive className="w-4 h-4" />
-                      <span>Export CSV + Photos (ZIP)</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-                <p className="text-xs text-gray-600">
-                  <strong>CSV Only:</strong> Downloads a LiveAuctioneers-formatted CSV file with lot data.<br/>
-                  <strong>CSV + Photos:</strong> Downloads a ZIP file containing the CSV and all photos renamed to LiveAuctioneers format (lotNumber_sequence.jpg).
-                </p>
-              </div>
-
-              {/* Works Offline Badge */}
-              {!navigator.onLine && (
-                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-xs text-blue-800 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4" />
-                    <span>Working offline - Using locally stored data</span>
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* More Reports Coming Soon */}
-            <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Additional Reports</h3>
-              <div className="text-sm text-gray-600 space-y-2">
-                <p>• Invoice Import & Packing Lists (Coming Soon)</p>
-                <p>• Shipping Labels with QR Codes (Coming Soon)</p>
-                <p>• Unsold Items Report (Coming Soon)</p>
-                <p>• Sales Analytics Dashboard (Coming Soon)</p>
-              </div>
-            </div>
-          </div>
+          <SaleReportsTools
+            saleId={saleId!}
+            saleName={sale?.name || 'Sale'}
+            exporting={exporting}
+            exportMessage={exportMessage}
+            exportStats={exportStats}
+            onExportCSV={handleExportCSV}
+          />
         )}
       </div>
     </div>
