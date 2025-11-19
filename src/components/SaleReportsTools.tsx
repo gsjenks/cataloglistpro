@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Download, Upload, ChevronRight, X, FileSpreadsheet, Archive, AlertCircle } from 'lucide-react';
+import { Download, Upload, ChevronRight, X, FileSpreadsheet, Archive, AlertCircle, FileText } from 'lucide-react';
 import LiveAuctioneersUpload from './LiveAuctioneersUpload';
+import InvoiceImport from './InvoiceImport';
 
-type ToolView = 'menu' | 'la-import' | 'la-export';
+type ToolView = 'menu' | 'la-import' | 'la-export' | 'invoice-import';
 
 interface SaleReportsToolsProps {
   saleId: string;
@@ -43,6 +44,13 @@ export default function SaleReportsTools({
       description: 'Upload and validate CSV catalog and images for LiveAuctioneers',
       icon: <Upload className="w-6 h-6 text-indigo-600" />,
       view: 'la-import' as ToolView,
+    },
+    {
+      id: 'invoice-import',
+      title: 'Invoice Import & Labels',
+      description: 'Parse LiveAuctioneers invoices and generate packing lists and shipping labels',
+      icon: <FileText className="w-6 h-6 text-indigo-600" />,
+      view: 'invoice-import' as ToolView,
     },
   ];
 
@@ -199,7 +207,6 @@ export default function SaleReportsTools({
         <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Additional Reports</h3>
           <div className="text-sm text-gray-600 space-y-2">
-            <p>• Invoice Import & Packing Lists (Coming Soon)</p>
             <p>• Shipping Labels with QR Codes (Coming Soon)</p>
             <p>• Unsold Items Report (Coming Soon)</p>
             <p>• Sales Analytics Dashboard (Coming Soon)</p>
@@ -222,6 +229,23 @@ export default function SaleReportsTools({
           Back to Tools
         </button>
         <LiveAuctioneersUpload saleId={_saleId} saleName={saleName} />
+      </div>
+    );
+  }
+
+  // Render Invoice Import View
+  if (activeView === 'invoice-import') {
+    return (
+      <div>
+        {/* Back button */}
+        <button
+          onClick={() => setActiveView('menu')}
+          className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-4"
+        >
+          <X className="w-4 h-4" />
+          Back to Tools
+        </button>
+        <InvoiceImport saleId={_saleId} saleName={saleName} />
       </div>
     );
   }
