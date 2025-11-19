@@ -55,6 +55,7 @@ export default function LotDetail() {
     starting_bid: undefined,
     reserve_price: undefined,
     buy_now_price: undefined,
+    sold_price: undefined,
     height: undefined,
     width: undefined,
     depth: undefined,
@@ -954,7 +955,7 @@ export default function LotDetail() {
                 />
               </div>
 
-              <div className="md:col-span-2">
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Buy Now Price ($)
                 </label>
@@ -964,6 +965,19 @@ export default function LotDetail() {
                   onChange={(e) => setLot({ ...lot, buy_now_price: parseFloat(e.target.value) || undefined })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
                   placeholder="250"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Sold Price ($)
+                </label>
+                <input
+                  type="number"
+                  value={formatPrice(lot.sold_price)}
+                  onChange={(e) => setLot({ ...lot, sold_price: parseFloat(e.target.value) || undefined })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  placeholder="Final hammer price"
                 />
               </div>
             </div>

@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { Upload, FileText, Download, AlertCircle, CheckCircle2, Package } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
+import { supabase } from '../lib/supabase';
 
 // Use LOCAL worker file
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
@@ -25,6 +26,7 @@ interface Invoice {
   items: Array<{
     lot: string;
     description: string;
+    hammer_price?: number;
   }>;
 }
 
@@ -32,15 +34,17 @@ interface ParseStats {
   invoicesProcessed: number;
   packingListRows: number;
   shippingLabelRows: number;
+  pricesUpdated?: number;
 }
 
-export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImportProps) {
+export default function InvoiceImport({ saleId, saleName }: InvoiceImportProps) {
   const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<ParseStats | null>(null);
   const [packingListCsv, setPackingListCsv] = useState<string | null>(null);
   const [shippingLabelsCsv, setShippingLabelsCsv] = useState<string | null>(null);
+  const [updatePrices, setUpdatePrices] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const formatPhone = (phone: string): string => {
@@ -186,13 +190,15 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
     if (detailsMatch) {
       const detailsText = detailsMatch[1];
       
-      // Look for lot pattern: 4 digits starting with 0, dash, description
-      const lotPattern = /(0\d{3})\s*-\s*([^$]+?)(?=\s*\$\s*[\d,.]+\s*\$|\s*0\d{3}\s*-|Estimated|Payment|Sales|Total|Balance|$)/gi;
+      // Look for lot pattern: 4 digits starting with 0, dash, description, then prices
+      // Pattern: 0159 - Description $ 16.00 $ 3.20 $ 19.20
+      const lotPattern = /(0\d{3})\s*-\s*([^$]+?)(?:\s*\$\s*([\d,.]+))?(?=\s*\$|\s*0\d{3}\s*-|Estimated|Payment|Sales|Total|Balance|$)/gi;
       
       let match;
       while ((match = lotPattern.exec(detailsText)) !== null) {
         const lotNum = match[1];
         let description = match[2];
+        const hammerPrice = match[3] ? parseFloat(match[3].replace(/,/g, '')) : undefined;
         
         // Clean up excessive spaces
         description = description.replace(/\s+/g, ' ').trim();
@@ -215,7 +221,8 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
         if (description) {
           invoice.items!.push({
             lot: lotNum,
-            description: description
+            description: description,
+            hammer_price: hammerPrice
           });
         }
       }
@@ -272,9 +279,55 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
     }
   };
 
+  const updateLotPrices = async (invoices: Invoice[]): Promise<number> => {
+    let updatedCount = 0;
+    
+    for (const invoice of invoices) {
+      for (const item of invoice.items) {
+        if (item.hammer_price !== undefined) {
+          try {
+            // Find the lot by lot_number in the current sale
+            const { data: lots, error: findError } = await supabase
+              .from('lots')
+              .select('id')
+              .eq('sale_id', saleId)
+              .eq('lot_number', item.lot)
+              .limit(1);
+            
+            if (findError) {
+              console.error(`Error finding lot ${item.lot}:`, findError);
+              continue;
+            }
+            
+            if (lots && lots.length > 0) {
+              // Update the sold_price
+              const { error: updateError } = await supabase
+                .from('lots')
+                .update({ sold_price: item.hammer_price })
+                .eq('id', lots[0].id);
+              
+              if (updateError) {
+                console.error(`Error updating lot ${item.lot}:`, updateError);
+              } else {
+                updatedCount++;
+                console.log(`✅ Updated lot ${item.lot} with price $${item.hammer_price}`);
+              }
+            } else {
+              console.warn(`⚠️ Lot ${item.lot} not found in sale`);
+            }
+          } catch (err) {
+            console.error(`Error processing lot ${item.lot}:`, err);
+          }
+        }
+      }
+    }
+    
+    return updatedCount;
+  };
+
   const generatePackingListCsv = (invoices: Invoice[]): string => {
     const rows: string[][] = [];
-    rows.push(['Invoice', 'Bidder', 'Phone', 'Email', 'Lot', 'Description', 'Shipping Method', 'Payment Status']);
+    rows.push(['Invoice', 'Bidder', 'Phone', 'Email', 'Lot', 'Description', 'Hammer Price', 'Shipping Method', 'Payment Status']);
     
     for (const invoice of invoices) {
       for (const item of invoice.items) {
@@ -285,6 +338,7 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
           invoice.email,
           item.lot,
           `"${item.description.replace(/"/g, '""')}"`,
+          item.hammer_price !== undefined ? `$${item.hammer_price.toFixed(2)}` : '',
           invoice.shipping_method,
           invoice.payment_status
         ]);
@@ -349,6 +403,14 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
         throw new Error('No invoices found in PDF');
       }
       
+      // Update prices in database if checkbox is checked
+      let pricesUpdated = 0;
+      if (updatePrices) {
+        console.log('Updating hammer prices in database...');
+        pricesUpdated = await updateLotPrices(invoices);
+        console.log(`Updated ${pricesUpdated} lot prices`);
+      }
+      
       const packingList = generatePackingListCsv(invoices);
       const shippingLabels = generateShippingLabelsCsv(invoices);
       
@@ -358,7 +420,8 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
       setStats({
         invoicesProcessed: invoices.length,
         packingListRows: totalRows,
-        shippingLabelRows: totalRows
+        shippingLabelRows: totalRows,
+        pricesUpdated: updatePrices ? pricesUpdated : undefined
       });
       
       setPackingListCsv(packingList);
@@ -412,6 +475,7 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
           <ol className="text-xs text-blue-800 space-y-1 list-decimal list-inside">
             <li>Download your invoice PDF from LiveAuctioneers Partners portal</li>
             <li>Upload the PDF file below</li>
+            <li>Optionally check "Add Hammer Price to Database" to update lot prices</li>
             <li>Click "Parse Invoices" to extract data</li>
             <li>Download the generated packing list and shipping labels CSV files</li>
           </ol>
@@ -450,6 +514,24 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
               Selected: {file.name} ({(file.size / 1024).toFixed(1)} KB)
             </p>
           )}
+        </div>
+
+        {/* Update Prices Checkbox */}
+        <div className="mb-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={updatePrices}
+              onChange={(e) => setUpdatePrices(e.target.checked)}
+              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+            />
+            <span className="text-sm font-medium text-gray-700">
+              Add Hammer Price to Database
+            </span>
+          </label>
+          <p className="text-xs text-gray-500 ml-6 mt-1">
+            Updates the sold_price field for each lot in the database with the hammer price from the invoice
+          </p>
         </div>
 
         {/* Parse Button */}
@@ -509,6 +591,18 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
             </div>
           </div>
 
+          {/* Price Update Stats */}
+          {stats.pricesUpdated !== undefined && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-green-600" />
+                <p className="text-sm font-medium text-green-900">
+                  Updated {stats.pricesUpdated} lot prices in database
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Download Buttons */}
           <div className="space-y-3">
             <button
@@ -516,7 +610,7 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
             >
               <Download className="w-4 h-4" />
-              <span>Download Packing List CSV</span>
+              <span>Download Packing List CSV (with Hammer Prices)</span>
             </button>
 
             <button
@@ -531,8 +625,8 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
           {/* File Info */}
           <div className="mt-4 p-3 bg-gray-50 rounded-lg">
             <p className="text-xs text-gray-600">
-              <strong>Packing List:</strong> Contains invoice#, bidder, contact info, lot#, description, shipping method, and payment status.<br/>
-              <strong>Shipping Labels:</strong> Same as packing list plus full shipping address (street, city, state, ZIP, country).
+              <strong>Packing List:</strong> Contains invoice#, bidder, contact info, lot#, description, hammer price, shipping method, and payment status.<br/>
+              <strong>Shipping Labels:</strong> Same as packing list (without hammer price) plus full shipping address (street, city, state, ZIP, country).
             </p>
           </div>
         </div>
@@ -546,7 +640,7 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
             <Package className="w-4 h-4 text-indigo-600 flex-shrink-0 mt-0.5" />
             <p>
               <strong>Packing List:</strong> Use this to pack and organize items for shipment. 
-              Each row contains one item with buyer information and lot details.
+              Each row contains one item with buyer information, lot details, and hammer price.
             </p>
           </div>
           <div className="flex items-start gap-2">
@@ -559,8 +653,8 @@ export default function InvoiceImport({ saleId: _saleId, saleName }: InvoiceImpo
           <div className="flex items-start gap-2">
             <CheckCircle2 className="w-4 h-4 text-indigo-600 flex-shrink-0 mt-0.5" />
             <p>
-              <strong>Format:</strong> Both files are in standard CSV format that can be opened 
-              in Excel, Google Sheets, or imported into shipping software.
+              <strong>Database Update:</strong> When enabled, automatically updates the sold_price 
+              field for each lot with the hammer price from the invoice.
             </p>
           </div>
         </div>

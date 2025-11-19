@@ -174,6 +174,16 @@ export default function LotsList({ lots, saleId, onRefresh }: LotsListProps) {
                   </span>
                 </div>
 
+                {/* Sold Price - shows if set */}
+                {lot.sold_price && (
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-xs text-gray-500 w-20 flex-shrink-0">Sold Price:</span>
+                    <span className="text-sm font-semibold text-green-600">
+                      {formatCurrency(lot.sold_price)}
+                    </span>
+                  </div>
+                )}
+
                 {/* Dimensions & Weight - compressed */}
                 <div className="flex items-baseline gap-2">
                   <span className="text-xs text-gray-500 w-20 flex-shrink-0">Size:</span>

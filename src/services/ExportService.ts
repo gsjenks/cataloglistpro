@@ -18,6 +18,7 @@ interface Lot {
   starting_bid?: number;
   reserve_price?: number;
   buy_now_price?: number;
+  sold_price?: number;
   height?: number;
   width?: number;
   depth?: number;
