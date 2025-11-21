@@ -18,6 +18,7 @@ import {
   getLAMaterials 
 } from '../services/LiveAuctioneersData';
 import LAAutocomplete from '../components/LAAutocomplete';
+import AIImageProcessor from '../components/AIImageProcessor';
 import type { Lot, Photo } from '../types';
 import { 
   ArrowLeft, 
@@ -30,7 +31,8 @@ import {
   Image as ImageIcon,
   X,
   RotateCcw,
-  Check
+  Check,
+  Edit
 } from 'lucide-react';
 
 // Simple UUID generator
@@ -48,6 +50,8 @@ export default function LotDetail() {
   const { setActions, clearActions } = useFooter();
   const [isOnline, setIsOnline] = useState(ConnectivityService.getConnectionStatus());
   const [showCameraModal, setShowCameraModal] = useState(false);
+  const [showAIProcessor, setShowAIProcessor] = useState(false);
+  const [showPhotoManager, setShowPhotoManager] = useState(false);
   const [lot, setLot] = useState<Partial<Lot>>({
     name: '',
     description: '',
@@ -127,22 +131,6 @@ export default function LotDetail() {
         disabled: !lot.name || saving,
         loading: saving
       },
-      ...(!isNewLot ? [{
-        id: 'camera',
-        label: 'Camera',
-        icon: <Camera className="w-4 h-4" />,
-        onClick: handleTakePhoto,
-        variant: 'secondary' as const,
-        disabled: false
-      }] : []),
-      ...(!isNewLot ? [{
-        id: 'upload',
-        label: 'Choose Files',
-        icon: <Upload className="w-4 h-4" />,
-        onClick: () => document.getElementById('photo-upload')?.click(),
-        variant: 'secondary' as const,
-        disabled: false
-      }] : []),
       {
         id: 'back',
         label: 'Back',
@@ -150,14 +138,6 @@ export default function LotDetail() {
         onClick: () => navigate(`/sales/${saleId}`),
         variant: 'secondary' as const
       },
-      ...(photos.length > 0 && isOnline ? [{
-        id: 'ai-enrich',
-        label: 'Magic',
-        icon: <Sparkles className="w-4 h-4" />,
-        onClick: handleAIEnrich,
-        variant: 'ai' as const,
-        disabled: false
-      }] : []),
       ...(!isNewLot ? [{
         id: 'delete',
         label: 'Delete',
@@ -169,7 +149,7 @@ export default function LotDetail() {
     ]);
 
     return () => clearActions();
-  }, [lot, photos, isNewLot, saving, saleId, isOnline]);
+  }, [lot, isNewLot, saving, saleId]);
 
   const initializeNewLot = async () => {
     try {
@@ -481,116 +461,12 @@ export default function LotDetail() {
     }
   };
 
-  const handleAIEnrich = async () => {
+  const handleAIEnrich = () => {
     if (photos.length === 0) {
-      alert('Add at least one photo to use AI enrichment');
+      alert('Add at least one photo to use AI processing');
       return;
     }
-
-    if (!isOnline) {
-      alert('AI enrichment requires an internet connection');
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      const photosToAnalyze = photos.slice(0, 3);
-      const photoBlobs: Blob[] = [];
-
-      for (const photo of photosToAnalyze) {
-        const blob = await offlineStorage.getPhotoBlob(photo.id);
-        if (blob) {
-          photoBlobs.push(blob);
-        }
-      }
-
-      if (photoBlobs.length === 0) {
-        alert('No photos available for analysis');
-        return;
-      }
-
-      // Convert blobs to base64 for Gemini API
-      const base64Photos = await Promise.all(
-        photoBlobs.map(blob => new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64 = (reader.result as string).split(',')[1];
-            resolve(base64);
-          };
-          reader.readAsDataURL(blob);
-        }))
-      );
-
-      // Call Gemini API
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + import.meta.env.VITE_GEMINI_API_KEY, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: `Analyze these ${photoBlobs.length} photos of an auction item and provide detailed information in JSON format:
-
-{
-  "title": "Catalog title (100 chars max)",
-  "description": "Detailed description including condition (200+ words)",
-  "category": "Item category",
-  "style": "Style/period",
-  "origin": "Country/region of origin",
-  "creator": "Maker/artist (if identifiable)",
-  "materials": "Materials used",
-  "dimensions_estimate": "Estimated dimensions (H x W x D)",
-  "estimate_low": Estimated low value in USD,
-  "estimate_high": Estimated high value in USD,
-  "starting_bid": Suggested starting bid in USD,
-  "condition": "Condition report"
-}` },
-              ...base64Photos.map(data => ({
-                inline_data: { mime_type: 'image/jpeg', data }
-              }))
-            ]
-          }]
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('AI analysis failed');
-      }
-
-      const result = await response.json();
-      const text = result.candidates[0].content.parts[0].text;
-      
-      // Extract JSON from response
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('Failed to parse AI response');
-      }
-
-      const aiData = JSON.parse(jsonMatch[0]);
-
-      // Update lot with AI data
-      setLot(prev => ({
-        ...prev,
-        name: aiData.title || prev.name,
-        description: aiData.description || prev.description,
-        category: aiData.category || prev.category,
-        style: aiData.style || prev.style,
-        origin: aiData.origin || prev.origin,
-        creator: aiData.creator || prev.creator,
-        materials: aiData.materials || prev.materials,
-        condition: aiData.condition || prev.condition,
-        estimate_low: aiData.estimate_low || prev.estimate_low,
-        estimate_high: aiData.estimate_high || prev.estimate_high,
-        starting_bid: aiData.starting_bid || prev.starting_bid,
-      }));
-
-      alert('âœ¨ AI enrichment complete! Review and save changes.');
-    } catch (error) {
-      console.error('AI enrichment error:', error);
-      alert('Failed to enrich data with AI');
-    } finally {
-      setSaving(false);
-    }
+    setShowAIProcessor(true);
   };
 
   const handleSave = async () => {
@@ -741,7 +617,16 @@ export default function LotDetail() {
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Photos</h2>
-            <span className="text-sm text-gray-500">{photos.length} photo{photos.length !== 1 ? 's' : ''}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">{photos.length} photo{photos.length !== 1 ? 's' : ''}</span>
+              <button
+                onClick={() => setShowPhotoManager(true)}
+                className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-all"
+                title="Manage photos"
+              >
+                <Edit className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {photos.length === 0 ? (
@@ -1097,6 +982,193 @@ export default function LotDetail() {
           onClose={() => setShowCameraModal(false)}
         />
       )}
+
+      {/* AI Image Processor Modal */}
+      {showAIProcessor && (
+        <AIImageProcessor
+          photos={photos}
+          photoUrls={photoUrls}
+          onClose={() => setShowAIProcessor(false)}
+          onProcessComplete={() => {
+            loadPhotos();
+          }}
+        />
+      )}
+
+      {/* Photo Management Modal */}
+      {showPhotoManager && (
+        <PhotoManagementModal
+          photos={photos}
+          photoUrls={photoUrls}
+          isOnline={isOnline}
+          onClose={() => setShowPhotoManager(false)}
+          onTakePhoto={handleTakePhoto}
+          onUpload={() => document.getElementById('photo-upload')?.click()}
+          onDeletePhoto={handleDeletePhoto}
+          onSetPrimary={handleSetPrimary}
+          onAIEnrich={handleAIEnrich}
+        />
+      )}
+    </div>
+  );
+}
+
+// Photo Management Modal Component
+function PhotoManagementModal({
+  photos,
+  photoUrls,
+  isOnline,
+  onClose,
+  onTakePhoto,
+  onUpload,
+  onDeletePhoto,
+  onSetPrimary,
+  onAIEnrich
+}: {
+  photos: Photo[];
+  photoUrls: Record<string, string>;
+  isOnline: boolean;
+  onClose: () => void;
+  onTakePhoto: () => void;
+  onUpload: () => void;
+  onDeletePhoto: (photoId: string) => void;
+  onSetPrimary: (photoId: string) => void;
+  onAIEnrich: () => void;
+}) {
+  // Log for debugging
+  useEffect(() => {
+    console.log('PhotoManagementModal - Photos:', photos.length);
+    console.log('PhotoManagementModal - URLs available:', Object.keys(photoUrls).length);
+  }, [photos, photoUrls]);
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 bg-white border-b border-gray-200">
+        <h2 className="text-lg font-semibold text-gray-900">
+          Manage Photos ({photos.length})
+        </h2>
+        <button
+          onClick={onClose}
+          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Photo Grid */}
+      <div className="flex-1 overflow-y-auto bg-gray-100 p-4">
+        {photos.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <ImageIcon className="w-16 h-16 text-gray-400 mb-4" />
+            <p className="text-lg mb-2">No photos yet</p>
+            <p className="text-sm text-gray-400">
+              Use the buttons below to add photos
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {photos.map(photo => {
+              const imageUrl = photoUrls[photo.id];
+              const hasValidUrl = imageUrl && (imageUrl.startsWith('blob:') || imageUrl.startsWith('http'));
+              
+              return (
+                <div key={photo.id} className="group relative bg-white rounded-lg overflow-hidden shadow-sm">
+                  {/* Image Container */}
+                  <div className="relative w-full pb-[100%] bg-gray-200 overflow-hidden">
+                    {hasValidUrl ? (
+                      <img
+                        src={imageUrl}
+                        alt={photo.file_name}
+                        className="absolute top-0 left-0 w-full h-full object-cover"
+                        onError={(e) => {
+                          console.warn('Image failed to load:', photo.id);
+                          // Hide broken image
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <ImageIcon className="w-8 h-8 text-gray-400 mb-2" />
+                        <p className="text-xs text-gray-400">Loading...</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Primary Badge */}
+                  {photo.is_primary && (
+                    <div className="absolute top-2 left-2 bg-indigo-600 text-white px-2 py-1 rounded text-xs font-medium shadow z-10">
+                      Primary
+                    </div>
+                  )}
+
+                  {/* Always Visible Controls */}
+                  <div className="absolute top-2 right-2 flex gap-1 z-10">
+                    {!photo.is_primary && (
+                      <button
+                        onClick={() => onSetPrimary(photo.id)}
+                        className="p-2 bg-white rounded-full shadow-lg hover:bg-yellow-50 transition-all"
+                        title="Set as primary"
+                      >
+                        <Star className="w-4 h-4 text-yellow-400" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onDeletePhoto(photo.id)}
+                      className="p-2 bg-white rounded-full shadow-lg hover:bg-red-50 transition-all"
+                      title="Delete photo"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-600" />
+                    </button>
+                  </div>
+
+                  {/* Filename */}
+                  <div className="p-2 bg-white">
+                    <p className="text-xs text-gray-600 truncate" title={photo.file_name}>
+                      {photo.file_name}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Footer with Action Buttons */}
+      <div className="flex gap-3 p-4 bg-white border-t border-gray-200">
+        <button
+          onClick={onTakePhoto}
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-medium"
+        >
+          <Camera className="w-5 h-5" />
+          Take Photo
+        </button>
+        <button
+          onClick={onUpload}
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all font-medium"
+        >
+          <Upload className="w-5 h-5" />
+          Upload Files
+        </button>
+        {photos.length > 0 && isOnline && (
+          <button
+            onClick={onAIEnrich}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all font-medium shadow-sm"
+          >
+            <Sparkles className="w-5 h-5" />
+            Magic
+          </button>
+        )}
+        <div className="flex-1"></div>
+        <button
+          onClick={onClose}
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all font-medium"
+        >
+          <ArrowLeft className="w-5 h-5" />
+          Back
+        </button>
+      </div>
     </div>
   );
 }
@@ -1184,7 +1256,7 @@ function WebcamModal({ onCapture, onClose }: { onCapture: (blob: Blob) => void; 
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-90 z-[60] flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
