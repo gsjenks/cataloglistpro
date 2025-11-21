@@ -10,6 +10,14 @@ import ConnectivityService from '../services/ConnectivityService';
 import { getNextLotNumber, isTemporaryNumber } from '../services/LotNumberService';
 import offlineStorage from '../services/Offlinestorage';
 import CameraService from '../services/CameraService';
+import { 
+  getLACategories, 
+  getLAOrigins, 
+  getLAStyles, 
+  getLACreators, 
+  getLAMaterials 
+} from '../services/LiveAuctioneersData';
+import LAAutocomplete from '../components/LAAutocomplete';
 import type { Lot, Photo } from '../types';
 import { 
   ArrowLeft, 
@@ -576,7 +584,7 @@ export default function LotDetail() {
         starting_bid: aiData.starting_bid || prev.starting_bid,
       }));
 
-      alert('✨ AI enrichment complete! Review and save changes.');
+      alert('âœ¨ AI enrichment complete! Review and save changes.');
     } catch (error) {
       console.error('AI enrichment error:', error);
       alert('Failed to enrich data with AI');
@@ -636,7 +644,7 @@ export default function LotDetail() {
           if (error) throw error;
         }
 
-        alert('✅ Item saved successfully');
+        alert('âœ… Item saved successfully');
       }
     } catch (error) {
       console.error('Error saving lot:', error);
@@ -870,31 +878,21 @@ export default function LotDetail() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Category
-                </label>
-                <input
-                  type="text"
-                  value={lot.category || ''}
-                  onChange={(e) => setLot({ ...lot, category: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  placeholder="e.g., Furniture, Art, Jewelry"
-                />
-              </div>
+              <LAAutocomplete
+                label="Category"
+                value={lot.category || ''}
+                onChange={(value) => setLot({ ...lot, category: value })}
+                items={getLACategories()}
+                placeholder="Search categories..."
+              />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Style/Period
-                </label>
-                <input
-                  type="text"
-                  value={lot.style || ''}
-                  onChange={(e) => setLot({ ...lot, style: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  placeholder="e.g., Victorian, Modern, Art Deco"
-                />
-              </div>
+              <LAAutocomplete
+                label="Style/Period"
+                value={lot.style || ''}
+                onChange={(value) => setLot({ ...lot, style: value })}
+                items={getLAStyles()}
+                placeholder="Search styles..."
+              />
             </div>
           </div>
 
@@ -1051,44 +1049,29 @@ export default function LotDetail() {
             <h2 className="text-lg font-semibold text-gray-900">Provenance</h2>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Origin
-                </label>
-                <input
-                  type="text"
-                  value={lot.origin || ''}
-                  onChange={(e) => setLot({ ...lot, origin: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  placeholder="e.g., France, England, USA"
-                />
-              </div>
+              <LAAutocomplete
+                label="Origin"
+                value={lot.origin || ''}
+                onChange={(value) => setLot({ ...lot, origin: value })}
+                items={getLAOrigins()}
+                placeholder="Search origins..."
+              />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Creator/Maker
-                </label>
-                <input
-                  type="text"
-                  value={lot.creator || ''}
-                  onChange={(e) => setLot({ ...lot, creator: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  placeholder="e.g., John Smith, Unknown"
-                />
-              </div>
+              <LAAutocomplete
+                label="Creator/Maker"
+                value={lot.creator || ''}
+                onChange={(value) => setLot({ ...lot, creator: value })}
+                items={getLACreators()}
+                placeholder="Search creators..."
+              />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Materials
-                </label>
-                <input
-                  type="text"
-                  value={lot.materials || ''}
-                  onChange={(e) => setLot({ ...lot, materials: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                  placeholder="e.g., Walnut, Oak, Bronze"
-                />
-              </div>
+              <LAAutocomplete
+                label="Materials"
+                value={lot.materials || ''}
+                onChange={(value) => setLot({ ...lot, materials: value })}
+                items={getLAMaterials()}
+                placeholder="Search materials..."
+              />
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
