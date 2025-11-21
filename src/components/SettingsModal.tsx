@@ -2,8 +2,9 @@
 // MOBILE-FIRST: Settings modal with comprehensive data refresh feature and progress indicator
 
 import { useState } from 'react';
-import { X, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { X, RefreshCw, Wifi, WifiOff, Edit2, Upload, Building2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { supabase } from '../lib/supabase';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -12,10 +13,30 @@ interface SettingsModalProps {
 
 type TabType = 'companies' | 'team' | 'profile';
 
+interface CompanyFormData {
+  name: string;
+  address: string;
+  phone: string;
+  currency: string;
+  units: string;
+  logo_url: string;
+}
+
 function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { refreshActiveSalesData, refreshProgress, currentCompany } = useApp();
+  const { refreshActiveSalesData, refreshProgress, currentCompany, refreshCompanies } = useApp();
   const [activeTab, setActiveTab] = useState<TabType>('companies');
   const [isOnline] = useState(navigator.onLine);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [formData, setFormData] = useState<CompanyFormData>({
+    name: '',
+    address: '',
+    phone: '',
+    currency: 'USD',
+    units: 'imperial',
+    logo_url: ''
+  });
 
   if (!isOpen) return null;
 
@@ -31,6 +52,116 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const getProgressPercentage = () => {
     if (refreshProgress.total === 0) return 0;
     return Math.round((refreshProgress.current / refreshProgress.total) * 100);
+  };
+
+  const handleEditClick = () => {
+    if (currentCompany) {
+      setFormData({
+        name: currentCompany.name || '',
+        address: currentCompany.address || '',
+        phone: currentCompany.phone || '',
+        currency: currentCompany.currency || 'USD',
+        units: currentCompany.units || 'imperial',
+        logo_url: currentCompany.logo_url || ''
+      });
+      setIsEditing(true);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setFormData({
+      name: '',
+      address: '',
+      phone: '',
+      currency: 'USD',
+      units: 'imperial',
+      logo_url: ''
+    });
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentCompany) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file');
+      return;
+    }
+
+    // Validate file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      alert('File size must be less than 2MB');
+      return;
+    }
+
+    setIsUploadingLogo(true);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${currentCompany.id}-${Date.now()}.${fileExt}`;
+      const filePath = `company-logos/${fileName}`;
+
+      // Upload to Supabase storage
+      const { error: uploadError } = await supabase.storage
+        .from('company-assets')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('company-assets')
+        .getPublicUrl(filePath);
+
+      setFormData({ ...formData, logo_url: urlData.publicUrl });
+      alert('Logo uploaded successfully!');
+    } catch (error: any) {
+      console.error('Error uploading logo:', error);
+      alert('Failed to upload logo: ' + error.message);
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const handleSaveCompany = async () => {
+    if (!currentCompany) return;
+
+    if (!formData.name.trim()) {
+      alert('Company name is required');
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const { error } = await supabase
+        .from('companies')
+        .update({
+          name: formData.name.trim(),
+          address: formData.address.trim(),
+          phone: formData.phone.trim(),
+          currency: formData.currency,
+          units: formData.units,
+          logo_url: formData.logo_url,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', currentCompany.id);
+
+      if (error) throw error;
+
+      // Refresh companies to get updated data
+      await refreshCompanies();
+      
+      setIsEditing(false);
+      alert('Company updated successfully!');
+    } catch (error: any) {
+      console.error('Error updating company:', error);
+      alert('Failed to update company: ' + error.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -199,22 +330,188 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </button>
               </div>
               
-              {currentCompany && (
+              {currentCompany && !isEditing && (
                 <div className="border border-indigo-600 rounded-lg p-4 bg-indigo-50">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-semibold text-gray-900">{currentCompany.name}</h4>
-                    <span className="px-2 py-1 text-xs font-medium text-indigo-700 bg-indigo-100 rounded">
-                      Active
-                    </span>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-start gap-3 flex-1">
+                      {/* Logo */}
+                      <div className="flex-shrink-0">
+                        {formData.logo_url || currentCompany.logo_url ? (
+                          <img 
+                            src={formData.logo_url || currentCompany.logo_url} 
+                            alt="Company logo"
+                            className="w-16 h-16 rounded-lg object-cover border border-indigo-200"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 rounded-lg bg-indigo-100 flex items-center justify-center">
+                            <Building2 className="w-8 h-8 text-indigo-600" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Company Info */}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-gray-900 mb-1">{currentCompany.name}</h4>
+                        {currentCompany.address && (
+                          <p className="text-sm text-gray-600 mb-2">{currentCompany.address}</p>
+                        )}
+                        <div className="flex gap-4 text-sm text-gray-600">
+                          <span>Currency: {currentCompany.currency || 'USD'}</span>
+                          <span>Units: {currentCompany.units || 'imperial'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 text-xs font-medium text-indigo-700 bg-indigo-100 rounded">
+                        Active
+                      </span>
+                      <button
+                        onClick={handleEditClick}
+                        className="p-2 text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors"
+                        title="Edit company"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
+                </div>
+              )}
+
+              {/* Edit Form */}
+              {currentCompany && isEditing && (
+                <div className="border border-indigo-600 rounded-lg p-6 bg-white">
+                  <h4 className="font-semibold text-gray-900 mb-4">Edit Company</h4>
                   
-                  {currentCompany.address && (
-                    <p className="text-sm text-gray-600 mb-2">{currentCompany.address}</p>
-                  )}
-                  
-                  <div className="flex gap-4 text-sm text-gray-600">
-                    <span>Currency: {currentCompany.currency || 'USD'}</span>
-                    <span>Units: {currentCompany.units || 'imperial'}</span>
+                  <div className="space-y-4">
+                    {/* Logo Upload */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Company Logo
+                      </label>
+                      <div className="flex items-center gap-4">
+                        {formData.logo_url ? (
+                          <img 
+                            src={formData.logo_url} 
+                            alt="Company logo"
+                            className="w-20 h-20 rounded-lg object-cover border border-gray-300"
+                          />
+                        ) : (
+                          <div className="w-20 h-20 rounded-lg bg-gray-100 flex items-center justify-center border border-gray-300">
+                            <Building2 className="w-10 h-10 text-gray-400" />
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          <label className="cursor-pointer">
+                            <div className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-md hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors">
+                              <Upload className="w-4 h-4" />
+                              {isUploadingLogo ? 'Uploading...' : 'Upload Logo'}
+                            </div>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleLogoUpload}
+                              disabled={isUploadingLogo}
+                              className="hidden"
+                            />
+                          </label>
+                          <p className="text-xs text-gray-500 mt-1">PNG, JPG up to 2MB</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Company Name */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Company Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Enter company name"
+                      />
+                    </div>
+
+                    {/* Address */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Address
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.address}
+                        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Enter company address"
+                      />
+                    </div>
+
+                    {/* Phone */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Phone
+                      </label>
+                      <input
+                        type="tel"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="Enter company phone"
+                      />
+                    </div>
+
+                    {/* Currency */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Currency
+                      </label>
+                      <select
+                        value={formData.currency}
+                        onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="USD">USD ($)</option>
+                        <option value="EUR">EUR (€)</option>
+                        <option value="GBP">GBP (£)</option>
+                        <option value="CAD">CAD ($)</option>
+                        <option value="AUD">AUD ($)</option>
+                      </select>
+                    </div>
+
+                    {/* Units */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Measurement Units
+                      </label>
+                      <select
+                        value={formData.units}
+                        onChange={(e) => setFormData({ ...formData, units: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="imperial">Imperial (inches, pounds)</option>
+                        <option value="metric">Metric (cm, kg)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-3 mt-6">
+                    <button
+                      onClick={handleSaveCompany}
+                      disabled={isSaving}
+                      className="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                      {isSaving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      disabled={isSaving}
+                      className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 disabled:cursor-not-allowed"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </div>
               )}
@@ -262,8 +559,8 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         <div className="flex justify-end gap-2 px-6 py-4 border-t border-gray-200">
           <button
             onClick={onClose}
-            disabled={refreshProgress.isRefreshing}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            disabled={refreshProgress.isRefreshing || isSaving}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:cursor-not-allowed"
           >
             Close
           </button>

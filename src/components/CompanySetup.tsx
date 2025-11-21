@@ -13,6 +13,7 @@ export default function CompanySetup() {
   const [formData, setFormData] = useState({
     name: '',
     address: '',
+    phone: '',
     currency: 'USD',
     units: 'imperial',
   });
@@ -37,6 +38,7 @@ export default function CompanySetup() {
           {
             name: formData.name,
             address: formData.address || null,
+            phone: formData.phone || null,
             currency: formData.currency,
             units: formData.units,
             user_id: user.id, // Set the owner
@@ -160,6 +162,22 @@ export default function CompanySetup() {
                 onChange={handleChange}
                 className="w-full px-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl focus:outline-none focus:border-indigo-600 transition-all text-gray-900 placeholder-gray-400"
                 placeholder="123 Main St, City, State ZIP"
+                disabled={loading}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+                Phone (Optional)
+              </label>
+              <input
+                id="phone"
+                name="phone"
+                type="tel"
+                value={formData.phone}
+                onChange={handleChange}
+                className="w-full px-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl focus:outline-none focus:border-indigo-600 transition-all text-gray-900 placeholder-gray-400"
+                placeholder="(555) 123-4567"
                 disabled={loading}
               />
             </div>

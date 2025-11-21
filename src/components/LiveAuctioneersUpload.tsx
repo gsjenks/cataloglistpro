@@ -127,6 +127,40 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
     }
   };
 
+  // Properly parse CSV line respecting quotes
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = line[i + 1];
+      
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          // Escaped quote
+          current += '"';
+          i++; // Skip next quote
+        } else {
+          // Toggle quote state
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        // End of field
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    
+    // Add last field
+    result.push(current.trim());
+    
+    return result;
+  };
+
   // CSV Validation
   const validateCSV = async (file: File): Promise<ValidationResult> => {
     return new Promise((resolve) => {
@@ -147,24 +181,39 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
         }
 
         // Check header row
-        const header = lines[0].toLowerCase();
-        const requiredColumns = ['lotnum', 'title', 'description', 'lowest', 'highest', 'startprice'];
+        const header = lines[0].toLowerCase().replace(/\s+/g, '');
+        const requiredColumns = ['lotnum', 'title', 'description'];
+        const estimateColumns = ['lowest', 'lowes', 'lowestimate'];
+        const priceColumns = ['startprice', 'starting'];
+        
         const missingColumns = requiredColumns.filter(col => !header.includes(col));
+        
+        // Check for estimate columns (need at least one)
+        const hasEstimate = estimateColumns.some(col => header.includes(col));
+        if (!hasEstimate) {
+          warnings.push('No estimate columns found (LowEst/LowEstimate)');
+        }
+        
+        // Check for price columns (need at least one)
+        const hasPrice = priceColumns.some(col => header.includes(col));
+        if (!hasPrice) {
+          warnings.push('No starting price column found (StartPrice)');
+        }
         
         if (missingColumns.length > 0) {
           errors.push(`Missing required columns: ${missingColumns.join(', ')}`);
         }
 
         // Parse lot numbers from data rows
-        const headerCols = lines[0].split(',');
+        const headerCols = parseCSVLine(lines[0]);
         const lotNumIndex = headerCols.findIndex(col => col.toLowerCase().includes('lotnum'));
         
         if (lotNumIndex === -1) {
           errors.push('Cannot find LotNum column');
         } else {
           for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(',');
-            const lotNum = cols[lotNumIndex]?.trim().replace(/"/g, '');
+            const cols = parseCSVLine(lines[i]);
+            const lotNum = cols[lotNumIndex]?.trim();
             if (lotNum && lotNum !== '') {
               lotNumbers.push(lotNum);
             }
@@ -372,8 +421,8 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
     const lot: any = {};
     
     headers.forEach((header, index) => {
-      const value = row[index]?.trim().replace(/^"|"$/g, ''); // Remove quotes
-      const headerLower = header.toLowerCase();
+      const value = row[index]?.trim(); // parseCSVLine already removes quotes
+      const headerLower = header.toLowerCase().replace(/\s+/g, ''); // Remove spaces for matching
       
       if (!value) return;
       
@@ -386,15 +435,15 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
         lot.name = value;
       } else if (headerLower.includes('description')) {
         lot.description = value;
-      } else if (headerLower.includes('lowest') || headerLower === 'lowestimate') {
+      } else if (headerLower === 'lowestimate' || headerLower === 'lowest' || headerLower === 'lowes') {
         lot.estimate_low = parseFloat(value) || undefined;
-      } else if (headerLower.includes('highest') || headerLower === 'highestimate') {
+      } else if (headerLower === 'highestimate' || headerLower === 'highest' || headerLower === 'highes') {
         lot.estimate_high = parseFloat(value) || undefined;
-      } else if (headerLower.includes('startprice')) {
+      } else if (headerLower === 'startprice') {
         lot.starting_bid = parseFloat(value) || undefined;
-      } else if (headerLower.includes('reserve')) {
+      } else if (headerLower === 'reserveprice' || headerLower.includes('reserve')) {
         lot.reserve_price = parseFloat(value) || undefined;
-      } else if (headerLower.includes('buynow')) {
+      } else if (headerLower === 'buynowprice' || headerLower.includes('buynow')) {
         lot.buy_now_price = parseFloat(value) || undefined;
       } else if (headerLower === 'condition') {
         lot.condition = value;
@@ -406,7 +455,7 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
         lot.width = parseFloat(value) || undefined;
       } else if (headerLower === 'depth') {
         lot.depth = parseFloat(value) || undefined;
-      } else if (headerLower.includes('dimensionunit')) {
+      } else if (headerLower === 'dimensionunit' || headerLower === 'dimension_unit') {
         lot.dimension_unit = value;
       } else if (headerLower === 'weight') {
         lot.weight = parseFloat(value) || undefined;
@@ -416,11 +465,11 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
         lot.category = value;
       } else if (headerLower === 'origin') {
         lot.origin = value;
-      } else if (headerLower.includes('style')) {
+      } else if (headerLower === 'style&period' || headerLower.includes('style')) {
         lot.style = value;
       } else if (headerLower.includes('creator')) {
         lot.creator = value;
-      } else if (headerLower.includes('material')) {
+      } else if (headerLower === 'materials&techniques' || headerLower.includes('material')) {
         lot.materials = value;
       }
     });
@@ -447,7 +496,7 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
             return;
           }
 
-          const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+          const headers = parseCSVLine(lines[0]);
           const dataRows = lines.slice(1);
           
           let created = 0;
@@ -475,7 +524,7 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
               message: `Importing lot ${i + 1} of ${dataRows.length}...`
             });
 
-            const row = dataRows[i].split(',');
+            const row = parseCSVLine(dataRows[i]);
             const lotData = parseLotFromCSV(row, headers);
             
             if (!lotData.lot_number) {

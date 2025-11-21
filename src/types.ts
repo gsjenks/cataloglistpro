@@ -10,8 +10,10 @@ export interface Company {
   id: string;
   name: string;
   address?: string;
+  phone?: string;
   currency: string;
   units: 'metric' | 'imperial';
+  logo_url?: string;
   created_at?: string;
   updated_at?: string;
   user_id?: string;
@@ -72,7 +74,7 @@ export interface Photo {
   ai_objects?: string[];
   ai_enriched?: boolean;
   ai_enriched_at?: string;
-  synced?: boolean;  // ← ADDED: Track sync status for offline-first
+  synced?: boolean;  // Track sync status for offline-first
 }
 
 export interface Contact {

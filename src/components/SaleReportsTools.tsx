@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Download, Upload, ChevronRight, X, FileSpreadsheet, Archive, AlertCircle, FileText } from 'lucide-react';
 import LiveAuctioneersUpload from './LiveAuctioneersUpload';
-import InvoiceImport from './InvoiceImport';
+import EOAProcessing from './EOAProcessing';
 
 type ToolView = 'menu' | 'la-import' | 'la-export' | 'invoice-import';
 
@@ -47,8 +47,8 @@ export default function SaleReportsTools({
     },
     {
       id: 'invoice-import',
-      title: 'Invoice Import & Labels',
-      description: 'Parse LiveAuctioneers invoices and generate packing lists and shipping labels',
+      title: 'EOA Processing',
+      description: 'Import EOA report, update prices, and generate shipping documents',
       icon: <FileText className="w-6 h-6 text-indigo-600" />,
       view: 'invoice-import' as ToolView,
     },
@@ -245,7 +245,7 @@ export default function SaleReportsTools({
           <X className="w-4 h-4" />
           Back to Tools
         </button>
-        <InvoiceImport saleId={_saleId} saleName={saleName} />
+        <EOAProcessing saleId={_saleId} saleName={saleName} />
       </div>
     );
   }
