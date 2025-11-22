@@ -1153,7 +1153,10 @@ function PhotoManagementModal({
         </button>
         {photos.length > 0 && isOnline && (
           <button
-            onClick={onAIEnrich}
+            onClick={() => {
+              onAIEnrich();
+              onClose();
+            }}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all font-medium shadow-sm"
           >
             <Sparkles className="w-5 h-5" />

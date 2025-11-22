@@ -1,7 +1,7 @@
-// src/components/AIImageProcessor.tsx - Google Imagen AI Image Editor
+// src/components/AIImageProcessor.tsx - PhotoRoom AI Image Editor
 import { useState } from 'react';
 import { X, Sparkles, Loader2, Check } from 'lucide-react';
-import { editImageWithImagen } from '../services/ImagenService';
+import { editImageWithImagen } from '../services/PhotoRoomService';
 import ConnectivityService from '../services/ConnectivityService';
 import PhotoService from '../services/PhotoService';
 import offlineStorage from '../services/Offlinestorage';
@@ -34,10 +34,6 @@ export default function AIImageProcessor({
   const [showPreview, setShowPreview] = useState(false);
   const [previewImages, setPreviewImages] = useState<PreviewImage[]>([]);
   const [options, setOptions] = useState<ImageProcessingOptions>({
-    removeBackground: false,
-    backgroundColor: undefined,
-    straighten: false,
-    brightness: 0,
     customPrompt: ''
   });
 
@@ -70,6 +66,11 @@ export default function AIImageProcessor({
 
     if (selectedPhotos.size === 0) {
       alert('Please select at least one photo');
+      return;
+    }
+
+    if (!options.customPrompt || !options.customPrompt.trim()) {
+      alert('Please enter AI instructions');
       return;
     }
 
@@ -272,7 +273,7 @@ export default function AIImageProcessor({
             </div>
             <div>
               <h2 className="text-xl font-semibold text-gray-900">AI Image Editor</h2>
-              <p className="text-sm text-gray-500">Powered by Google Imagen AI</p>
+              <p className="text-sm text-gray-500">Powered by PhotoRoom AI</p>
             </div>
           </div>
           <button
@@ -311,11 +312,14 @@ export default function AIImageProcessor({
                 <button
                   key={photo.id}
                   onClick={() => togglePhotoSelection(photo.id)}
-                  className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+                  className={`relative aspect-square rounded-lg overflow-hidden border-3 transition-all ${
                     selectedPhotos.has(photo.id)
-                      ? 'border-indigo-600 ring-2 ring-indigo-200'
+                      ? 'border-green-500'
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
+                  style={{
+                    borderWidth: selectedPhotos.has(photo.id) ? '3px' : '2px'
+                  }}
                 >
                   <img
                     src={photoUrls[photo.id]}
@@ -323,12 +327,10 @@ export default function AIImageProcessor({
                     className="w-full h-full object-cover"
                   />
                   {selectedPhotos.has(photo.id) && (
-                    <div className="absolute inset-0 bg-indigo-600 bg-opacity-20 flex items-center justify-center">
-                      <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center">
-                        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      </div>
+                    <div className="absolute top-2 left-2 w-6 h-6 bg-green-500 rounded-sm flex items-center justify-center">
+                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
                     </div>
                   )}
                 </button>
@@ -338,112 +340,12 @@ export default function AIImageProcessor({
 
           {/* Processing Options */}
           <div className="space-y-6">
-            <h3 className="text-sm font-medium text-gray-900">Processing Options</h3>
-
-            {/* Imagen Capabilities Notice */}
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm font-medium text-blue-900 mb-1">✨ Google Imagen AI</p>
-              <p className="text-xs text-blue-800">
-                AI-powered background removal, color adjustment, straightening, and enhancement
-              </p>
-            </div>
-
-            {/* Standard Options */}
-            <div className="space-y-3">
-              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={options.removeBackground || false}
-                  onChange={(e) => setOptions({ ...options, removeBackground: e.target.checked })}
-                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                />
-                <div>
-                  <span className="text-sm font-medium text-gray-700">Remove Background</span>
-                  <p className="text-xs text-gray-500">AI-powered background removal</p>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={options.straighten || false}
-                  onChange={(e) => setOptions({ ...options, straighten: e.target.checked })}
-                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                />
-                <div>
-                  <span className="text-sm font-medium text-gray-700">Straighten Image</span>
-                  <p className="text-xs text-gray-500">Auto-detect and correct rotation</p>
-                </div>
-              </label>
-            </div>
-
-            {/* Background Color */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Background Color
-              </label>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setOptions({ ...options, backgroundColor: undefined })}
-                  className={`flex-1 p-3 border-2 rounded-lg transition-all ${
-                    !options.backgroundColor
-                      ? 'border-indigo-600 bg-indigo-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <X className="w-5 h-5 text-gray-400" />
-                    <span className="text-sm font-medium text-gray-700">None</span>
-                  </div>
-                </button>
-                {(['white', 'black', 'grey'] as const).map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => setOptions({ ...options, backgroundColor: color })}
-                    className={`flex-1 p-3 border-2 rounded-lg transition-all ${
-                      options.backgroundColor === color
-                        ? 'border-indigo-600 bg-indigo-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-center gap-2">
-                      <div
-                        className={`w-6 h-6 rounded border ${
-                          color === 'white' ? 'bg-white border-gray-300' :
-                          color === 'black' ? 'bg-black' :
-                          'bg-gray-400'
-                        }`}
-                      />
-                      <span className="text-sm font-medium text-gray-700 capitalize">{color}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Brightness */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Brightness: {options.brightness || 0}
-              </label>
-              <input
-                type="range"
-                min="-50"
-                max="50"
-                value={options.brightness || 0}
-                onChange={(e) => setOptions({ ...options, brightness: parseInt(e.target.value) })}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Darker</span>
-                <span>Brighter</span>
-              </div>
-            </div>
+            <h3 className="text-sm font-medium text-gray-900">AI Instructions</h3>
 
             {/* Custom AI Instructions */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Custom AI Instructions (Optional)
+                Custom AI Instructions
               </label>
               <textarea
                 value={options.customPrompt || ''}

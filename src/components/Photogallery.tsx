@@ -21,9 +21,6 @@ interface PhotoGalleryProps {
 
 interface AIEnhancementOptions {
   applyToAll: boolean;
-  backgroundColor: 'none' | 'white' | 'black' | 'grey';
-  straighten: boolean;
-  brighten: boolean;
   customCommand: string;
 }
 
@@ -43,9 +40,6 @@ export default function PhotoGallery({
   const [uploading, setUploading] = useState(false);
   const [enhancementOptions, setEnhancementOptions] = useState<AIEnhancementOptions>({
     applyToAll: false,
-    backgroundColor: 'none',
-    straighten: false,
-    brighten: false,
     customCommand: '',
   });
   const [showPreview, setShowPreview] = useState(false);
@@ -261,25 +255,11 @@ export default function PhotoGallery({
 
   // Build AI enhancement prompt
   const buildEnhancementPrompt = (): string => {
-    const commands: string[] = [];
-
-    if (enhancementOptions.backgroundColor !== 'none') {
-      commands.push(`Remove the background and replace with ${enhancementOptions.backgroundColor} background`);
-    }
-
-    if (enhancementOptions.straighten) {
-      commands.push('Straighten the image to correct any perspective distortion');
-    }
-
-    if (enhancementOptions.brighten) {
-      commands.push('Brighten the image to improve visibility and clarity');
-    }
-
     if (enhancementOptions.customCommand.trim()) {
-      commands.push(enhancementOptions.customCommand.trim());
+      return enhancementOptions.customCommand.trim();
     }
 
-    return commands.join('. ');
+    return '';
   };
 
   // Apply AI enhancements
@@ -295,7 +275,7 @@ export default function PhotoGallery({
 
     const prompt = buildEnhancementPrompt();
     if (!prompt) {
-      alert('Please select at least one enhancement option');
+      alert('Please enter an enhancement command');
       return;
     }
 
@@ -415,85 +395,10 @@ export default function PhotoGallery({
             )}
           </div>
 
-          {/* Background Color Selection */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Background Color
-            </label>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="backgroundColor"
-                  value="none"
-                  checked={enhancementOptions.backgroundColor === 'none'}
-                  onChange={() => setEnhancementOptions({ ...enhancementOptions, backgroundColor: 'none' })}
-                  className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
-                />
-                <span className="text-sm text-gray-700">None</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="backgroundColor"
-                  value="white"
-                  checked={enhancementOptions.backgroundColor === 'white'}
-                  onChange={() => setEnhancementOptions({ ...enhancementOptions, backgroundColor: 'white' })}
-                  className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
-                />
-                <span className="text-sm text-gray-700">White</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="backgroundColor"
-                  value="black"
-                  checked={enhancementOptions.backgroundColor === 'black'}
-                  onChange={() => setEnhancementOptions({ ...enhancementOptions, backgroundColor: 'black' })}
-                  className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
-                />
-                <span className="text-sm text-gray-700">Black</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="backgroundColor"
-                  value="grey"
-                  checked={enhancementOptions.backgroundColor === 'grey'}
-                  onChange={() => setEnhancementOptions({ ...enhancementOptions, backgroundColor: 'grey' })}
-                  className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
-                />
-                <span className="text-sm text-gray-700">Grey</span>
-              </label>
-            </div>
-          </div>
-
-          {/* Enhancement Checkboxes */}
-          <div className="flex items-center gap-6">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={enhancementOptions.straighten}
-                onChange={(e) => setEnhancementOptions({ ...enhancementOptions, straighten: e.target.checked })}
-                className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-              />
-              <span className="text-sm text-gray-700">Straighten Image</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={enhancementOptions.brighten}
-                onChange={(e) => setEnhancementOptions({ ...enhancementOptions, brighten: e.target.checked })}
-                className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-              />
-              <span className="text-sm text-gray-700">Brighten Image</span>
-            </label>
-          </div>
-
           {/* Custom Command Input */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Custom Command (Optional)
+              AI Enhancement Command
             </label>
             <input
               type="text"

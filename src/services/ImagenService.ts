@@ -46,28 +46,36 @@ export async function editImageWithImagen(
       };
     }
 
-    // Imagen endpoint
+    // Imagen endpoint - using generate with strong preservation instructions
     const endpoint = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/imagen-3.0-generate-001:predict`;
 
-    // Build request for mask-based editing
+    // Build request with preservation focus
+    const enhancedPrompt = `Using the provided reference image, ${prompt}. IMPORTANT: Keep the exact same object/subject from the reference image - only modify what was requested, do not replace or change the subject itself.`;
+    
     const requestBody = {
       instances: [
         {
-          prompt: prompt,
-          image: {
-            bytesBase64Encoded: imageData
-          }
+          prompt: enhancedPrompt,
+          referenceImages: [
+            {
+              referenceType: 1,  // Subject reference
+              referenceImage: {
+                bytesBase64Encoded: imageData
+              }
+            }
+          ]
         }
       ],
       parameters: {
         sampleCount: 1,
-        aspectRatio: "1:1",
-        negativePrompt: "blurry, low quality, distorted",
-        outputMimeType: "image/jpeg"
+        negativePrompt: "different object, replaced subject, new item, completely different, unrealistic, blurry, low quality, distorted",
+        sampleImageSize: "1024"
       }
     };
 
-    console.log('🎨 Sending request to Imagen:', prompt);
+    console.log('🎨 Sending request to Imagen with subject preservation');
+    console.log('📝 User prompt:', prompt);
+    console.log('🔧 Enhanced prompt:', enhancedPrompt);
 
     const response = await fetch(`${endpoint}?key=${API_KEY}`, {
       method: 'POST',
@@ -115,39 +123,10 @@ export async function editImageWithImagen(
  * Build edit prompt from options
  */
 function buildEditPrompt(options: ImageProcessingOptions, changes: string[]): string {
-  // If custom prompt provided, use it as the primary instruction
+  // If custom prompt provided, pass it directly without modification
   if (options.customPrompt && options.customPrompt.trim()) {
-    const instructions: string[] = [options.customPrompt.trim()];
     changes.push('Custom AI instructions applied');
-
-    // Add standard options as supplemental instructions
-    if (options.removeBackground) {
-      instructions.push('remove the background and replace with clean white');
-      changes.push('Background removed');
-    }
-
-    if (options.backgroundColor) {
-      const colorNames = { white: 'white', black: 'black', grey: 'light grey' };
-      instructions.push(`use a solid ${colorNames[options.backgroundColor]} background`);
-      changes.push(`${options.backgroundColor} background`);
-    }
-
-    if (options.straighten) {
-      instructions.push('straighten and level the image');
-      changes.push('Straightened');
-    }
-
-    if (options.brightness && options.brightness !== 0) {
-      if (options.brightness > 0) {
-        instructions.push(`increase overall brightness`);
-        changes.push(`Brightened +${options.brightness}`);
-      } else {
-        instructions.push(`decrease overall brightness`);
-        changes.push(`Darkened ${options.brightness}`);
-      }
-    }
-
-    return `Professional product photography edit: ${instructions.join(', ')}. Maintain product quality and details. Output should be clean and catalog-ready.`;
+    return options.customPrompt.trim();
   }
 
   // No custom prompt - use standard options only
