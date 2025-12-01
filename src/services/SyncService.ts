@@ -1,12 +1,13 @@
 // services/SyncService.ts
+// OPTIMIZED: Parallel downloads with concurrency control, batch operations
 // SYNC ORDER: 1)Companies, 2)Sales, 3)Lots, 4)Contacts, 5)Primary Images, 6)Documents, 7)Remaining Images
-// Only syncs ACTIVE companies and sales
 
 import { supabase } from '../lib/supabase';
 import offlineStorage from './Offlinestorage';
 import PhotoService from './PhotoService';
 
 const TOTAL_STEPS = 7;
+const MAX_CONCURRENT_DOWNLOADS = 4; // Limit parallel downloads for mobile
 
 class SyncService {
   private isSyncing = false;
@@ -42,42 +43,53 @@ class SyncService {
   onSyncStatusChange(callback: (isSyncing: boolean) => void): () => void {
     this.syncStatusListeners.add(callback);
     callback(this.isSyncing);
-    return () => {
-      this.syncStatusListeners.delete(callback);
-    };
+    return () => this.syncStatusListeners.delete(callback);
   }
 
   private notifySyncStatusChange(): void {
     this.syncStatusListeners.forEach(listener => {
-      try {
-        listener(this.isSyncing);
-      } catch (error) {
-        console.error('Error in sync status listener:', error);
-      }
+      try { listener(this.isSyncing); } catch (e) { console.error('Sync status listener error:', e); }
     });
   }
 
   onProgressChange(callback: (progress: typeof this.syncProgress) => void): () => void {
     this.progressListeners.add(callback);
-    return () => {
-      this.progressListeners.delete(callback);
-    };
+    return () => this.progressListeners.delete(callback);
   }
 
   private notifyProgress(stage: string, current: number): void {
     this.syncProgress = { stage, current, total: TOTAL_STEPS };
     this.progressListeners.forEach(listener => {
-      try {
-        listener(this.syncProgress);
-      } catch (error) {
-        console.error('Error in progress listener:', error);
-      }
+      try { listener(this.syncProgress); } catch (e) { console.error('Progress listener error:', e); }
     });
+  }
+
+  // Utility: Run promises with concurrency limit
+  private async runWithConcurrency<T>(
+    items: T[],
+    fn: (item: T) => Promise<void>,
+    concurrency: number = MAX_CONCURRENT_DOWNLOADS
+  ): Promise<void> {
+    const queue = [...items];
+    const running: Promise<void>[] = [];
+
+    while (queue.length > 0 || running.length > 0) {
+      while (running.length < concurrency && queue.length > 0) {
+        const item = queue.shift()!;
+        const promise = fn(item).finally(() => {
+          const idx = running.indexOf(promise);
+          if (idx > -1) running.splice(idx, 1);
+        });
+        running.push(promise);
+      }
+      if (running.length > 0) {
+        await Promise.race(running);
+      }
+    }
   }
 
   /**
    * MAIN SYNC - ACTIVE companies/sales only
-   * Order: 1)Companies, 2)Sales, 3)Lots, 4)Contacts, 5)Primary Images, 6)Documents, 7)Remaining Images
    */
   async performInitialSync(companyId: string): Promise<void> {
     console.log('=== SYNC START ===', companyId);
@@ -94,9 +106,6 @@ class SyncService {
       console.log('Step 1/7: Company');
       this.notifyProgress('Syncing company', 1);
       const company = await this.syncCompany(companyId);
-      console.log('  Company result:', company?.name, company?.status);
-      
-      // Allow sync even if company status isn't 'active' - many companies don't use status field
       if (!company) {
         console.log('No company found - aborting sync');
         return;
@@ -119,7 +128,7 @@ class SyncService {
       this.notifyProgress('Syncing contacts', 4);
       await this.syncContacts(companyId, activeSales);
 
-      // STEP 5: Primary lot images
+      // STEP 5: Primary lot images (PARALLEL)
       console.log('Step 5/7: Primary images');
       this.notifyProgress('Syncing primary images', 5);
       await this.syncPrimaryImages(lots);
@@ -129,7 +138,7 @@ class SyncService {
       this.notifyProgress('Syncing documents', 6);
       await this.syncDocuments(companyId, activeSales);
 
-      // STEP 7: Remaining images
+      // STEP 7: Remaining images (PARALLEL)
       console.log('Step 7/7: Remaining images');
       this.notifyProgress('Syncing remaining images', 7);
       await this.syncRemainingImages(lots);
@@ -156,9 +165,7 @@ class SyncService {
       .single();
 
     if (error) throw error;
-    if (data) {
-      await offlineStorage.upsertCompany(data);
-    }
+    if (data) await offlineStorage.upsertCompany(data);
     return data;
   }
 
@@ -174,9 +181,8 @@ class SyncService {
     if (error) throw error;
 
     const sales = data || [];
-    for (const sale of sales) {
-      await offlineStorage.upsertSale(sale);
-    }
+    // Batch upsert
+    await Promise.all(sales.map(sale => offlineStorage.upsertSale(sale)));
     return sales;
   }
 
@@ -185,7 +191,6 @@ class SyncService {
     if (activeSales.length === 0) return [];
 
     const saleIds = activeSales.map(s => s.id);
-    
     const { data, error } = await supabase
       .from('lots')
       .select('*')
@@ -195,50 +200,31 @@ class SyncService {
     if (error) throw error;
 
     const lots = data || [];
-    for (const lot of lots) {
-      await offlineStorage.upsertLot(lot);
-    }
+    // Batch upsert
+    await Promise.all(lots.map(lot => offlineStorage.upsertLot(lot)));
     return lots;
   }
 
-  // STEP 4: Contacts (company + sale level)
+  // STEP 4: Contacts (parallel fetch)
   private async syncContacts(companyId: string, activeSales: any[]): Promise<void> {
-    let totalContacts = 0;
+    const saleIds = activeSales.map(s => s.id);
 
-    // Company contacts
-    const { data: companyContacts } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('company_id', companyId)
-      .is('sale_id', null);
+    // Parallel fetch
+    const [companyResult, saleResult] = await Promise.all([
+      supabase.from('contacts').select('*').eq('company_id', companyId).is('sale_id', null),
+      saleIds.length > 0 
+        ? supabase.from('contacts').select('*').in('sale_id', saleIds)
+        : Promise.resolve({ data: [] })
+    ]);
 
-    if (companyContacts) {
-      for (const contact of companyContacts) {
-        await offlineStorage.upsertContact(contact);
-      }
-      totalContacts += companyContacts.length;
-    }
-
-    // Sale contacts
-    if (activeSales.length > 0) {
-      const saleIds = activeSales.map(s => s.id);
-      const { data: saleContacts } = await supabase
-        .from('contacts')
-        .select('*')
-        .in('sale_id', saleIds);
-
-      if (saleContacts) {
-        for (const contact of saleContacts) {
-          await offlineStorage.upsertContact(contact);
-        }
-        totalContacts += saleContacts.length;
-      }
-    }
-
-    console.log('  Contacts synced:', totalContacts);
+    const allContacts = [...(companyResult.data || []), ...(saleResult.data || [])];
+    
+    // Batch upsert
+    await Promise.all(allContacts.map(contact => offlineStorage.upsertContact(contact)));
+    console.log('  Contacts synced:', allContacts.length);
   }
 
-  // STEP 5: Primary images only
+  // STEP 5: Primary images (PARALLEL with concurrency)
   private async syncPrimaryImages(lots: any[]): Promise<void> {
     if (lots.length === 0) {
       console.log('  No lots - skipping primary images');
@@ -246,7 +232,6 @@ class SyncService {
     }
 
     const lotIds = lots.map(l => l.id);
-    
     const { data: photos, error } = await supabase
       .from('photos')
       .select('*')
@@ -261,72 +246,59 @@ class SyncService {
     const primaryPhotos = photos || [];
     console.log('  Primary photos found:', primaryPhotos.length);
 
-    for (const photo of primaryPhotos) {
+    // Filter photos that need downloading
+    const photosToDownload: any[] = [];
+    await Promise.all(primaryPhotos.map(async (photo) => {
       await offlineStorage.upsertPhoto({ ...photo, synced: false });
-      
-      // Download blob
       const existingBlob = await offlineStorage.getPhotoBlob(photo.id);
       if (!existingBlob) {
-        try {
-          console.log('  Downloading primary image:', photo.id);
-          const { data: blob, error: dlError } = await supabase.storage
-            .from('photos')
-            .download(photo.file_path);
-
-          if (dlError) {
-            console.error('  Download error:', dlError);
-          } else if (blob) {
-            await offlineStorage.upsertPhotoBlob(photo.id, blob);
-            await offlineStorage.upsertPhoto({ ...photo, synced: true });
-            console.log('  Downloaded:', photo.id);
-          }
-        } catch (err) {
-          console.error('  Download exception:', err);
-        }
-      } else {
-        console.log('  Already have:', photo.id);
+        photosToDownload.push(photo);
       }
-    }
+    }));
+
+    console.log('  Primary photos to download:', photosToDownload.length);
+
+    // Download in parallel with concurrency limit
+    let downloaded = 0;
+    await this.runWithConcurrency(photosToDownload, async (photo) => {
+      try {
+        const { data: blob, error: dlError } = await supabase.storage
+          .from('photos')
+          .download(photo.file_path);
+
+        if (!dlError && blob) {
+          await offlineStorage.upsertPhotoBlob(photo.id, blob);
+          await offlineStorage.upsertPhoto({ ...photo, synced: true });
+          downloaded++;
+        }
+      } catch (err) {
+        console.error('  Download error:', photo.id, err);
+      }
+    });
+
+    console.log('  Primary images downloaded:', downloaded);
   }
 
-  // STEP 6: Documents (company + sale level)
+  // STEP 6: Documents (parallel fetch)
   private async syncDocuments(companyId: string, activeSales: any[]): Promise<void> {
-    let totalDocs = 0;
+    const saleIds = activeSales.map(s => s.id);
 
-    // Company documents
-    const { data: companyDocs } = await supabase
-      .from('documents')
-      .select('*')
-      .eq('company_id', companyId)
-      .is('sale_id', null);
+    // Parallel fetch
+    const [companyResult, saleResult] = await Promise.all([
+      supabase.from('documents').select('*').eq('company_id', companyId).is('sale_id', null),
+      saleIds.length > 0
+        ? supabase.from('documents').select('*').in('sale_id', saleIds)
+        : Promise.resolve({ data: [] })
+    ]);
 
-    if (companyDocs) {
-      for (const doc of companyDocs) {
-        await offlineStorage.upsertDocument(doc);
-      }
-      totalDocs += companyDocs.length;
-    }
-
-    // Sale documents
-    if (activeSales.length > 0) {
-      const saleIds = activeSales.map(s => s.id);
-      const { data: saleDocs } = await supabase
-        .from('documents')
-        .select('*')
-        .in('sale_id', saleIds);
-
-      if (saleDocs) {
-        for (const doc of saleDocs) {
-          await offlineStorage.upsertDocument(doc);
-        }
-        totalDocs += saleDocs.length;
-      }
-    }
-
-    console.log('  Documents synced:', totalDocs);
+    const allDocs = [...(companyResult.data || []), ...(saleResult.data || [])];
+    
+    // Batch upsert
+    await Promise.all(allDocs.map(doc => offlineStorage.upsertDocument(doc)));
+    console.log('  Documents synced:', allDocs.length);
   }
 
-  // STEP 7: Remaining (non-primary) images
+  // STEP 7: Remaining images (PARALLEL with concurrency)
   private async syncRemainingImages(lots: any[]): Promise<void> {
     if (lots.length === 0) {
       console.log('  No lots - skipping remaining images');
@@ -334,7 +306,6 @@ class SyncService {
     }
 
     const lotIds = lots.map(l => l.id);
-    
     const { data: photos, error } = await supabase
       .from('photos')
       .select('*')
@@ -349,60 +320,66 @@ class SyncService {
     const remainingPhotos = photos || [];
     console.log('  Remaining photos found:', remainingPhotos.length);
 
-    let downloaded = 0;
-    for (const photo of remainingPhotos) {
+    // Filter photos that need downloading
+    const photosToDownload: any[] = [];
+    await Promise.all(remainingPhotos.map(async (photo) => {
       await offlineStorage.upsertPhoto({ ...photo, synced: false });
-      
       const existingBlob = await offlineStorage.getPhotoBlob(photo.id);
       if (!existingBlob) {
-        try {
-          const { data: blob, error: dlError } = await supabase.storage
-            .from('photos')
-            .download(photo.file_path);
-
-          if (dlError) {
-            console.error('  Download error:', photo.id, dlError);
-          } else if (blob) {
-            await offlineStorage.upsertPhotoBlob(photo.id, blob);
-            await offlineStorage.upsertPhoto({ ...photo, synced: true });
-            downloaded++;
-          }
-        } catch (err) {
-          console.error('  Download exception:', photo.id, err);
-        }
-      } else {
-        downloaded++;
+        photosToDownload.push(photo);
       }
-    }
-    console.log('  Remaining images downloaded:', downloaded, '/', remainingPhotos.length);
+    }));
+
+    console.log('  Remaining photos to download:', photosToDownload.length);
+
+    // Download in parallel with concurrency limit
+    let downloaded = 0;
+    await this.runWithConcurrency(photosToDownload, async (photo) => {
+      try {
+        const { data: blob, error: dlError } = await supabase.storage
+          .from('photos')
+          .download(photo.file_path);
+
+        if (!dlError && blob) {
+          await offlineStorage.upsertPhotoBlob(photo.id, blob);
+          await offlineStorage.upsertPhoto({ ...photo, synced: true });
+          downloaded++;
+        }
+      } catch (err) {
+        console.error('  Download error:', photo.id, err);
+      }
+    });
+
+    console.log('  Remaining images downloaded:', downloaded, '/', photosToDownload.length);
   }
 
-  // Push local changes to Supabase
+  // Push local changes (PARALLEL)
   async pushLocalChanges(): Promise<void> {
     this.startOperation();
     try {
-      // Push unsynced photos only (lots sync via pending items)
-      const unsyncedPhotos = await offlineStorage.getUnsyncedPhotos();
-      for (const photo of unsyncedPhotos) {
+      const [unsyncedPhotos, pendingItems] = await Promise.all([
+        offlineStorage.getUnsyncedPhotos(),
+        offlineStorage.getPendingSyncItems()
+      ]);
+
+      // Upload photos in parallel
+      await this.runWithConcurrency(unsyncedPhotos, async (photo) => {
         const blob = await offlineStorage.getPhotoBlob(photo.id);
         if (blob) {
           await PhotoService.uploadToSupabase(blob, photo.file_path);
           await PhotoService.saveMetadataToSupabase(photo);
         }
-      }
+      });
 
-      // Push pending sync items
-      const pendingItems = await offlineStorage.getPendingSyncItems();
-      for (const item of pendingItems) {
+      // Push pending items in parallel
+      await Promise.all(pendingItems.map(async (item) => {
         try {
           const { error } = await supabase.from(item.table).upsert(item.data);
-          if (!error) {
-            await offlineStorage.markSynced(item.id);
-          }
+          if (!error) await offlineStorage.markSynced(item.id);
         } catch (err) {
           // Continue on error
         }
-      }
+      }));
     } finally {
       this.endOperation();
     }
@@ -413,14 +390,12 @@ class SyncService {
     await this.pushLocalChanges();
   }
 
-  // Alias for compatibility
   async performSync(): Promise<void> {
     await this.pushLocalChanges();
   }
 
-  // Initialize - called on app start
   async initialize(): Promise<void> {
-    // Nothing to initialize - sync happens on demand
+    // Nothing to initialize
   }
 
   getSyncProgress() {
