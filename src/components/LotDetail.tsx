@@ -20,7 +20,7 @@ import {
 } from '../services/LiveAuctioneersData';
 import type { Lot, Photo } from '../types';
 import { toTitleCase } from '../utils/titleCase';
-import { ArrowLeft, Save, Trash2, Upload, Camera } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, Upload, Camera, Plus } from 'lucide-react';
 
 // Split components
 import WebcamModal from './WebcamModal';
@@ -77,6 +77,7 @@ export default function LotDetail() {
 
   // Load lot data
   useEffect(() => {
+    setLoading(true);
     if (isNewLot) initializeNewLot();
     else loadLot();
   }, [lotId, saleId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -117,6 +118,14 @@ export default function LotDetail() {
       }
     ];
 
+    if (!isNewLot) {
+      actions.push({
+        id: 'new-item', label: 'New Item',
+        icon: <Plus className="w-4 h-4" />, onClick: handleSaveAndNew,
+        variant: 'secondary', disabled: !lot.name || saving
+      });
+    }
+
     if (!isNewLot && (caps.supportsWebCamera || caps.supportsNativeCamera)) {
       actions.push({
         id: 'camera', label: caps.supportsNativeCamera ? 'Camera' : 'Webcam',
@@ -151,7 +160,13 @@ export default function LotDetail() {
   const initializeNewLot = async () => {
     try {
       const lotNumber = await getNextLotNumber(saleId!, isOnline);
-      setLot(prev => ({ ...prev, lot_number: lotNumber, sale_id: saleId }));
+      setLot({
+        name: '', description: '', quantity: 1, condition: '', category: '',
+        style: '', origin: '', creator: '', materials: '', dimension_unit: 'inches', consignor: '',
+        lot_number: lotNumber, sale_id: saleId
+      });
+      setPhotos([]);
+      setPhotoUrls({});
     } catch (e) { console.error('Error initializing new lot:', e); }
     finally { setLoading(false); }
   };
@@ -174,14 +189,14 @@ export default function LotDetail() {
 
   const loadPhotos = async () => {
     if (!lotId) return;
-    console.log(`📷 LotDetail loadPhotos for lot ${lotId.slice(0,8)}`);
+    console.log(`ðŸ“· LotDetail loadPhotos for lot ${lotId.slice(0,8)}`);
     try {
       const urls: Record<string, string> = {};
       let photoData: Photo[] = [];
 
       // Get local photo metadata
       const localPhotos = await offlineStorage.getPhotosByLot(lotId);
-      console.log(`📷 Local photos found: ${localPhotos?.length || 0}`);
+      console.log(`ðŸ“· Local photos found: ${localPhotos?.length || 0}`);
       
       if (localPhotos?.length) {
         photoData = localPhotos;
@@ -190,7 +205,7 @@ export default function LotDetail() {
           const blob = await offlineStorage.getPhotoBlob(photo.id);
           if (blob) urls[photo.id] = URL.createObjectURL(blob);
         }
-        console.log(`📷 Local blobs found: ${Object.keys(urls).length}`);
+        console.log(`ðŸ“· Local blobs found: ${Object.keys(urls).length}`);
       }
 
       if (isOnline) {
@@ -198,7 +213,7 @@ export default function LotDetail() {
         const { data: remotePhotos, error } = await supabase
           .from('photos').select('*').eq('lot_id', lotId).order('created_at', { ascending: true });
         
-        console.log(`📷 Remote photos: ${remotePhotos?.length || 0}, error: ${error?.message || 'none'}`);
+        console.log(`ðŸ“· Remote photos: ${remotePhotos?.length || 0}, error: ${error?.message || 'none'}`);
         
         if (error) throw error;
 
@@ -224,11 +239,11 @@ export default function LotDetail() {
               }
             }
           }
-          console.log(`📷 Signed URLs generated: ${signedUrlCount}`);
+          console.log(`ðŸ“· Signed URLs generated: ${signedUrlCount}`);
         }
       }
 
-      console.log(`📷 Final: ${photoData.length} photos, ${Object.keys(urls).length} URLs`);
+      console.log(`ðŸ“· Final: ${photoData.length} photos, ${Object.keys(urls).length} URLs`);
       setPhotos(photoData);
       setPhotoUrls(urls);
     } catch (e) { console.error('Error loading photos:', e); }
@@ -536,6 +551,34 @@ export default function LotDetail() {
         }
         alert('Item saved successfully');
       }
+    } catch (e) { console.error('Error saving:', e); alert('Failed to save item'); }
+    finally { setSaving(false); }
+  }, [isNewLot, saleId, lotId, isOnline, navigate]);
+
+  const handleSaveAndNew = useCallback(async () => {
+    const currentLot = lotRef.current;
+    if (!currentLot.name) { alert('Please enter an item name'); return; }
+    if (!saleId) { alert('No sale selected'); return; }
+    setSaving(true);
+    try {
+      if (isNewLot) {
+        const newLot: Lot = { ...currentLot, sale_id: saleId, id: generateUUID(), name: toTitleCase(currentLot.name || ''), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+        await offlineStorage.upsertLot(newLot);
+        if (isOnline) {
+          SyncService.startOperation();
+          try { await supabase.from('lots').insert(newLot); } finally { SyncService.endOperation(); }
+        }
+      } else {
+        if (!currentLot.id || !currentLot.sale_id) { alert('Invalid lot data'); return; }
+        const updatedLot: Lot = { ...currentLot, id: currentLot.id, sale_id: currentLot.sale_id, name: toTitleCase(currentLot.name || ''), updated_at: new Date().toISOString() };
+        setLot(updatedLot);
+        await offlineStorage.upsertLot(updatedLot);
+        if (isOnline) {
+          SyncService.startOperation();
+          try { await supabase.from('lots').update(updatedLot).eq('id', lotId); } finally { SyncService.endOperation(); }
+        }
+      }
+      navigate(`/sales/${saleId}/lots/new`);
     } catch (e) { console.error('Error saving:', e); alert('Failed to save item'); }
     finally { setSaving(false); }
   }, [isNewLot, saleId, lotId, isOnline, navigate]);
