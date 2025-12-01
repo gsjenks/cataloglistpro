@@ -167,38 +167,61 @@ export default function LotDetail() {
 
   const loadPhotos = async () => {
     if (!lotId) return;
+    console.log(`📷 LotDetail loadPhotos for lot ${lotId.slice(0,8)}`);
     try {
       const urls: Record<string, string> = {};
       let photoData: Photo[] = [];
 
+      // Get local photo metadata
       const localPhotos = await offlineStorage.getPhotosByLot(lotId);
+      console.log(`📷 Local photos found: ${localPhotos?.length || 0}`);
+      
       if (localPhotos?.length) {
         photoData = localPhotos;
+        // Try to get local blobs
         for (const photo of localPhotos) {
           const blob = await offlineStorage.getPhotoBlob(photo.id);
           if (blob) urls[photo.id] = URL.createObjectURL(blob);
         }
+        console.log(`📷 Local blobs found: ${Object.keys(urls).length}`);
       }
 
       if (isOnline) {
+        // Fetch remote photos to ensure we have all metadata
         const { data: remotePhotos, error } = await supabase
           .from('photos').select('*').eq('lot_id', lotId).order('created_at', { ascending: true });
+        
+        console.log(`📷 Remote photos: ${remotePhotos?.length || 0}, error: ${error?.message || 'none'}`);
+        
         if (error) throw error;
 
         if (remotePhotos?.length) {
+          // Merge remote photos with local (in case any are missing locally)
           const localIds = new Set(photoData.map(p => p.id));
-          const newRemote = remotePhotos.filter(p => !localIds.has(p.id));
-          photoData = [...photoData, ...newRemote];
-
-          for (const photo of remotePhotos) {
-            if (!urls[photo.id]) {
-              const { data: urlData } = await supabase.storage.from('photos').createSignedUrl(photo.file_path, 3600);
-              if (urlData) urls[photo.id] = urlData.signedUrl;
+          for (const remote of remotePhotos) {
+            if (!localIds.has(remote.id)) {
+              photoData.push(remote);
+              // Cache metadata locally
+              await offlineStorage.upsertPhoto({ ...remote, synced: true });
             }
           }
+
+          // Generate signed URLs for ALL photos that don't have local blobs
+          let signedUrlCount = 0;
+          for (const photo of photoData) {
+            if (!urls[photo.id]) {
+              const { data: urlData } = await supabase.storage.from('photos').createSignedUrl(photo.file_path, 3600);
+              if (urlData?.signedUrl) {
+                urls[photo.id] = urlData.signedUrl;
+                signedUrlCount++;
+              }
+            }
+          }
+          console.log(`📷 Signed URLs generated: ${signedUrlCount}`);
         }
       }
 
+      console.log(`📷 Final: ${photoData.length} photos, ${Object.keys(urls).length} URLs`);
       setPhotos(photoData);
       setPhotoUrls(urls);
     } catch (e) { console.error('Error loading photos:', e); }

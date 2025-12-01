@@ -15,6 +15,8 @@ interface PhotoMetadata {
 
 class PhotoService {
   private dbReady: Promise<void>;
+  private signedUrlCache: Map<string, { url: string; expires: number }> = new Map();
+  private pendingRequests: Map<string, Promise<string | null>> = new Map();
 
   constructor() {
     this.dbReady = offlineStorage.initialize().catch(error => {
@@ -47,6 +49,7 @@ class PhotoService {
 
   async getPhotosByLot(lotId: string): Promise<Photo[]> {
     await this.ensureReady();
+    // Return local photos - sync populates local storage with metadata
     return await offlineStorage.getPhotosByLot(lotId);
   }
 
@@ -249,10 +252,78 @@ class PhotoService {
 
   async getPhotoObjectUrl(photoId: string): Promise<string | null> {
     await this.ensureReady();
+    
+    // Check if request is already pending (deduplication)
+    if (this.pendingRequests.has(photoId)) {
+      return this.pendingRequests.get(photoId)!;
+    }
+    
+    const requestPromise = this._getPhotoObjectUrlInternal(photoId);
+    this.pendingRequests.set(photoId, requestPromise);
+    
+    try {
+      return await requestPromise;
+    } finally {
+      this.pendingRequests.delete(photoId);
+    }
+  }
+  
+  private async _getPhotoObjectUrlInternal(photoId: string): Promise<string | null> {
+    // Try local blob first (fastest)
     const blob = await this.getPhotoBlob(photoId);
     if (blob) {
       return URL.createObjectURL(blob);
     }
+    
+    // Check signed URL cache
+    const cached = this.signedUrlCache.get(photoId);
+    if (cached && cached.expires > Date.now()) {
+      return cached.url;
+    }
+    
+    // Need to get file_path - check local metadata first
+    const localPhoto = await offlineStorage.getPhoto(photoId);
+    const filePath = localPhoto?.file_path;
+    
+    if (!filePath) {
+      // No metadata locally - photo hasn't been synced yet
+      return null;
+    }
+    
+    if (!navigator.onLine) {
+      return null;
+    }
+    
+    // Get signed URL from Supabase
+    try {
+      const { data: urlData, error } = await supabase.storage
+        .from('photos')
+        .createSignedUrl(filePath, 3600);
+      
+      if (error) {
+        console.error(`📷 Photo ${photoId.slice(0,8)}: Signed URL error:`, error);
+        return null;
+      }
+      
+      if (urlData?.signedUrl) {
+        // Cache the signed URL
+        this.signedUrlCache.set(photoId, {
+          url: urlData.signedUrl,
+          expires: Date.now() + (55 * 60 * 1000)
+        });
+        
+        // Download blob in background for future offline use
+        fetch(urlData.signedUrl)
+          .then(res => res.blob())
+          .then(downloadedBlob => this.savePhotoBlob(photoId, downloadedBlob))
+          .catch(() => {});
+        
+        return urlData.signedUrl;
+      }
+    } catch (error) {
+      console.error(`📷 Photo ${photoId.slice(0,8)}: Failed to get signed URL:`, error);
+    }
+    
     return null;
   }
 

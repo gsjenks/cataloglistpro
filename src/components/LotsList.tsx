@@ -7,6 +7,7 @@ import { Edit2, Trash2, Package } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { supabase } from '../lib/supabase';
 import PhotoService from '../services/PhotoService';
+import SyncService from '../services/SyncService';
 
 interface LotsListProps {
   lots: Lot[];
@@ -18,11 +19,15 @@ interface LotsListProps {
 const LazyImage = memo(({ 
   lotId, 
   alt, 
-  loadPhoto 
+  loadPhoto,
+  refreshKey,
+  onClick
 }: { 
   lotId: string; 
   alt: string; 
   loadPhoto: (lotId: string) => Promise<string | null>;
+  refreshKey: number;
+  onClick?: () => void;
 }) => {
   const [src, setSrc] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -50,15 +55,20 @@ const LazyImage = memo(({
     if (!isVisible) return;
     
     let cancelled = false;
+    setSrc(null); // Reset on refresh
     loadPhoto(lotId).then(url => {
       if (!cancelled && url) setSrc(url);
     });
 
     return () => { cancelled = true; };
-  }, [isVisible, lotId, loadPhoto]);
+  }, [isVisible, lotId, loadPhoto, refreshKey]);
 
   return (
-    <div ref={imgRef} className="w-32 h-32 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200">
+    <div 
+      ref={imgRef} 
+      className="w-32 h-32 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all"
+      onClick={onClick}
+    >
       {src ? (
         <img src={src} alt={alt} className="w-full h-full object-cover" loading="lazy" />
       ) : (
@@ -78,13 +88,15 @@ const LotCard = memo(({
   deleting, 
   onEdit, 
   onDelete,
-  loadPhoto
+  loadPhoto,
+  refreshKey
 }: {
   lot: Lot;
   deleting: string | null;
   onEdit: (lotId: string) => void;
   onDelete: (lot: Lot) => void;
   loadPhoto: (lotId: string) => Promise<string | null>;
+  refreshKey: number;
 }) => {
   const formatCurrency = (value: number | null | undefined) => {
     if (value === null || value === undefined) return '';
@@ -97,8 +109,8 @@ const LotCard = memo(({
     if (lot.width) parts.push(`W: ${lot.width}"`);
     if (lot.depth) parts.push(`D: ${lot.depth}"`);
     
-    let result = parts.join(' Ã— ');
-    if (lot.weight) result += ` â€¢ ${lot.weight} lbs`;
+    let result = parts.join(' x ');
+    if (lot.weight) result += ` - ${lot.weight} lbs`;
     
     return result || 'Not specified';
   };
@@ -188,7 +200,7 @@ const LotCard = memo(({
             </button>
           </div>
 
-          <LazyImage lotId={lot.id} alt={lot.name} loadPhoto={loadPhoto} />
+          <LazyImage lotId={lot.id} alt={lot.name} loadPhoto={loadPhoto} refreshKey={refreshKey} onClick={() => onEdit(lot.id)} />
         </div>
       </div>
     </div>
@@ -200,10 +212,28 @@ LotCard.displayName = 'LotCard';
 export default function LotsList({ lots, saleId, onRefresh }: LotsListProps) {
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   
   // Cache for loaded photo URLs
   const photoCache = useRef<Map<string, string>>(new Map());
   const pendingLoads = useRef<Map<string, Promise<string | null>>>(new Map());
+
+  // Listen for sync completion to refresh photos
+  useEffect(() => {
+    let wasSyncing = false;
+    const unsubscribe = SyncService.onSyncStatusChange((syncing: boolean) => {
+      if (wasSyncing && !syncing) {
+        console.log('📷 LotsList: Sync completed, refreshing photos');
+        // Clear cache and trigger refresh
+        photoCache.current.forEach(url => PhotoService.revokeObjectUrl(url));
+        photoCache.current.clear();
+        pendingLoads.current.clear();
+        setRefreshKey(k => k + 1);
+      }
+      wasSyncing = syncing;
+    });
+    return unsubscribe;
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -311,6 +341,7 @@ export default function LotsList({ lots, saleId, onRefresh }: LotsListProps) {
           onEdit={handleEdit}
           onDelete={handleDelete}
           loadPhoto={loadPhoto}
+          refreshKey={refreshKey}
         />
       ))}
     </div>

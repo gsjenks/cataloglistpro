@@ -49,12 +49,23 @@ export default function SaleDetail() {
   });
 
   // Sort state - track active sort for each tab (default: lot-desc = last lot first)
-  const [activeSorts, setActiveSorts] = useState<Record<string, string>>({
-    items: 'lot-desc',
-    contacts: '',
-    documents: '',
-    reports: ''
+  // Load from localStorage for persistence
+  const [activeSorts, setActiveSorts] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('saleDetail_activeSorts');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return { items: 'lot-desc', contacts: '', documents: '', reports: '' };
+      }
+    }
+    return { items: 'lot-desc', contacts: '', documents: '', reports: '' };
   });
+
+  // Save sort preferences to localStorage when changed
+  useEffect(() => {
+    localStorage.setItem('saleDetail_activeSorts', JSON.stringify(activeSorts));
+  }, [activeSorts]);
 
   useEffect(() => {
     loadSale();
