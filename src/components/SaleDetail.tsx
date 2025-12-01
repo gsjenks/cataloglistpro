@@ -576,7 +576,7 @@ export default function SaleDetail() {
           <span>{formatDate(sale.start_date)}</span>
           {sale.location && (
             <>
-              <span>â€¢</span>
+              <span>•</span>
               <span>{sale.location}</span>
             </>
           )}

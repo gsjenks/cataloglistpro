@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { Sale } from '../types';
+import { toTitleCase } from '../utils/titleCase';
 import { supabase } from '../lib/supabase';
 import { X } from 'lucide-react';
 
@@ -106,6 +107,7 @@ export default function SaleModal({ sale, companyId, onClose, onSave }: SaleModa
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onBlur={() => setName(toTitleCase(name))}
               required
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-opacity-10 transition-all"
               placeholder="Spring Auction 2025"

@@ -304,7 +304,7 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
         // Don't block import - just warn about missing lots
         warnings.push(`Warning: ${missingLots.length} lot(s) do not exist and their images will be skipped:`);
         missingLots.forEach(lotNum => {
-          warnings.push(`  â€¢ Lot ${lotNum} - images will be skipped`);
+          warnings.push(`  • Lot ${lotNum} - images will be skipped`);
         });
         
         // Still return valid=true so import can proceed
@@ -1041,7 +1041,7 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
             {csvValidation && csvValidation.lotNumbers.length > 0 && (
               <div className="mt-3 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
                 <p className="text-sm font-medium text-indigo-900">
-                  âœ“ Found {csvValidation.lotNumbers.length} lots in CSV
+                  ✓ Found {csvValidation.lotNumbers.length} lots in CSV
                 </p>
                 <p className="text-xs text-indigo-700 mt-1">
                   You can now upload images for these lots
@@ -1147,12 +1147,12 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h4 className="text-sm font-semibold text-blue-900 mb-2">LiveAuctioneers Requirements</h4>
         <div className="text-xs text-blue-800 space-y-1">
-          <p>â€¢ CSV must include: LotNum, Title, Description, LowEst, HighEst, StartPrice</p>
-          <p>â€¢ Images must be named: lotNumber_1.jpg or lotNumber.1.jpg format</p>
-          <p>â€¢ Supported formats: .jpg, .jpeg, .png, .tiff, .pdf, .heif, .heic</p>
-          <p>â€¢ Recommended size: up to 3840x3840 (4K)</p>
-          <p>â€¢ Minimum file size: 15kb</p>
-          <p>â€¢ No URLs, emails, or watermarks allowed</p>
+          <p>• CSV must include: LotNum, Title, Description, LowEst, HighEst, StartPrice</p>
+          <p>• Images must be named: lotNumber_1.jpg or lotNumber.1.jpg format</p>
+          <p>• Supported formats: .jpg, .jpeg, .png, .tiff, .pdf, .heif, .heic</p>
+          <p>• Recommended size: up to 3840x3840 (4K)</p>
+          <p>• Minimum file size: 15kb</p>
+          <p>• No URLs, emails, or watermarks allowed</p>
         </div>
       </div>
 
@@ -1234,10 +1234,10 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
                       <p className="text-sm font-medium text-yellow-900 mb-2">Warnings:</p>
                       <ul className="text-xs text-yellow-800 space-y-1 max-h-40 overflow-y-auto">
                         {importResult.warnings.slice(0, 20).map((warning, idx) => (
-                          <li key={idx}>â€¢ {warning}</li>
+                          <li key={idx}>• {warning}</li>
                         ))}
                         {importResult.warnings.length > 20 && (
-                          <li>â€¢ ... and {importResult.warnings.length - 20} more warnings</li>
+                          <li>• ... and {importResult.warnings.length - 20} more warnings</li>
                         )}
                       </ul>
                     </div>
@@ -1250,10 +1250,10 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
                       </p>
                       <ul className="text-xs text-red-800 space-y-1 max-h-40 overflow-y-auto">
                         {importResult.errors.slice(0, 20).map((error, idx) => (
-                          <li key={idx}>â€¢ {error}</li>
+                          <li key={idx}>• {error}</li>
                         ))}
                         {importResult.errors.length > 20 && (
-                          <li>â€¢ ... and {importResult.errors.length - 20} more errors</li>
+                          <li>• ... and {importResult.errors.length - 20} more errors</li>
                         )}
                       </ul>
                     </div>
@@ -1295,10 +1295,10 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
                       <p className="text-sm font-medium text-red-900 mb-2">Errors:</p>
                       <ul className="text-xs text-red-800 space-y-1 max-h-40 overflow-y-auto">
                         {importResult.errors.slice(0, 20).map((error, idx) => (
-                          <li key={idx}>â€¢ {error}</li>
+                          <li key={idx}>• {error}</li>
                         ))}
                         {importResult.errors.length > 20 && (
-                          <li>â€¢ ... and {importResult.errors.length - 20} more errors</li>
+                          <li>• ... and {importResult.errors.length - 20} more errors</li>
                         )}
                       </ul>
                     </div>
@@ -1309,10 +1309,10 @@ export default function LiveAuctioneersUpload({ saleId: initialSaleId, saleName:
                       <p className="text-sm font-medium text-yellow-900 mb-2">Warnings:</p>
                       <ul className="text-xs text-yellow-800 space-y-1 max-h-40 overflow-y-auto">
                         {importResult.warnings.slice(0, 20).map((warning, idx) => (
-                          <li key={idx}>â€¢ {warning}</li>
+                          <li key={idx}>• {warning}</li>
                         ))}
                         {importResult.warnings.length > 20 && (
-                          <li>â€¢ ... and {importResult.warnings.length - 20} more warnings</li>
+                          <li>• ... and {importResult.warnings.length - 20} more warnings</li>
                         )}
                       </ul>
                     </div>

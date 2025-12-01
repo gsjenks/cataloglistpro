@@ -634,7 +634,7 @@ export default function EOAProcessing({ saleId, saleName }: EOAProcessingProps) 
                 </p>
                 <div className="max-h-40 overflow-y-auto space-y-1">
                   {stats.errors.slice(0, 10).map((err, idx) => (
-                    <p key={idx} className="text-xs text-green-700">â€¢ {err}</p>
+                    <p key={idx} className="text-xs text-green-700">• {err}</p>
                   ))}
                   {stats.errors.length > 10 && (
                     <p className="text-xs text-green-700 italic">

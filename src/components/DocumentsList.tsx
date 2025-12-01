@@ -351,12 +351,12 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
   };
 
   const getFileIcon = (fileType: string) => {
-    if (fileType.includes('pdf')) return 'ðŸ“„';
-    if (fileType.includes('image')) return 'ðŸ–¼ï¸';
-    if (fileType.includes('word') || fileType.includes('document')) return 'ðŸ“';
-    if (fileType.includes('excel') || fileType.includes('spreadsheet')) return 'ðŸ“Š';
-    if (fileType.includes('video')) return 'ðŸŽ¥';
-    return 'ðŸ“Ž';
+    if (fileType.includes('pdf')) return '📄';
+    if (fileType.includes('image')) return '🖼️';
+    if (fileType.includes('word') || fileType.includes('document')) return '📝';
+    if (fileType.includes('excel') || fileType.includes('spreadsheet')) return '📊';
+    if (fileType.includes('video')) return '[VIDEO]';
+    return '📎';
   };
 
   const formatFileSize = (bytes: number) => {
@@ -477,7 +477,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
           Documents
         </h2>
         <button
-        data-add-document         // â† ADD THIS LINE
+        data-add-document         // ↑ ADD THIS LINE
           onClick={openAddModal}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 shadow-sm transition-all"
         >
@@ -595,7 +595,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
           {hasActiveFilters && (
             <span className="text-indigo-600">
               {searchQuery && `"${searchQuery}"`}
-              {searchQuery && selectedTypeFilter && ' â€¢ '}
+              {searchQuery && selectedTypeFilter && ' • '}
               {selectedTypeFilter && filterOptions.find(f => f.value === selectedTypeFilter)?.label}
             </span>
           )}
@@ -732,7 +732,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
                     <span className="capitalize">{getDocumentTypeLabel(viewingDocument?.document_type || 'other')}</span>
                     {viewingDocument.file_size && (
                       <>
-                        <span>â€¢</span>
+                        <span>•</span>
                         <span>{formatFileSize(viewingDocument.file_size)}</span>
                       </>
                     )}
@@ -928,7 +928,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
 }
 
 /*
- * âœ… STANDALONE VERSION - NO EXTERNAL UTILS NEEDED
+ * ✅ STANDALONE VERSION - NO EXTERNAL UTILS NEEDED
  * 
  * This version includes everything inline:
  * - Document type definitions

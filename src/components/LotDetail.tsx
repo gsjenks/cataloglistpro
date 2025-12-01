@@ -1,7 +1,7 @@
 // src/components/LotDetail.tsx
 // OPTIMIZED: Split into smaller components, memoized handlers
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useFooter, type FooterAction } from '../context/FooterContext';
@@ -19,6 +19,7 @@ import {
   getLAMaterials
 } from '../services/LiveAuctioneersData';
 import type { Lot, Photo } from '../types';
+import { toTitleCase } from '../utils/titleCase';
 import { ArrowLeft, Save, Trash2, Upload, Camera } from 'lucide-react';
 
 // Split components
@@ -45,6 +46,12 @@ export default function LotDetail() {
     name: '', description: '', quantity: 1, condition: '', category: '',
     style: '', origin: '', creator: '', materials: '', dimension_unit: 'inches', consignor: ''
   });
+  const lotRef = useRef(lot);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    lotRef.current = lot;
+  }, [lot]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -486,7 +493,7 @@ export default function LotDetail() {
 
       setLot(prev => ({
         ...prev,
-        name: (aiData.title || '').substring(0, 50) || prev.name,
+        name: toTitleCase((aiData.title || '').substring(0, 50)) || prev.name,
         description: aiData.description || prev.description,
         category: findMatch(aiData.category, categories) || prev.category,
         style: findMatch(aiData.style, styles) || prev.style,
@@ -505,12 +512,13 @@ export default function LotDetail() {
 
   // Save/Delete handlers
   const handleSave = useCallback(async () => {
-    if (!lot.name) { alert('Please enter an item name'); return; }
+    const currentLot = lotRef.current;
+    if (!currentLot.name) { alert('Please enter an item name'); return; }
     if (!saleId) { alert('No sale selected'); return; }
     setSaving(true);
     try {
       if (isNewLot) {
-        const newLot: Lot = { ...lot, sale_id: saleId, id: generateUUID(), name: lot.name, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+        const newLot: Lot = { ...currentLot, sale_id: saleId, id: generateUUID(), name: toTitleCase(currentLot.name || ''), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
         await offlineStorage.upsertLot(newLot);
         if (isOnline) {
           SyncService.startOperation();
@@ -518,8 +526,8 @@ export default function LotDetail() {
         }
         navigate(`/sales/${saleId}/lots/${newLot.id}`, { replace: true });
       } else {
-        if (!lot.id || !lot.sale_id) { alert('Invalid lot data'); return; }
-        const updatedLot: Lot = { ...lot, id: lot.id, sale_id: lot.sale_id, name: lot.name, updated_at: new Date().toISOString() };
+        if (!currentLot.id || !currentLot.sale_id) { alert('Invalid lot data'); return; }
+        const updatedLot: Lot = { ...currentLot, id: currentLot.id, sale_id: currentLot.sale_id, name: toTitleCase(currentLot.name || ''), updated_at: new Date().toISOString() };
         setLot(updatedLot);
         await offlineStorage.upsertLot(updatedLot);
         if (isOnline) {
@@ -530,7 +538,7 @@ export default function LotDetail() {
       }
     } catch (e) { console.error('Error saving:', e); alert('Failed to save item'); }
     finally { setSaving(false); }
-  }, [lot, isNewLot, saleId, lotId, isOnline, navigate]);
+  }, [isNewLot, saleId, lotId, isOnline, navigate]);
 
   const handleDelete = useCallback(async () => {
     if (!window.confirm('Delete this item? Cannot be undone.')) return;
@@ -541,7 +549,7 @@ export default function LotDetail() {
         await offlineStorage.deletePhoto(photo.id);
         if (isOnline) await supabase.storage.from('photos').remove([photo.file_path]);
       }
-      await offlineStorage.upsertLot({ ...lot, id: lotId, deleted: true } as Lot & { deleted: boolean });
+      await offlineStorage.upsertLot({ ...lotRef.current, id: lotId, deleted: true } as Lot & { deleted: boolean });
       if (isOnline) { await supabase.from('lots').delete().eq('id', lotId); SyncService.endOperation(); }
       navigate(`/sales/${saleId}`);
     } catch (e) {
@@ -550,7 +558,7 @@ export default function LotDetail() {
       if (isOnline) SyncService.endOperation();
       setSaving(false);
     }
-  }, [lot, photos, lotId, saleId, isOnline, navigate]);
+  }, [photos, lotId, saleId, isOnline, navigate]);
 
   if (loading) {
     return (

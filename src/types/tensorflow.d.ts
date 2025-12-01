@@ -1,6 +1,6 @@
 // services/ImageAnalysisService.ts
 // Image analysis using TensorFlow COCO-SSD for object detection/counting
-// Reference object: Samsung Galaxy S6 (5.65" × 2.78")
+// Reference object: Samsung Galaxy S6 (5.65" x 2.78")
 
 import * as tf from '@tensorflow/tfjs';
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
@@ -104,7 +104,7 @@ class ImageAnalysisService {
         console.log('🤖 Loading TensorFlow COCO-SSD model...');
         await tf.ready();
         this.model = await cocoSsd.load();
-        console.log('✅ Model loaded successfully');
+        console.log('[OK] Model loaded successfully');
       } catch (error) {
         console.error('Failed to load TensorFlow model:', error);
         throw error;
@@ -254,19 +254,19 @@ class ImageAnalysisService {
     // Prioritize cell phone (lower threshold to 0.3)
     const phone = objects.find(obj => obj.class === 'cell phone' && obj.score > 0.3);
     if (phone) {
-      console.log(`✅ Found reference phone with ${Math.round(phone.score * 100)}% confidence`);
+      console.log(`[OK] Found reference phone with ${Math.round(phone.score * 100)}% confidence`);
       return phone;
     }
 
     // Fall back to other reference objects
     for (const obj of objects) {
       if (this.isReferenceObject(obj.class) && obj.score > 0.3) {
-        console.log(`✅ Found reference ${obj.class} with ${Math.round(obj.score * 100)}% confidence`);
+        console.log(`[OK] Found reference ${obj.class} with ${Math.round(obj.score * 100)}% confidence`);
         return obj;
       }
     }
     
-    console.log('❌ No reference object found');
+    console.log('âŒ No reference object found');
     return null;
   }
 

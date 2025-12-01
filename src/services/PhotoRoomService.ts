@@ -183,7 +183,7 @@ async function adjustLightBalance(blob: Blob, adjustment: number): Promise<Blob>
 
       // Normalize adjustment to -1 to 1 range
       const factor = adjustment / 100;
-      const brightnessAdjust = factor * 50; // Max ±50 brightness
+      const brightnessAdjust = factor * 50; // Max Â±50 brightness
 
       for (let i = 0; i < data.length; i += 4) {
         data[i] = Math.min(255, Math.max(0, data[i] + brightnessAdjust));     // R

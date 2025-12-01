@@ -82,7 +82,7 @@ function AppContent() {
         // Set sync timeout (30 seconds)
         syncTimeoutRef.current = setTimeout(() => {
           if (isMounted) {
-            console.warn('⚠️ Sync timeout - continuing with cached data');
+            console.warn('⚠ï¸ Sync timeout - continuing with cached data');
             setSyncError('Sync is taking longer than expected. Using cached data.');
             setSyncing(false);
             hasPerformedInitialSync.current = true;
@@ -110,7 +110,7 @@ function AppContent() {
         }
 
         if (isMounted) {
-          console.log('✅ Sync complete');
+          console.log('[OK] Sync complete');
           hasPerformedInitialSync.current = true;
           setCompanySwitched(false);
           setSyncing(false);
@@ -128,7 +128,7 @@ function AppContent() {
         }
 
         if (isMounted) {
-          console.error('❌ Sync failed:', error);
+          console.error('âŒ Sync failed:', error);
           setSyncError(error instanceof Error ? error.message : 'Sync failed. Using cached data.');
           // Don't block app usage if sync fails
           hasPerformedInitialSync.current = true;

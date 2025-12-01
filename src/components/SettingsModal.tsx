@@ -473,8 +473,8 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       >
                         <option value="USD">USD ($)</option>
-                        <option value="EUR">EUR (â‚¬)</option>
-                        <option value="GBP">GBP (Â£)</option>
+                        <option value="EUR">EUR (•)</option>
+                        <option value="GBP">GBP (£)</option>
                         <option value="CAD">CAD ($)</option>
                         <option value="AUD">AUD ($)</option>
                       </select>
@@ -522,12 +522,12 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   The <strong>Refresh Data</strong> button syncs all data for active sales including:
                 </p>
                 <ul className="mt-2 space-y-1 text-sm text-blue-800">
-                  <li>â€¢ Company information</li>
-                  <li>â€¢ Active sales and lots</li>
-                  <li>â€¢ Photos and metadata</li>
-                  <li>â€¢ Contacts</li>
-                  <li>â€¢ Documents</li>
-                  <li>â€¢ Category lookups</li>
+                  <li>• Company information</li>
+                  <li>• Active sales and lots</li>
+                  <li>• Photos and metadata</li>
+                  <li>• Contacts</li>
+                  <li>• Documents</li>
+                  <li>• Category lookups</li>
                 </ul>
                 <p className="mt-2 text-xs text-blue-700">
                   Note: Requires internet connection. Data is synced mobile-first with conflict resolution based on most recent timestamp.

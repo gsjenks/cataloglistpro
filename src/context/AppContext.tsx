@@ -97,20 +97,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (ownedResult.status === 'fulfilled') {
         const { data, error } = ownedResult.value;
         if (error) {
-          console.error('âŒ Error loading owned companies:', error);
+          console.error('❌ Error loading owned companies:', error);
         } else if (data) {
           ownedCompanies = data;
           console.log('[OK] Owned companies:', ownedCompanies.length);
         }
       } else {
-        console.error('âŒ Owned companies query failed:', ownedResult.reason);
+        console.error('❌ Owned companies query failed:', ownedResult.reason);
       }
 
       const linkedCompanies: Company[] = [];
       if (linkedResult.status === 'fulfilled') {
         const { data, error } = linkedResult.value;
         if (error) {
-          console.error('âŒ Error loading user_companies:', error);
+          console.error('❌ Error loading user_companies:', error);
         } else if (data) {
           data.forEach((uc: { companies?: Company | Company[] }) => {
             if (uc.companies && typeof uc.companies === 'object' && !Array.isArray(uc.companies)) {
@@ -120,7 +120,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.log('[OK] User_companies relationships:', linkedCompanies.length);
         }
       } else {
-        console.error('âŒ User companies query failed:', linkedResult.reason);
+        console.error('❌ User companies query failed:', linkedResult.reason);
       }
 
       if (ownedCompanies.length === 0 && linkedCompanies.length === 0) {
@@ -154,11 +154,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               }
             }
           } catch (e) {
-            console.error('âŒ Failed to parse cached companies:', e);
+            console.error('❌ Failed to parse cached companies:', e);
           }
         }
         
-        console.error('âŒ No companies loaded and no cache available');
+        console.error('❌ No companies loaded and no cache available');
         setCompanies([]);
         setCurrentCompanyState(null);
         localStorage.removeItem('currentCompanyId');
@@ -213,7 +213,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('currentCompanyId');
       }
     } catch (error) {
-      console.error('âŒ Failed to load companies:', error);
+      console.error('❌ Failed to load companies:', error);
       
       const cachedCompanies = localStorage.getItem('cachedCompanies');
       if (cachedCompanies) {
@@ -241,7 +241,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
           }
         } catch (e) {
-          console.error('âŒ Failed to use cached companies:', e);
+          console.error('❌ Failed to use cached companies:', e);
         }
       }
       
@@ -334,7 +334,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .single();
 
       if (companyError) {
-        console.error('âŒ Error refreshing company:', companyError);
+        console.error('❌ Error refreshing company:', companyError);
       } else if (companyData) {
         // Update current company in state
         setCurrentCompanyState(companyData as Company);
@@ -456,7 +456,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }, 2000);
 
     } catch (error) {
-      console.error('âŒ Failed to refresh active sales data:', error);
+      console.error('❌ Failed to refresh active sales data:', error);
       
       setRefreshProgress({
         stage: 'Refresh failed',
@@ -493,7 +493,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('cachedCompanies');
       console.log('[OK] Signed out successfully');
     } catch (error) {
-      console.error('âŒ Failed to sign out:', error);
+      console.error('❌ Failed to sign out:', error);
       setUser(null);
       setCurrentCompanyState(null);
       setCompanies([]);
@@ -507,7 +507,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     loadingTimeoutRef.current = setTimeout(() => {
-      console.warn('â° Master timeout (15s) - forcing app to load');
+      console.warn('⏰ Master timeout (15s) - forcing app to load');
       setLoading(false);
     }, 15000);
 
@@ -526,7 +526,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { data: { session }, error } = sessionResult;
         
         if (error) {
-          console.error('âŒ Session error:', error);
+          console.error('❌ Session error:', error);
           
           const keys = Object.keys(localStorage);
           keys.forEach(key => {
@@ -551,7 +551,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setCompanies([]);
         }
       } catch (err) {
-        console.error('âŒ Failed to check session:', err);
+        console.error('❌ Failed to check session:', err);
         
         const keys = Object.keys(localStorage);
         keys.forEach(key => {
