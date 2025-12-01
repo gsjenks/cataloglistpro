@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+@theme {
+  /* PhotoInventory Primary Brand Color - Indigo */
+  --color-indigo-50: #eef2ff;
+  --color-indigo-100: #e0e7ff;
+  --color-indigo-200: #c7d2fe;
+  --color-indigo-300: #a5b4fc;
+  --color-indigo-400: #818cf8;
+  --color-indigo-500: #6366f1;
+  --color-indigo-600: #4f46e5;  /* Primary brand color */
+  --color-indigo-700: #4338ca;  /* Hover state */
+  --color-indigo-800: #3730a3;
+  --color-indigo-900: #312e81;
+  
+  /* Accent colors */
+  --color-yellow-400: #fbbf24;  /* Featured star icon */
+  --color-red-600: #dc2626;  /* Danger actions */
+  
+  /* PhotoInventory shadow system */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  
+  /* Additional spacing values */
+  --spacing-18: 4.5rem;   /* 72px */
+  --spacing-88: 22rem;    /* 352px */
+  --spacing-128: 32rem;   /* 512px */
+  
+  /* PhotoInventory border radius */
+  --radius-sm: 0.25rem;  /* 4px */
+  --radius-md: 0.375rem; /* 6px */
+  --radius-lg: 0.5rem;   /* 8px */
+  --radius-xl: 0.75rem;  /* 12px */
+  --radius-2xl: 1rem;    /* 16px */
+  --radius-3xl: 1.5rem;  /* 24px */
+  
+  /* PhotoInventory transition timings */
+  --duration-150: 150ms;
+  --duration-200: 200ms;
+  
+  /* PhotoInventory uses Inter with system fallbacks */
+  --font-family-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Disable native pull-to-refresh */
+html {
+  overscroll-behavior-y: contain;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  
+  /* Disable pull-to-refresh */
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent pull-to-refresh on main app container */
+#root {
+  overscroll-behavior-y: contain;
+  position: relative;
+}
+
+/* Safe Area Insets for Mobile Devices */
+/* Ensures content doesn't overlap with device UI (home indicator, notches, etc.) */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  .pl-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+  
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* Safe area top for status bar */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* Fallback for browsers that don't support safe-area-inset */
+@supports not (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: 20px;
+  }
+  
+  .pt-safe {
+    padding-top: 20px;
+  }
+  
+  .pl-safe {
+    padding-left: 0;
+  }
+  
+  .pr-safe {
+    padding-right: 0;
+  }
+  
+  /* Safe area top fallback */
+  .safe-area-top {
+    padding-top: 0;
+  }
+}
+
+/* Add bottom spacing to content to prevent overlap with fixed footer */
+/* Accounts for footer height (64px) + safe area */
+.content-with-footer {
+  padding-bottom: calc(64px + env(safe-area-inset-bottom, 20px));
+}

@@ -1,0 +1,11 @@
+<svg width="192" height="192" xmlns="http://www.w3.org/2000/svg">
+  <rect width="192" height="192" fill="#4F46E5" rx="20"/>
+  <g fill="white">
+    <!-- Camera icon -->
+    <path d="M64 60h64v8H64z" opacity="0.8"/>
+    <rect x="48" y="68" width="96" height="72" rx="8" stroke="white" stroke-width="4" fill="none"/>
+    <circle cx="96" cy="104" r="20" stroke="white" stroke-width="4" fill="none"/>
+    <circle cx="120" cy="80" r="4"/>
+  </g>
+  <text x="96" y="165" font-family="Arial, sans-serif" font-size="16" font-weight="bold" fill="white" text-anchor="middle">PhotoInventory</text>
+</svg>
