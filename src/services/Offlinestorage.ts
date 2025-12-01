@@ -78,7 +78,7 @@ interface PhotoInventoryDB extends DBSchema {
 class OfflineStorage {
   private db: IDBPDatabase<PhotoInventoryDB> | null = null;
   private readonly DB_NAME = 'PhotoInventoryDB';
-  private readonly DB_VERSION = 4;
+  private readonly DB_VERSION = 5;
 
   async initialize(): Promise<void> {
     this.db = await openDB<PhotoInventoryDB>(this.DB_NAME, this.DB_VERSION, {

@@ -68,7 +68,7 @@ export default function SalesList({ sales, onRefresh }: SalesListProps) {
               className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-lg transition-shadow group relative cursor-pointer"
             >
               {/* Action buttons - Top Right */}
-              <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <div className="absolute top-4 right-4 flex items-center gap-1 z-10">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -103,13 +103,13 @@ export default function SalesList({ sales, onRefresh }: SalesListProps) {
               <div className="space-y-2 mb-3">
                 {sale.start_date && (
                   <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Calendar className="w-4 h-4" />
+                    <Calendar className="w-4 h-4" style={{ color: '#374151' }} />
                     {new Date(sale.start_date).toLocaleDateString()}
                   </div>
                 )}
                 {sale.location && (
                   <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <MapPin className="w-4 h-4" />
+                    <MapPin className="w-4 h-4" style={{ color: '#374151' }} />
                     {sale.location}
                   </div>
                 )}

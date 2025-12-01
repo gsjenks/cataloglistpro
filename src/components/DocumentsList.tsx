@@ -636,7 +636,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
               className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-lg transition-shadow cursor-pointer group relative"
             >
               {/* Action buttons */}
-              <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <div className="absolute top-4 right-4 flex items-center gap-1 z-10">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
