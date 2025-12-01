@@ -47,7 +47,7 @@ class PlatformService {
       );
       
       const result = hasMediaDevices || hasLegacyApi;
-      console.log('ðŸ“· Camera check:', { hasMediaDevices, hasLegacyApi, result });
+      console.log('[CAMERA] Camera check:', { hasMediaDevices, hasLegacyApi, result });
       
       // Return true by default on web to show the button - actual camera access will fail gracefully
       return true;
@@ -91,7 +91,7 @@ class PlatformService {
       ] : []
     };
     
-    console.log('ðŸ“± Platform Capabilities:', capabilities);
+    console.log('[PLATFORM] Platform Capabilities:', capabilities);
     return capabilities;
   }
 
@@ -100,7 +100,7 @@ class PlatformService {
    */
   logPlatformInfo(): void {
     const info = this.getPhotoCapabilities();
-    console.log('Ã°Å¸â€œÂ± Platform Info:', {
+    console.log('[PLATFORM] Platform Info:', {
       platform: info.platform,
       isNative: info.isNative,
       isWeb: info.isWeb,
