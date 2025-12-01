@@ -76,10 +76,10 @@ async function getVisionModel() {
       await testResult.response;
       
       workingModel = modelName;
-      console.log(`✅ Found working model: ${modelName}`);
+      console.log(`âœ… Found working model: ${modelName}`);
       return model;
-    } catch (error) {
-      console.log(`❌ Model ${modelName} failed`);
+    } catch {
+      console.log(`âŒ Model ${modelName} failed`);
       continue;
     }
   }

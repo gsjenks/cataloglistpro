@@ -61,8 +61,8 @@ export default function Auth() {
         if (error) throw error;
         setMessage('Check your email for the password reset link!');
       }
-    } catch (error: any) {
-      setError(error.message || 'An error occurred');
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
@@ -246,8 +246,8 @@ function PasswordResetForm({
           window.location.href = '/';
         }, 2000);
       }
-    } catch (error: any) {
-      setError(error.message || 'Failed to update password');
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : 'Failed to update password');
     } finally {
       setLoading(false);
     }

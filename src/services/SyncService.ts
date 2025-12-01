@@ -5,6 +5,7 @@
 import { supabase } from '../lib/supabase';
 import offlineStorage from './Offlinestorage';
 import PhotoService from './PhotoService';
+import type { Company, Sale, Lot, Photo } from '../types';
 
 const TOTAL_STEPS = 7;
 const MAX_CONCURRENT_DOWNLOADS = 4; // Limit parallel downloads for mobile
@@ -157,7 +158,7 @@ class SyncService {
   }
 
   // STEP 1: Company
-  private async syncCompany(companyId: string): Promise<any> {
+  private async syncCompany(companyId: string): Promise<Company | null> {
     const { data, error } = await supabase
       .from('companies')
       .select('*')
@@ -170,7 +171,7 @@ class SyncService {
   }
 
   // STEP 2: Active sales only
-  private async syncActiveSales(companyId: string): Promise<any[]> {
+  private async syncActiveSales(companyId: string): Promise<Sale[]> {
     const { data, error } = await supabase
       .from('sales')
       .select('*')
@@ -187,7 +188,7 @@ class SyncService {
   }
 
   // STEP 3: Lots for active sales
-  private async syncLots(activeSales: any[]): Promise<any[]> {
+  private async syncLots(activeSales: Sale[]): Promise<Lot[]> {
     if (activeSales.length === 0) return [];
 
     const saleIds = activeSales.map(s => s.id);
@@ -206,7 +207,7 @@ class SyncService {
   }
 
   // STEP 4: Contacts (parallel fetch)
-  private async syncContacts(companyId: string, activeSales: any[]): Promise<void> {
+  private async syncContacts(companyId: string, activeSales: Sale[]): Promise<void> {
     const saleIds = activeSales.map(s => s.id);
 
     // Parallel fetch
@@ -225,7 +226,7 @@ class SyncService {
   }
 
   // STEP 5: Primary images (PARALLEL with concurrency)
-  private async syncPrimaryImages(lots: any[]): Promise<void> {
+  private async syncPrimaryImages(lots: Lot[]): Promise<void> {
     if (lots.length === 0) {
       console.log('  No lots - skipping primary images');
       return;
@@ -247,7 +248,7 @@ class SyncService {
     console.log('  Primary photos found:', primaryPhotos.length);
 
     // Filter photos that need downloading
-    const photosToDownload: any[] = [];
+    const photosToDownload: Photo[] = [];
     await Promise.all(primaryPhotos.map(async (photo) => {
       await offlineStorage.upsertPhoto({ ...photo, synced: false });
       const existingBlob = await offlineStorage.getPhotoBlob(photo.id);
@@ -280,7 +281,7 @@ class SyncService {
   }
 
   // STEP 6: Documents (parallel fetch)
-  private async syncDocuments(companyId: string, activeSales: any[]): Promise<void> {
+  private async syncDocuments(companyId: string, activeSales: Sale[]): Promise<void> {
     const saleIds = activeSales.map(s => s.id);
 
     // Parallel fetch
@@ -299,7 +300,7 @@ class SyncService {
   }
 
   // STEP 7: Remaining images (PARALLEL with concurrency)
-  private async syncRemainingImages(lots: any[]): Promise<void> {
+  private async syncRemainingImages(lots: Lot[]): Promise<void> {
     if (lots.length === 0) {
       console.log('  No lots - skipping remaining images');
       return;
@@ -321,7 +322,7 @@ class SyncService {
     console.log('  Remaining photos found:', remainingPhotos.length);
 
     // Filter photos that need downloading
-    const photosToDownload: any[] = [];
+    const photosToDownload: Photo[] = [];
     await Promise.all(remainingPhotos.map(async (photo) => {
       await offlineStorage.upsertPhoto({ ...photo, synced: false });
       const existingBlob = await offlineStorage.getPhotoBlob(photo.id);
@@ -376,7 +377,7 @@ class SyncService {
         try {
           const { error } = await supabase.from(item.table).upsert(item.data);
           if (!error) await offlineStorage.markSynced(item.id);
-        } catch (err) {
+        } catch {
           // Continue on error
         }
       }));

@@ -1,6 +1,7 @@
 // services/PhotoService.ts
 import offlineStorage from './Offlinestorage';
 import { supabase } from '../lib/supabase';
+import type { Photo } from '../types';
 
 interface PhotoMetadata {
   id: string;
@@ -44,12 +45,12 @@ class PhotoService {
     });
   }
 
-  async getPhotosByLot(lotId: string): Promise<any[]> {
+  async getPhotosByLot(lotId: string): Promise<Photo[]> {
     await this.ensureReady();
     return await offlineStorage.getPhotosByLot(lotId);
   }
 
-  async getPhotosForLot(lotId: string): Promise<any[]> {
+  async getPhotosForLot(lotId: string): Promise<Photo[]> {
     return this.getPhotosByLot(lotId);
   }
 
@@ -60,7 +61,7 @@ class PhotoService {
   async savePhotoFast(
     photoId: string,
     lotId: string,
-    photoData: any,
+    photoData: Blob | { base64String?: string; format?: string; webPath?: string },
     filePath: string,
     fileName: string,
     isPrimary: boolean = false
@@ -92,7 +93,7 @@ class PhotoService {
             setTimeout(async () => {
               try {
                 await this.syncSinglePhoto(blob, filePath, metadata);
-              } catch (error) {
+              } catch {
                 console.log('Background sync will retry later');
               }
             }, 3000);
@@ -115,12 +116,12 @@ class PhotoService {
   /**
    * Convert photo data to blob
    */
-  private async convertToBlob(photoData: any): Promise<Blob> {
-    if (photoData.base64String) {
+  private async convertToBlob(photoData: { base64String?: string; format?: string; webPath?: string } | Blob): Promise<Blob> {
+    if (!(photoData instanceof Blob) && photoData.base64String) {
       return this.base64ToBlob(photoData.base64String, photoData.format || 'jpeg');
     }
     
-    if (photoData.webPath) {
+    if (!(photoData instanceof Blob) && photoData.webPath) {
       const response = await fetch(photoData.webPath);
       return await response.blob();
     }
@@ -241,7 +242,7 @@ class PhotoService {
 
       await offlineStorage.upsertPhoto({ ...photo, synced: true });
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -291,7 +292,7 @@ class PhotoService {
   async syncPhotos(lotId?: string): Promise<{ success: number; failed: number }> {
     await this.ensureReady();
     
-    let photos: any[];
+    let photos: Photo[];
     if (lotId) {
       photos = await this.getPhotosByLot(lotId);
       photos = photos.filter(p => !p.synced);
@@ -322,7 +323,7 @@ class PhotoService {
         } else {
           failed++;
         }
-      } catch (error) {
+      } catch {
         failed++;
       }
     }
@@ -364,13 +365,13 @@ class PhotoService {
           await this.savePhotoBlob(photo.id, blob);
           await offlineStorage.upsertPhoto({ ...photo, synced: true });
           success++;
-        } catch (error) {
+        } catch {
           failed++;
         }
       }
 
       return { success, failed };
-    } catch (error) {
+    } catch {
       return { success: 0, failed: 0 };
     }
   }

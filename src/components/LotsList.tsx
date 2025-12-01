@@ -97,8 +97,8 @@ const LotCard = memo(({
     if (lot.width) parts.push(`W: ${lot.width}"`);
     if (lot.depth) parts.push(`D: ${lot.depth}"`);
     
-    let result = parts.join(' × ');
-    if (lot.weight) result += ` • ${lot.weight} lbs`;
+    let result = parts.join(' Ã— ');
+    if (lot.weight) result += ` â€¢ ${lot.weight} lbs`;
     
     return result || 'Not specified';
   };
@@ -207,9 +207,10 @@ export default function LotsList({ lots, saleId, onRefresh }: LotsListProps) {
 
   // Cleanup on unmount
   useEffect(() => {
+    const cache = photoCache.current;
     return () => {
-      photoCache.current.forEach(url => PhotoService.revokeObjectUrl(url));
-      photoCache.current.clear();
+      cache.forEach(url => PhotoService.revokeObjectUrl(url));
+      cache.clear();
     };
   }, []);
 

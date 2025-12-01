@@ -29,7 +29,7 @@ export default function CompanySetup() {
     setError(null);
 
     try {
-      console.log('🏢 Creating company:', formData.name);
+      console.log('ðŸ¢ Creating company:', formData.name);
 
       // Step 1: Create the company with user_id
       const { data: company, error: companyError } = await supabase
@@ -48,11 +48,11 @@ export default function CompanySetup() {
         .single();
 
       if (companyError) {
-        console.error('❌ Error creating company:', companyError);
+        console.error('âŒ Error creating company:', companyError);
         throw companyError;
       }
 
-      console.log('✅ Company created:', company.id);
+      console.log('âœ… Company created:', company.id);
 
       // Step 2: Create entry in user_companies join table
       const { error: userCompanyError } = await supabase
@@ -66,7 +66,7 @@ export default function CompanySetup() {
         ]);
 
       if (userCompanyError) {
-        console.error('❌ Error creating user_company link:', userCompanyError);
+        console.error('âŒ Error creating user_company link:', userCompanyError);
         // This is critical - if this fails, we should clean up the company
         
         // Try to delete the company we just created
@@ -75,16 +75,16 @@ export default function CompanySetup() {
         throw new Error('Failed to link company to user. Please try again.');
       }
 
-      console.log('✅ User-company link created');
+      console.log('âœ… User-company link created');
 
       // Step 3: Refresh companies to load the new one
-      console.log('🔄 Refreshing companies...');
+      console.log('ðŸ”„ Refreshing companies...');
       await refreshCompanies();
 
-      console.log('✅ Company setup complete!');
-    } catch (err: any) {
-      console.error('❌ Failed to create company:', err);
-      setError(err.message || 'Failed to create company. Please try again.');
+      console.log('âœ… Company setup complete!');
+    } catch (err: unknown) {
+      console.error('âŒ Failed to create company:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create company. Please try again.');
       setLoading(false);
     }
     // Note: Don't setLoading(false) on success - let the app redirect
@@ -196,8 +196,8 @@ export default function CompanySetup() {
                   disabled={loading}
                 >
                   <option value="USD">USD ($)</option>
-                  <option value="EUR">EUR (€)</option>
-                  <option value="GBP">GBP (£)</option>
+                  <option value="EUR">EUR (â‚¬)</option>
+                  <option value="GBP">GBP (Â£)</option>
                   <option value="CAD">CAD ($)</option>
                   <option value="AUD">AUD ($)</option>
                 </select>

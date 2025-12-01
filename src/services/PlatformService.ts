@@ -39,14 +39,15 @@ class PlatformService {
       const hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
       
       // Also check legacy API for older browsers
+      const nav = navigator as unknown as Record<string, unknown>;
       const hasLegacyApi = !!(
-        (navigator as any).getUserMedia ||
-        (navigator as any).webkitGetUserMedia ||
-        (navigator as any).mozGetUserMedia
+        nav.getUserMedia ||
+        nav.webkitGetUserMedia ||
+        nav.mozGetUserMedia
       );
       
       const result = hasMediaDevices || hasLegacyApi;
-      console.log('📷 Camera check:', { hasMediaDevices, hasLegacyApi, result });
+      console.log('ðŸ“· Camera check:', { hasMediaDevices, hasLegacyApi, result });
       
       // Return true by default on web to show the button - actual camera access will fail gracefully
       return true;
@@ -90,7 +91,7 @@ class PlatformService {
       ] : []
     };
     
-    console.log('📱 Platform Capabilities:', capabilities);
+    console.log('ðŸ“± Platform Capabilities:', capabilities);
     return capabilities;
   }
 
@@ -99,7 +100,7 @@ class PlatformService {
    */
   logPlatformInfo(): void {
     const info = this.getPhotoCapabilities();
-    console.log('ðŸ“± Platform Info:', {
+    console.log('Ã°Å¸â€œÂ± Platform Info:', {
       platform: info.platform,
       isNative: info.isNative,
       isWeb: info.isWeb,

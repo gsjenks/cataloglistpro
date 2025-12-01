@@ -98,7 +98,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
 
     // Filter by type
     if (selectedTypeFilter) {
-      filtered = filtered.filter(doc => (doc as any).document_type === selectedTypeFilter);
+      filtered = filtered.filter(doc => doc.document_type === selectedTypeFilter);
     }
 
     // Filter by search query
@@ -131,7 +131,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
     setFormData({
       name: doc.name || '',
       description: doc.description || '',
-      document_type: (doc as any).document_type || 'other'
+      document_type: doc.document_type || 'other'
     });
     setFile(null);
     setShowModal(true);
@@ -165,9 +165,9 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
       } else {
         throw new Error('No file path or URL available');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error loading document:', error);
-      setViewerError(error.message || 'Failed to load document');
+      setViewerError(error instanceof Error ? error.message : 'Failed to load document');
     } finally {
       setLoadingViewer(false);
     }
@@ -256,13 +256,13 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
       setShowModal(false);
       setEditingDocument(null);
       onRefresh();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error saving document:', error);
-      
-      if (error.message?.includes('storage')) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('storage')) {
         alert('Storage bucket not found. Please set up the "documents" storage bucket in Supabase first.');
       } else {
-        alert('Failed to save document: ' + (error.message || 'Unknown error'));
+        alert('Failed to save document: ' + message);
       }
     } finally {
       setUploading(false);
@@ -299,9 +299,9 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
       }
 
       onRefresh();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting document:', error);
-      alert('Failed to delete document: ' + (error.message || 'Unknown error'));
+      alert('Failed to delete document: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 
@@ -351,12 +351,12 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
   };
 
   const getFileIcon = (fileType: string) => {
-    if (fileType.includes('pdf')) return '📄';
-    if (fileType.includes('image')) return '🖼️';
-    if (fileType.includes('word') || fileType.includes('document')) return '📝';
-    if (fileType.includes('excel') || fileType.includes('spreadsheet')) return '📊';
-    if (fileType.includes('video')) return '🎥';
-    return '📎';
+    if (fileType.includes('pdf')) return 'ðŸ“„';
+    if (fileType.includes('image')) return 'ðŸ–¼ï¸';
+    if (fileType.includes('word') || fileType.includes('document')) return 'ðŸ“';
+    if (fileType.includes('excel') || fileType.includes('spreadsheet')) return 'ðŸ“Š';
+    if (fileType.includes('video')) return 'ðŸŽ¥';
+    return 'ðŸ“Ž';
   };
 
   const formatFileSize = (bytes: number) => {
@@ -477,7 +477,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
           Documents
         </h2>
         <button
-        data-add-document         // ← ADD THIS LINE
+        data-add-document         // â† ADD THIS LINE
           onClick={openAddModal}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 shadow-sm transition-all"
         >
@@ -595,7 +595,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
           {hasActiveFilters && (
             <span className="text-indigo-600">
               {searchQuery && `"${searchQuery}"`}
-              {searchQuery && selectedTypeFilter && ' • '}
+              {searchQuery && selectedTypeFilter && ' â€¢ '}
               {selectedTypeFilter && filterOptions.find(f => f.value === selectedTypeFilter)?.label}
             </span>
           )}
@@ -691,7 +691,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="inline-block px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 font-medium">
-                    {getDocumentTypeLabel((doc as any).document_type || 'other')}
+                    {getDocumentTypeLabel(doc.document_type || 'other')}
                   </span>
                   {doc.file_size && (
                     <span className="text-gray-500">
@@ -729,10 +729,10 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
                     {viewingDocument.name}
                   </h3>
                   <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <span className="capitalize">{getDocumentTypeLabel((viewingDocument as any).document_type)}</span>
+                    <span className="capitalize">{getDocumentTypeLabel(viewingDocument?.document_type || 'other')}</span>
                     {viewingDocument.file_size && (
                       <>
-                        <span>•</span>
+                        <span>â€¢</span>
                         <span>{formatFileSize(viewingDocument.file_size)}</span>
                       </>
                     )}
@@ -928,7 +928,7 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
 }
 
 /*
- * ✅ STANDALONE VERSION - NO EXTERNAL UTILS NEEDED
+ * âœ… STANDALONE VERSION - NO EXTERNAL UTILS NEEDED
  * 
  * This version includes everything inline:
  * - Document type definitions

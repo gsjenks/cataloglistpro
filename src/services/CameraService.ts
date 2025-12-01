@@ -41,7 +41,7 @@ class CameraService {
   }
 
   /**
-   * âœ¨ NEW: Web camera capture using MediaDevices API
+   * Ã¢Å“Â¨ NEW: Web camera capture using MediaDevices API
    * Works on desktop/laptop browsers with webcam
    */
   async captureFromWebCamera(lotId: string, isPrimary: boolean = false): Promise<CaptureResult> {
@@ -53,7 +53,7 @@ class CameraService {
     }
 
     try {
-      console.log('ðŸ“· Opening web camera...');
+      console.log('Ã°Å¸â€œÂ· Opening web camera...');
 
       // Request camera permission and get stream
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -85,23 +85,24 @@ class CameraService {
       this.stopWebCamera();
 
       return result;
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as Error & { name?: string };
       console.error('Web camera error:', error);
       this.stopWebCamera();
       
       return {
         success: false,
-        error: error.name === 'NotAllowedError' 
+        error: err.name === 'NotAllowedError' 
           ? 'Camera permission denied. Please allow camera access in your browser settings.'
-          : error.name === 'NotFoundError'
+          : err.name === 'NotFoundError'
           ? 'No camera found. Please connect a webcam and try again.'
-          : `Camera error: ${error.message}`
+          : `Camera error: ${err.message || 'Unknown error'}`
       };
     }
   }
 
   /**
-   * âœ¨ NEW: Show camera capture UI
+   * Ã¢Å“Â¨ NEW: Show camera capture UI
    */
   private async showCameraUI(
     video: HTMLVideoElement,
@@ -148,7 +149,7 @@ class CameraService {
 
       // Capture button
       const captureBtn = document.createElement('button');
-      captureBtn.textContent = 'ðŸ“¸ Capture';
+      captureBtn.textContent = 'Ã°Å¸â€œÂ¸ Capture';
       captureBtn.style.cssText = `
         padding: 15px 40px;
         font-size: 18px;
@@ -168,7 +169,7 @@ class CameraService {
 
       // Cancel button
       const cancelBtn = document.createElement('button');
-      cancelBtn.textContent = 'âœ• Cancel';
+      cancelBtn.textContent = 'Ã¢Å“â€¢ Cancel';
       cancelBtn.style.cssText = `
         padding: 15px 40px;
         font-size: 18px;
@@ -197,7 +198,7 @@ class CameraService {
   }
 
   /**
-   * âœ¨ NEW: Capture current video frame
+   * Ã¢Å“Â¨ NEW: Capture current video frame
    */
   private async captureFrame(
     video: HTMLVideoElement,
@@ -230,7 +231,7 @@ class CameraService {
       const photoId = generateUUID();
       const blobUrl = URL.createObjectURL(blob);
 
-      console.log('âœ… Web camera photo captured');
+      console.log('Ã¢Å“â€¦ Web camera photo captured');
 
       // Save to IndexedDB (non-blocking)
       this.savePhotoToIndexedDB(photoId, lotId, blob, isPrimary).catch(err => {
@@ -249,11 +250,11 @@ class CameraService {
         photoId,
         blobUrl
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Capture frame error:', error);
       return {
         success: false,
-        error: error.message || 'Failed to capture photo'
+        error: error instanceof Error ? error.message : 'Failed to capture photo'
       };
     }
   }
@@ -280,7 +281,7 @@ class CameraService {
     }
 
     try {
-      console.log('ðŸ“¸ Opening native camera...');
+      console.log('Ã°Å¸â€œÂ¸ Opening native camera...');
 
       const image = await Camera.getPhoto({
         quality: 90,
@@ -302,7 +303,7 @@ class CameraService {
       const photoId = generateUUID();
       const blobUrl = URL.createObjectURL(blob);
 
-      console.log('âœ… Photo captured with native camera');
+      console.log('Ã¢Å“â€¦ Photo captured with native camera');
 
       this.savePhotoToIndexedDB(photoId, lotId, blob, isPrimary).catch(err => {
         console.error('Failed to save to IndexedDB:', err);
@@ -319,11 +320,11 @@ class CameraService {
         photoId,
         blobUrl
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to capture photo:', error);
       return {
         success: false,
-        error: error.message || 'Failed to capture photo'
+        error: error instanceof Error ? error.message : 'Failed to capture photo'
       };
     }
   }
@@ -340,7 +341,7 @@ class CameraService {
     }
 
     try {
-      console.log('ðŸ–¼ï¸ Opening gallery...');
+      console.log('Ã°Å¸â€“Â¼Ã¯Â¸Â Opening gallery...');
 
       const image = await Camera.getPhoto({
         quality: 90,
@@ -360,7 +361,7 @@ class CameraService {
       const photoId = generateUUID();
       const blobUrl = URL.createObjectURL(blob);
 
-      console.log('âœ… Photo selected from gallery');
+      console.log('Ã¢Å“â€¦ Photo selected from gallery');
 
       this.savePhotoToIndexedDB(photoId, lotId, blob, false).catch(err => {
         console.error('Failed to save to IndexedDB:', err);
@@ -377,11 +378,11 @@ class CameraService {
         photoId,
         blobUrl
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to pick photo:', error);
       return {
         success: false,
-        error: error.message || 'Failed to pick photo'
+        error: error instanceof Error ? error.message : 'Failed to pick photo'
       };
     }
   }
@@ -397,7 +398,7 @@ class CameraService {
     };
 
     const platform = PlatformService.getPlatform();
-    console.log(`ðŸ“‚ Processing ${files.length} file(s) from ${platform}...`);
+    console.log(`Ã°Å¸â€œâ€š Processing ${files.length} file(s) from ${platform}...`);
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
@@ -441,7 +442,7 @@ class CameraService {
       }
     }
 
-    console.log(`âœ… Processed ${result.success} file(s), ${result.failed} failed`);
+    console.log(`Ã¢Å“â€¦ Processed ${result.success} file(s), ${result.failed} failed`);
     return result;
   }
 
@@ -481,7 +482,7 @@ class CameraService {
     };
 
     await offlineStorage.savePhoto(photoMetadata, blob);
-    console.log('âœ… Photo saved to IndexedDB');
+    console.log('Ã¢Å“â€¦ Photo saved to IndexedDB');
   }
 
   /**
@@ -565,7 +566,7 @@ class CameraService {
         }
       }
 
-      console.log(`âœ… Synced ${unsyncedPhotos.length} photos to Supabase`);
+      console.log(`Ã¢Å“â€¦ Synced ${unsyncedPhotos.length} photos to Supabase`);
     } catch (error) {
       console.error('Batch sync error:', error);
     }

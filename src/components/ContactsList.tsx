@@ -64,7 +64,7 @@ export default function ContactsList({ contacts, companyId, saleId, onRefresh }:
       suffix: contact.suffix || '',
       business_name: contact.business_name || '',
       role: contact.role || '',
-      contact_type: (contact as any).contact_type || '',
+      contact_type: contact.contact_type || '',
       email: contact.email || '',
       phone: contact.phone || '',
       address: contact.address || '',
@@ -250,7 +250,7 @@ export default function ContactsList({ contacts, companyId, saleId, onRefresh }:
                 </div>
 
                 {/* Business Info */}
-                {(contact.business_name || (contact as any).contact_type || contact.role) && (
+                {(contact.business_name || contact.contact_type || contact.role) && (
                   <div className="space-y-2">
                     {contact.business_name && (
                       <div className="flex items-center gap-3 text-sm">
@@ -258,10 +258,10 @@ export default function ContactsList({ contacts, companyId, saleId, onRefresh }:
                         <span className="text-gray-700">{contact.business_name}</span>
                       </div>
                     )}
-                    {(contact as any).contact_type && (
+                    {contact.contact_type && (
                       <div className="flex items-center gap-3 text-sm">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">
-                          {(contact as any).contact_type.charAt(0).toUpperCase() + (contact as any).contact_type.slice(1)}
+                          {contact.contact_type.charAt(0).toUpperCase() + contact.contact_type.slice(1)}
                         </span>
                       </div>
                     )}

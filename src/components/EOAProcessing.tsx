@@ -91,7 +91,7 @@ export default function EOAProcessing({ saleId, saleName }: EOAProcessingProps) 
           headers = row.values as string[];
           headers.shift();
         } else {
-          const lot: any = {};
+          const lot: Record<string, string> = {};
           row.eachCell((cell, colNumber) => {
             const header = headers[colNumber - 1];
             if (header) {
@@ -100,7 +100,7 @@ export default function EOAProcessing({ saleId, saleName }: EOAProcessingProps) 
           });
           
           if (lot['Lot Number']) {
-            lots.push(lot as EOALot);
+            lots.push(lot as unknown as EOALot);
           }
         }
       });
@@ -634,7 +634,7 @@ export default function EOAProcessing({ saleId, saleName }: EOAProcessingProps) 
                 </p>
                 <div className="max-h-40 overflow-y-auto space-y-1">
                   {stats.errors.slice(0, 10).map((err, idx) => (
-                    <p key={idx} className="text-xs text-green-700">• {err}</p>
+                    <p key={idx} className="text-xs text-green-700">â€¢ {err}</p>
                   ))}
                   {stats.errors.length > 10 && (
                     <p className="text-xs text-green-700 italic">

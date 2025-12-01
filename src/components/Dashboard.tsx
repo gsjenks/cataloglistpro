@@ -220,7 +220,7 @@ export default function Dashboard() {
         contact.suffix?.toLowerCase().includes(query) ||
         contact.business_name?.toLowerCase().includes(query) ||
         contact.role?.toLowerCase().includes(query) ||
-        (contact as any).contact_type?.toLowerCase().includes(query) ||
+        contact.contact_type?.toLowerCase().includes(query) ||
         contact.email?.toLowerCase().includes(query) ||
         contact.phone?.toLowerCase().includes(query) ||
         contact.address?.toLowerCase().includes(query) ||
@@ -234,7 +234,7 @@ export default function Dashboard() {
     const filter = activeFilters.contacts;
     if (filter) {
       filtered = filtered.filter(contact => 
-        (contact as any).contact_type?.toLowerCase() === filter.toLowerCase()
+        contact.contact_type?.toLowerCase() === filter.toLowerCase()
       );
     }
     

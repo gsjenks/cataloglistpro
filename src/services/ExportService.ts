@@ -5,40 +5,7 @@ import { supabase } from '../lib/supabase';
 import offlineStorage from './Offlinestorage';
 import PhotoService from './PhotoService';
 import JSZip from 'jszip';
-
-interface Lot {
-  id: string;
-  lot_number: number;
-  name: string;
-  description?: string;
-  condition?: string;
-  consignor?: string;
-  estimate_low?: number;
-  estimate_high?: number;
-  starting_bid?: number;
-  reserve_price?: number;
-  buy_now_price?: number;
-  sold_price?: number;
-  height?: number;
-  width?: number;
-  depth?: number;
-  dimension_unit?: string;
-  weight?: number;
-  quantity?: number;
-  category?: string;
-  style?: string;
-  origin?: string;
-  creator?: string;
-  materials?: string;
-}
-
-interface Photo {
-  id: string;
-  lot_id: string;
-  file_name: string;
-  is_primary: boolean;
-  sequence?: number;
-}
+import type { Lot, Photo } from '../types';
 
 class ExportService {
   /**
@@ -51,7 +18,7 @@ class ExportService {
     includePhotos: boolean = false
   ): Promise<{ success: boolean; message: string; zipBlob?: Blob }> {
     try {
-      console.log('🔄 Starting LiveAuctioneers export...');
+      console.log('ðŸ”„ Starting LiveAuctioneers export...');
 
       // Fetch lots - try cloud first, fallback to offline
       const lots = await this.fetchLots(saleId);
@@ -63,7 +30,7 @@ class ExportService {
         };
       }
 
-      console.log(`📦 Found ${lots.length} lots`);
+      console.log(`ðŸ“¦ Found ${lots.length} lots`);
 
       // Fetch photos for each lot
       const lotsWithPhotos = await this.fetchPhotosForLots(lots);
@@ -94,7 +61,7 @@ class ExportService {
         };
       }
     } catch (error) {
-      console.error('❌ Export failed:', error);
+      console.error('âŒ Export failed:', error);
       return {
         success: false,
         message: error instanceof Error ? error.message : 'Export failed'
@@ -116,13 +83,13 @@ class ExportService {
           .order('lot_number', { ascending: true });
 
         if (!error && data) {
-          console.log('☁️ Fetched lots from cloud');
+          console.log('â˜ï¸ Fetched lots from cloud');
           return data;
         }
       }
 
       // Fallback to offline storage
-      console.log('📱 Fetching lots from offline storage');
+      console.log('ðŸ“± Fetching lots from offline storage');
       await offlineStorage.initialize();
       const offlineLots = await offlineStorage.getLotsBySale(saleId);
       return offlineLots;
@@ -143,8 +110,8 @@ class ExportService {
           const photos = await PhotoService.getPhotosForLot(lot.id);
           
           // CRITICAL SORT: Primary photo MUST be first
-          // 1. Primary photo (is_primary = true) → position 1 → lotNumber_1.jpg → ImageFile.1
-          // 2. Remaining photos sorted by created_at → positions 2-20 → lotNumber_2.jpg to lotNumber_20.jpg
+          // 1. Primary photo (is_primary = true) â†’ position 1 â†’ lotNumber_1.jpg â†’ ImageFile.1
+          // 2. Remaining photos sorted by created_at â†’ positions 2-20 â†’ lotNumber_2.jpg to lotNumber_20.jpg
           const sortedPhotos = photos
             .sort((a, b) => {
               if (a.is_primary && !b.is_primary) return -1;
@@ -215,13 +182,13 @@ class ExportService {
     // Build CSV rows
     const rows = lots.map(lot => {
       // Prepare image file names in LiveAuctioneers format: lotNumber_sequence.jpg
-      // CRITICAL: Primary photo is ALWAYS at index 0 → becomes lotNumber_1.jpg in ImageFile.1
+      // CRITICAL: Primary photo is ALWAYS at index 0 â†’ becomes lotNumber_1.jpg in ImageFile.1
       // This ensures the primary photo displays as the main image on LiveAuctioneers
       const imageColumns = Array(20).fill('');
       lot.photos.forEach((_photo, index) => {
         if (index < 20) {
           // Format: lotNumber_sequence.jpg (e.g., 123_1.jpg, 123_2.jpg)
-          // Primary photo at index 0 → 123_1.jpg → ImageFile.1 column
+          // Primary photo at index 0 â†’ 123_1.jpg â†’ ImageFile.1 column
           imageColumns[index] = `${lot.lot_number}_${index + 1}.jpg`;
         }
       });
@@ -307,7 +274,7 @@ class ExportService {
     saleName: string,
     lots: Array<Lot & { photos: Photo[] }>
   ): Promise<Blob> {
-    console.log('📦 Creating ZIP with photos...');
+    console.log('ðŸ“¦ Creating ZIP with photos...');
     
     const zip = new JSZip();
     
@@ -340,17 +307,17 @@ class ExportService {
             photosFolder.file(photoFilename, photoBlob);
             photoCount++;
           } else {
-            console.warn(`⚠️ Photo blob not found for ${photo.file_name}`);
+            console.warn(`[WARN] Photo blob not found for ${photo.file_name}`);
             failedCount++;
           }
         } catch (error) {
-          console.error(`❌ Failed to add photo ${photo.file_name}:`, error);
+          console.error(`âŒ Failed to add photo ${photo.file_name}:`, error);
           failedCount++;
         }
       }
     }
 
-    console.log(`✅ Added ${photoCount} photos to ZIP (${failedCount} failed)`);
+    console.log(`[OK] Added ${photoCount} photos to ZIP (${failedCount} failed)`);
 
     // Generate ZIP blob
     const zipBlob = await zip.generateAsync({ 
@@ -383,7 +350,7 @@ class ExportService {
    */
   private sanitizeFilename(filename: string): string {
     return filename
-      .replace(/[^a-z0-9_\-]/gi, '_')
+      .replace(/[^a-z0-9_-]/gi, '_')
       .replace(/_{2,}/g, '_')
       .substring(0, 100);
   }

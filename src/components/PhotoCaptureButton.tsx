@@ -38,8 +38,8 @@ export default function PhotoCaptureButton({
       } else {
         onError(result.error || 'Failed to capture photo');
       }
-    } catch (error: any) {
-      onError(error.message || 'Camera error');
+    } catch (error: unknown) {
+      onError(error instanceof Error ? error.message : 'Camera error');
     } finally {
       setCapturing(false);
     }
@@ -60,8 +60,8 @@ export default function PhotoCaptureButton({
       } else {
         onError(result.error || 'Failed to capture photo');
       }
-    } catch (error: any) {
-      onError(error.message || 'Web camera error');
+    } catch (error: unknown) {
+      onError(error instanceof Error ? error.message : 'Web camera error');
     } finally {
       setCapturing(false);
     }
@@ -89,8 +89,8 @@ export default function PhotoCaptureButton({
         if (result.failed > 0) {
           onError(`${result.failed} file(s) failed to upload`);
         }
-      } catch (error: any) {
-        onError(error.message || 'Upload error');
+      } catch (error: unknown) {
+        onError(error instanceof Error ? error.message : 'Upload error');
       } finally {
         setCapturing(false);
       }
@@ -225,4 +225,4 @@ export default function PhotoCaptureButton({
       )}
     </div>
   );
-}   
+}

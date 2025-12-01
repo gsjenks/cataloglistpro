@@ -61,14 +61,14 @@ export default function SaleDetail() {
     loadLots();
     loadContacts();
     loadDocuments();
-  }, [saleId]);
+  }, [saleId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load export stats when Reports tab is active
   useEffect(() => {
     if (activeTab === 'reports' && saleId) {
       loadExportStats();
     }
-  }, [activeTab, saleId]);
+  }, [activeTab, saleId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Set footer actions based on active tab
   useEffect(() => {
@@ -565,7 +565,7 @@ export default function SaleDetail() {
           <span>{formatDate(sale.start_date)}</span>
           {sale.location && (
             <>
-              <span>•</span>
+              <span>â€¢</span>
               <span>{sale.location}</span>
             </>
           )}

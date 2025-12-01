@@ -63,9 +63,9 @@ export default function SaleModal({ sale, companyId, onClose, onSave }: SaleModa
       }
 
       onSave();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error saving sale:', err);
-      setError(err.message || 'Failed to save sale');
+      setError(err instanceof Error ? err.message : 'Failed to save sale');
     } finally {
       setLoading(false);
     }

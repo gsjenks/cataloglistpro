@@ -118,8 +118,9 @@ export async function reassignTemporaryNumbers(
         } else {
           nextNumber++;
         }
-      } catch (error: any) {
-        errors.push(`Error updating lot ${lot.id}: ${error.message}`);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`Error updating lot ${lot.id}: ${message}`);
       }
     }
 
@@ -127,10 +128,11 @@ export async function reassignTemporaryNumbers(
       success: errors.length === 0,
       errors,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return {
       success: false,
-      errors: [`Failed to reassign temporary numbers: ${error.message}`],
+      errors: [`Failed to reassign temporary numbers: ${message}`],
     };
   }
 }

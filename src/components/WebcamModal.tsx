@@ -17,7 +17,7 @@ function WebcamModal({ onCapture, onClose }: WebcamModalProps) {
   useEffect(() => {
     startCamera();
     return () => stopCamera();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startCamera = async () => {
     try {

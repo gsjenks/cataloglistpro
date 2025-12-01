@@ -72,12 +72,12 @@ export default function LotDetail() {
   useEffect(() => {
     if (isNewLot) initializeNewLot();
     else loadLot();
-  }, [lotId, saleId]);
+  }, [lotId, saleId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load photos
   useEffect(() => {
     if (!isNewLot && lotId) loadPhotos();
-  }, [lotId, isNewLot]);
+  }, [lotId, isNewLot]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync completion reload
   useEffect(() => {
@@ -88,7 +88,7 @@ export default function LotDetail() {
       wasSyncing = syncing;
     });
     return unsubscribe;
-  }, [lotId, isNewLot]);
+  }, [lotId, isNewLot]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup URLs
   useEffect(() => {
@@ -138,7 +138,7 @@ export default function LotDetail() {
 
     setActions(actions);
     return () => clearActions();
-  }, [lot.name, isNewLot, saving, saleId]);
+  }, [lot.name, isNewLot, saving, saleId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Data loading functions
   const initializeNewLot = async () => {
@@ -321,7 +321,7 @@ export default function LotDetail() {
 
   // Photo selection handlers
   const togglePhotoSelection = useCallback((photoId: string) => {
-    setSelectedPhotos(prev => { const next = new Set(prev); next.has(photoId) ? next.delete(photoId) : next.add(photoId); return next; });
+    setSelectedPhotos(prev => { const next = new Set(prev); if (next.has(photoId)) { next.delete(photoId); } else { next.add(photoId); } return next; });
   }, []);
   const selectAllPhotos = useCallback(() => setSelectedPhotos(new Set(photos.map(p => p.id))), [photos]);
   const clearSelection = useCallback(() => setSelectedPhotos(new Set()), []);
@@ -483,10 +483,11 @@ export default function LotDetail() {
   // Save/Delete handlers
   const handleSave = useCallback(async () => {
     if (!lot.name) { alert('Please enter an item name'); return; }
+    if (!saleId) { alert('No sale selected'); return; }
     setSaving(true);
     try {
       if (isNewLot) {
-        const newLot = { ...lot, sale_id: saleId, id: generateUUID(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+        const newLot: Lot = { ...lot, sale_id: saleId, id: generateUUID(), name: lot.name, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
         await offlineStorage.upsertLot(newLot);
         if (isOnline) {
           SyncService.startOperation();
@@ -494,7 +495,8 @@ export default function LotDetail() {
         }
         navigate(`/sales/${saleId}/lots/${newLot.id}`, { replace: true });
       } else {
-        const updatedLot = { ...lot, updated_at: new Date().toISOString() };
+        if (!lot.id || !lot.sale_id) { alert('Invalid lot data'); return; }
+        const updatedLot: Lot = { ...lot, id: lot.id, sale_id: lot.sale_id, name: lot.name, updated_at: new Date().toISOString() };
         setLot(updatedLot);
         await offlineStorage.upsertLot(updatedLot);
         if (isOnline) {
@@ -516,7 +518,7 @@ export default function LotDetail() {
         await offlineStorage.deletePhoto(photo.id);
         if (isOnline) await supabase.storage.from('photos').remove([photo.file_path]);
       }
-      await offlineStorage.upsertLot({ ...lot, id: lotId, deleted: true } as any);
+      await offlineStorage.upsertLot({ ...lot, id: lotId, deleted: true } as Lot & { deleted: boolean });
       if (isOnline) { await supabase.from('lots').delete().eq('id', lotId); SyncService.endOperation(); }
       navigate(`/sales/${saleId}`);
     } catch (e) {
