@@ -49,11 +49,12 @@ function LotForm({
     if (!lot.quantity) updateField('quantity', 1);
   }, [lot.quantity, updateField]);
 
-  const handleNameBlur = useCallback(() => {
-    if (lot.name) {
-      updateField('name', toTitleCase(lot.name));
+  const handleNameBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (value) {
+      updateField('name', toTitleCase(value));
     }
-  }, [lot.name, updateField]);
+  }, [updateField]);
 
   return (
     <div className="bg-white rounded-lg shadow-sm p-6">

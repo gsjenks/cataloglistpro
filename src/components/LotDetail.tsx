@@ -20,7 +20,7 @@ import {
 } from '../services/LiveAuctioneersData';
 import type { Lot, Photo } from '../types';
 import { toTitleCase } from '../utils/titleCase';
-import { ArrowLeft, Save, Trash2, Upload, Camera, Plus } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, Upload, Camera } from 'lucide-react';
 
 // Split components
 import WebcamModal from './WebcamModal';
@@ -77,7 +77,6 @@ export default function LotDetail() {
 
   // Load lot data
   useEffect(() => {
-    setLoading(true);
     if (isNewLot) initializeNewLot();
     else loadLot();
   }, [lotId, saleId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -107,66 +106,11 @@ export default function LotDetail() {
     };
   }, [photoUrls]);
 
-  // Footer actions
-  useEffect(() => {
-    const caps = CameraService.getPlatformCapabilities();
-    const actions: FooterAction[] = [
-      {
-        id: 'save', label: isNewLot ? 'Create Item' : 'Save Changes',
-        icon: <Save className="w-4 h-4" />, onClick: handleSave,
-        variant: 'primary', disabled: !lot.name || saving, loading: saving
-      }
-    ];
-
-    if (!isNewLot) {
-      actions.push({
-        id: 'new-item', label: 'New Item',
-        icon: <Plus className="w-4 h-4" />, onClick: handleSaveAndNew,
-        variant: 'secondary', disabled: !lot.name || saving
-      });
-    }
-
-    if (!isNewLot && (caps.supportsWebCamera || caps.supportsNativeCamera)) {
-      actions.push({
-        id: 'camera', label: caps.supportsNativeCamera ? 'Camera' : 'Webcam',
-        icon: <Camera className="w-4 h-4" />, onClick: handleTakePhoto, variant: 'secondary'
-      });
-    }
-
-    if (!isNewLot) {
-      actions.push({
-        id: 'upload', label: 'Choose Files', icon: <Upload className="w-4 h-4" />,
-        onClick: () => document.getElementById('photo-upload')?.click(), variant: 'secondary'
-      });
-    }
-
-    actions.push({
-      id: 'back', label: 'Back', icon: <ArrowLeft className="w-4 h-4" />,
-      onClick: () => navigate(`/sales/${saleId}`), variant: 'secondary'
-    });
-
-    if (!isNewLot) {
-      actions.push({
-        id: 'delete', label: 'Delete', icon: <Trash2 className="w-4 h-4" />,
-        onClick: handleDelete, variant: 'danger'
-      });
-    }
-
-    setActions(actions);
-    return () => clearActions();
-  }, [lot.name, isNewLot, saving, saleId]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Data loading functions
   const initializeNewLot = async () => {
     try {
       const lotNumber = await getNextLotNumber(saleId!, isOnline);
-      setLot({
-        name: '', description: '', quantity: 1, condition: '', category: '',
-        style: '', origin: '', creator: '', materials: '', dimension_unit: 'inches', consignor: '',
-        lot_number: lotNumber, sale_id: saleId
-      });
-      setPhotos([]);
-      setPhotoUrls({});
+      setLot(prev => ({ ...prev, lot_number: lotNumber, sale_id: saleId }));
     } catch (e) { console.error('Error initializing new lot:', e); }
     finally { setLoading(false); }
   };
@@ -252,27 +196,75 @@ export default function LotDetail() {
   // Photo handlers
   const handleTakePhoto = useCallback(async () => {
     if (!lotId || isNewLot) { alert('Please save the lot first'); return; }
+    
+    // Auto-save metadata before opening camera
+    const currentLot = lotRef.current;
+    if (currentLot.id && currentLot.sale_id) {
+      try {
+        const updatedLot: Lot = { 
+          ...currentLot, 
+          id: currentLot.id, 
+          sale_id: currentLot.sale_id, 
+          name: toTitleCase(currentLot.name || ''), 
+          updated_at: new Date().toISOString() 
+        };
+        setLot(updatedLot);
+        await offlineStorage.upsertLot(updatedLot);
+        if (isOnline) {
+          SyncService.startOperation();
+          try { await supabase.from('lots').update(updatedLot).eq('id', lotId); } 
+          finally { SyncService.endOperation(); }
+        }
+      } catch (e) { 
+        console.error('Error saving before camera:', e); 
+        alert('Failed to save item'); 
+        return; 
+      }
+    }
+    
     const caps = CameraService.getPlatformCapabilities();
     
     if (caps.isNative) {
-      try {
-        const isPrimary = photos.length === 0;
-        const result = await CameraService.takePhoto(lotId, isPrimary);
-        if (!result.success) { alert(result.error || 'Failed to capture photo'); return; }
-        if (result.photoId && result.blobUrl) {
-          const newPhoto: Photo = {
-            id: result.photoId, lot_id: lotId, file_path: `${lotId}/${result.photoId}.jpg`,
-            file_name: `Photo_${Date.now()}.jpg`, is_primary: isPrimary,
-            created_at: new Date().toISOString(), updated_at: new Date().toISOString(), synced: false
-          };
-          setPhotos(prev => [...prev, newPhoto]);
-          setPhotoUrls(prev => ({ ...prev, [result.photoId!]: result.blobUrl! }));
+      // Continuous capture mode for native camera
+      let photoCount = 0;
+      let keepCapturing = true;
+      
+      while (keepCapturing) {
+        try {
+          const isPrimary = photos.length === 0 && photoCount === 0;
+          const result = await CameraService.takePhoto(lotId, isPrimary);
+          
+          if (!result.success) {
+            // User cancelled or error - exit loop
+            if (photoCount > 0) {
+              alert(`Done! ${photoCount} photo${photoCount > 1 ? 's' : ''} captured.`);
+            }
+            break;
+          }
+          
+          if (result.photoId && result.blobUrl) {
+            const newPhoto: Photo = {
+              id: result.photoId, lot_id: lotId, file_path: `${lotId}/${result.photoId}.jpg`,
+              file_name: `Photo_${Date.now()}.jpg`, is_primary: isPrimary,
+              created_at: new Date().toISOString(), updated_at: new Date().toISOString(), synced: false
+            };
+            setPhotos(prev => [...prev, newPhoto]);
+            setPhotoUrls(prev => ({ ...prev, [result.photoId!]: result.blobUrl! }));
+            photoCount++;
+            
+            // Ask if user wants to take more photos
+            keepCapturing = window.confirm(`Photo ${photoCount} saved! Take another photo?`);
+          }
+        } catch (e) { 
+          console.error('Error taking photo:', e); 
+          alert('Failed to capture photo'); 
+          break;
         }
-      } catch (e) { console.error('Error taking photo:', e); alert('Failed to capture photo'); }
+      }
     } else {
       setShowCameraModal(true);
     }
-  }, [lotId, isNewLot, photos.length]);
+  }, [lotId, isNewLot, photos.length, isOnline]);
 
   const handleCaptureFromWebcam = useCallback(async (blob: Blob) => {
     if (!lotId) return;
@@ -555,34 +547,6 @@ export default function LotDetail() {
     finally { setSaving(false); }
   }, [isNewLot, saleId, lotId, isOnline, navigate]);
 
-  const handleSaveAndNew = useCallback(async () => {
-    const currentLot = lotRef.current;
-    if (!currentLot.name) { alert('Please enter an item name'); return; }
-    if (!saleId) { alert('No sale selected'); return; }
-    setSaving(true);
-    try {
-      if (isNewLot) {
-        const newLot: Lot = { ...currentLot, sale_id: saleId, id: generateUUID(), name: toTitleCase(currentLot.name || ''), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-        await offlineStorage.upsertLot(newLot);
-        if (isOnline) {
-          SyncService.startOperation();
-          try { await supabase.from('lots').insert(newLot); } finally { SyncService.endOperation(); }
-        }
-      } else {
-        if (!currentLot.id || !currentLot.sale_id) { alert('Invalid lot data'); return; }
-        const updatedLot: Lot = { ...currentLot, id: currentLot.id, sale_id: currentLot.sale_id, name: toTitleCase(currentLot.name || ''), updated_at: new Date().toISOString() };
-        setLot(updatedLot);
-        await offlineStorage.upsertLot(updatedLot);
-        if (isOnline) {
-          SyncService.startOperation();
-          try { await supabase.from('lots').update(updatedLot).eq('id', lotId); } finally { SyncService.endOperation(); }
-        }
-      }
-      navigate(`/sales/${saleId}/lots/new`);
-    } catch (e) { console.error('Error saving:', e); alert('Failed to save item'); }
-    finally { setSaving(false); }
-  }, [isNewLot, saleId, lotId, isOnline, navigate]);
-
   const handleDelete = useCallback(async () => {
     if (!window.confirm('Delete this item? Cannot be undone.')) return;
     setSaving(true);
@@ -602,6 +566,47 @@ export default function LotDetail() {
       setSaving(false);
     }
   }, [photos, lotId, saleId, isOnline, navigate]);
+
+  // Footer actions
+  useEffect(() => {
+    const caps = CameraService.getPlatformCapabilities();
+    const actions: FooterAction[] = [
+      {
+        id: 'save', label: isNewLot ? 'Create Item' : 'Save Changes',
+        icon: <Save className="w-4 h-4" />, onClick: handleSave,
+        variant: 'primary', disabled: !lot.name || saving, loading: saving
+      }
+    ];
+
+    if (!isNewLot && (caps.supportsWebCamera || caps.supportsNativeCamera)) {
+      actions.push({
+        id: 'camera', label: caps.supportsNativeCamera ? 'Camera' : 'Webcam',
+        icon: <Camera className="w-4 h-4" />, onClick: handleTakePhoto, variant: 'secondary'
+      });
+    }
+
+    if (!isNewLot) {
+      actions.push({
+        id: 'upload', label: 'Choose Files', icon: <Upload className="w-4 h-4" />,
+        onClick: () => document.getElementById('photo-upload')?.click(), variant: 'secondary'
+      });
+    }
+
+    actions.push({
+      id: 'back', label: 'Back', icon: <ArrowLeft className="w-4 h-4" />,
+      onClick: () => navigate(`/sales/${saleId}`), variant: 'secondary'
+    });
+
+    if (!isNewLot) {
+      actions.push({
+        id: 'delete', label: 'Delete', icon: <Trash2 className="w-4 h-4" />,
+        onClick: handleDelete, variant: 'danger'
+      });
+    }
+
+    setActions(actions);
+    return () => clearActions();
+  }, [lot.name, isNewLot, saving, saleId, handleSave, handleTakePhoto, handleDelete, navigate, setActions, clearActions]);
 
   if (loading) {
     return (
