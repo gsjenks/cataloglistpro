@@ -2,40 +2,45 @@
 // FALLBACK VERSION: Works with or without isPasswordRecovery in AppContext
 // FIXED: Non-blocking sync, all TypeScript errors resolved
 
-import { useState, useEffect, useRef } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AppProvider, useApp } from './context/AppContext';
-import { FooterProvider } from './context/FooterContext';
-import Auth from './components/Auth';
-import CompanySetup from './components/CompanySetup';
-import Dashboard from './components/Dashboard';
-import SaleDetail from './components/SaleDetail';
-import LotDetail from './components/LotDetail';
-import Header from './components/Header';
-import ContextFooter from './components/Contextfooter';
-import ConnectivityService from './services/ConnectivityService';
-import SyncService from './services/SyncService';
-import { RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect, useRef } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AppProvider, useApp } from "./context/AppContext";
+import { FooterProvider } from "./context/FooterContext";
+import Auth from "./components/Auth";
+import CompanySetup from "./components/CompanySetup";
+import Dashboard from "./components/Dashboard";
+import SaleDetail from "./components/SaleDetail";
+import LotDetail from "./components/LotDetail";
+import Header from "./components/Header";
+import ContextFooter from "./components/Contextfooter";
+import ConnectivityService from "./services/ConnectivityService";
+import SyncService from "./services/SyncService";
+import { RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react";
+/*
+import { AuctionRoom } from "./components/AuctionRoom";
+*/
+import { AuctionRoom3D } from "./components/AuctionRoom3D";
+import { ClerkPanel } from "./components/ClerkPanel";
 
 function AppContent() {
   // Get context - use try-catch to handle missing properties gracefully
   const context = useApp();
-  const { 
-    user, 
-    loading, 
-    currentCompany, 
-    companySwitched, 
-    setCompanySwitched
-  } = context;
-  
+  const { user, loading, currentCompany, companySwitched, setCompanySwitched } =
+    context;
+
   // Safely access isPasswordRecovery if it exists
-  const isPasswordRecovery = 'isPasswordRecovery' in context ? context.isPasswordRecovery : false;
-  
+  const isPasswordRecovery =
+    "isPasswordRecovery" in context ? context.isPasswordRecovery : false;
+
   const [syncing, setSyncing] = useState(false);
-  const [syncProgress, setSyncProgress] = useState({ stage: '', current: 0, total: 0 });
+  const [syncProgress, setSyncProgress] = useState({
+    stage: "",
+    current: 0,
+    total: 0,
+  });
   const [syncError, setSyncError] = useState<string | null>(null);
   const [showSyncBanner, setShowSyncBanner] = useState(false);
-  
+
   // Fixed: Added proper types and initial values
   const syncTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const hasPerformedInitialSync = useRef<boolean>(false);
@@ -51,7 +56,7 @@ function AppContent() {
 
       // Skip if in password recovery mode (if that property exists)
       if (isPasswordRecovery) {
-        console.log('🔐 Password recovery mode - skipping sync');
+        console.log("🔐 Password recovery mode - skipping sync");
         return;
       }
 
@@ -60,7 +65,7 @@ function AppContent() {
 
       const isOnline = ConnectivityService.getConnectionStatus();
       if (!isOnline) {
-        console.log('🔴 Offline - skipping sync');
+        console.log("🔴 Offline - skipping sync");
         hasPerformedInitialSync.current = true;
         setCompanySwitched(false);
         return;
@@ -71,7 +76,7 @@ function AppContent() {
           console.log(`🔄 Company switched to: ${currentCompany.name}`);
           setShowSyncBanner(true);
         } else {
-          console.log('🚀 App opened - starting background sync...');
+          console.log("🚀 App opened - starting background sync...");
           setShowSyncBanner(true);
         }
 
@@ -82,8 +87,10 @@ function AppContent() {
         // Set sync timeout (30 seconds)
         syncTimeoutRef.current = setTimeout(() => {
           if (isMounted) {
-            console.warn('⚠ï¸ Sync timeout - continuing with cached data');
-            setSyncError('Sync is taking longer than expected. Using cached data.');
+            console.warn("⚠ï¸ Sync timeout - continuing with cached data");
+            setSyncError(
+              "Sync is taking longer than expected. Using cached data.",
+            );
             setSyncing(false);
             hasPerformedInitialSync.current = true;
             setCompanySwitched(false);
@@ -100,9 +107,9 @@ function AppContent() {
         // Perform priority sync with timeout protection
         await Promise.race([
           SyncService.performInitialSync(currentCompany.id),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Sync timeout')), 30000)
-          )
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Sync timeout")), 30000),
+          ),
         ]);
 
         if (syncTimeoutRef.current) {
@@ -110,11 +117,11 @@ function AppContent() {
         }
 
         if (isMounted) {
-          console.log('[OK] Sync complete');
+          console.log("[OK] Sync complete");
           hasPerformedInitialSync.current = true;
           setCompanySwitched(false);
           setSyncing(false);
-          
+
           // Hide banner after 2 seconds
           setTimeout(() => {
             if (isMounted) {
@@ -128,13 +135,17 @@ function AppContent() {
         }
 
         if (isMounted) {
-          console.error('âŒ Sync failed:', error);
-          setSyncError(error instanceof Error ? error.message : 'Sync failed. Using cached data.');
+          console.error("âŒ Sync failed:", error);
+          setSyncError(
+            error instanceof Error
+              ? error.message
+              : "Sync failed. Using cached data.",
+          );
           // Don't block app usage if sync fails
           hasPerformedInitialSync.current = true;
           setCompanySwitched(false);
           setSyncing(false);
-          
+
           // Hide error after 5 seconds
           setTimeout(() => {
             if (isMounted) {
@@ -162,7 +173,13 @@ function AppContent() {
         unsubscribe();
       }
     };
-  }, [user, currentCompany, companySwitched, setCompanySwitched, isPasswordRecovery]);
+  }, [
+    user,
+    currentCompany,
+    companySwitched,
+    setCompanySwitched,
+    isPasswordRecovery,
+  ]);
 
   if (loading) {
     return (
@@ -206,20 +223,24 @@ function AppContent() {
                 <RefreshCw className="w-5 h-5 text-indigo-600 animate-spin flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-gray-700 font-medium">
-                    {companySwitched 
+                    {companySwitched
                       ? `Loading ${currentCompany.name}...`
-                      : 'Syncing data...'}
+                      : "Syncing data..."}
                   </p>
                   {syncProgress.total > 0 && (
                     <div className="mt-1">
                       <div className="flex justify-between text-xs text-gray-500 mb-1">
                         <span className="capitalize">{syncProgress.stage}</span>
-                        <span>{syncProgress.current} / {syncProgress.total}</span>
+                        <span>
+                          {syncProgress.current} / {syncProgress.total}
+                        </span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-1.5">
-                        <div 
+                        <div
                           className="bg-indigo-600 h-1.5 rounded-full transition-all duration-300"
-                          style={{ width: `${(syncProgress.current / syncProgress.total) * 100}%` }}
+                          style={{
+                            width: `${(syncProgress.current / syncProgress.total) * 100}%`,
+                          }}
                         ></div>
                       </div>
                     </div>
@@ -243,7 +264,10 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-gray-50">
       <SyncBanner />
-      <div style={{ paddingTop: showSyncBanner ? '60px' : '0' }} className="transition-all duration-200">
+      <div
+        style={{ paddingTop: showSyncBanner ? "60px" : "0" }}
+        className="transition-all duration-200"
+      >
         <Header />
         <main className="content-with-footer">
           <Routes>
@@ -262,11 +286,20 @@ function AppContent() {
 function App() {
   return (
     <BrowserRouter>
-      <AppProvider>
-        <FooterProvider>
-          <AppContent />
-        </FooterProvider>
-      </AppProvider>
+      <Routes>
+        <Route path="/auction/:saleId" element={<AuctionRoom3D />} />
+        <Route path="/clerk/:saleId" element={<ClerkPanel />} />
+        <Route
+          path="/*"
+          element={
+            <AppProvider>
+              <FooterProvider>
+                <AppContent />
+              </FooterProvider>
+            </AppProvider>
+          }
+        />
+      </Routes>
     </BrowserRouter>
   );
 }
