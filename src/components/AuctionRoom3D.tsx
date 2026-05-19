@@ -4,11 +4,150 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { useAuction } from "../hooks/useAuction";
 import { useBidder } from "../hooks/useBidder";
+import { useWatchedLots } from "../hooks/useWatchedLots";
 import { LotRibbon } from "./LotRibbon";
 import { BidPanel } from "./BidPanel";
 import { LotDetailOverlay } from "./LotDetailOverlay";
 import type { Lot } from "../types/auction";
 import "../auction-room.css";
+import { BidderChat } from "./BidderChat";
+
+// ── Watched Lot Toast ─────────────────────────────────────
+interface ToastProps {
+  lot: Lot;
+  onBid: () => void;
+  onClose: () => void;
+}
+
+function WatchedLotToast({ lot, onBid, onClose }: ToastProps) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 10000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 70,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 500,
+        background: "#1a1a1a",
+        border: "2px solid #cc2200",
+        borderRadius: 8,
+        padding: "14px 18px",
+        boxShadow: "0 8px 40px rgba(0,0,0,.7)",
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        minWidth: 320,
+        maxWidth: 460,
+        animation: "slideDown .3s ease",
+        fontFamily: "DM Sans, sans-serif",
+      }}
+    >
+      {/* Icon */}
+      <div
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: "50%",
+          background: "#cc2200",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 20,
+          flexShrink: 0,
+        }}
+      >
+        🔨
+      </div>
+
+      {/* Text */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            color: "#cc2200",
+            letterSpacing: ".1em",
+            textTransform: "uppercase",
+            marginBottom: 3,
+          }}
+        >
+          ★ Watched Lot — Now Live!
+        </div>
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 700,
+            color: "#fff",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          Lot {lot.lot_number} — {lot.title}
+        </div>
+        {lot.estimate_low && lot.estimate_high && (
+          <div
+            style={{
+              fontSize: 11,
+              color: "rgba(255,255,255,.5)",
+              marginTop: 2,
+            }}
+          >
+            Est ${lot.estimate_low.toLocaleString()} – $
+            {lot.estimate_high.toLocaleString()}
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
+          flexShrink: 0,
+        }}
+      >
+        <button
+          onClick={onBid}
+          style={{
+            background: "#cc2200",
+            border: "none",
+            borderRadius: 4,
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 700,
+            padding: "6px 14px",
+            cursor: "pointer",
+            fontFamily: "DM Sans, sans-serif",
+          }}
+        >
+          Bid Now →
+        </button>
+        <button
+          onClick={onClose}
+          style={{
+            background: "transparent",
+            border: "1px solid rgba(255,255,255,.2)",
+            borderRadius: 4,
+            color: "rgba(255,255,255,.5)",
+            fontSize: 10,
+            padding: "4px 10px",
+            cursor: "pointer",
+            fontFamily: "DM Sans, sans-serif",
+          }}
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
 
 class AuctionScene {
   renderer: any;
@@ -199,12 +338,11 @@ class AuctionScene {
   buildSeats() {
     const T = this.THREE;
     const positions: { x: number; z: number }[] = [];
-    for (let row = 0; row < 4; row++) {
+    for (let row = 0; row < 4; row++)
       for (let s = -3; s <= 3; s++) {
         if (s === 0) continue;
         positions.push({ x: s * 1.65, z: 2.5 + row * 2.3 });
       }
-    }
     positions.forEach((pos) => {
       const cg = new T.Group();
       cg.position.set(pos.x, 0, pos.z);
@@ -294,12 +432,11 @@ class AuctionScene {
     loader.load(
       url,
       (texture: any) => {
-        console.log("EASEL TEXTURE LOADED");
         texture.generateMipmaps = false;
         texture.minFilter = T.LinearFilter;
         texture.flipY = true;
-        const maxW = 2.0;
-        const maxH = 2.0;
+        const maxW = 2.0,
+          maxH = 2.0;
         const aspect = texture.image.width / texture.image.height;
         let w: number, h: number;
         if (aspect >= 1) {
@@ -344,26 +481,17 @@ class AuctionScene {
   animate() {
     const delta = this.clock.getDelta();
     this.animTime += delta;
-    const t = this.animTime;
     if (this.currentView === "room") {
-      this.camera.position.x = Math.sin(t * 0.06) * 1.2;
-      this.camera.position.y = 4.5 + Math.sin(t * 0.09) * 0.2;
-      this.camera.position.z = 12 + Math.sin(t * 0.04) * 0.6;
+      this.camera.position.set(0, 4.5, 12);
       this.camera.lookAt(0, 2.5, -9);
     } else if (this.currentView === "lot") {
       this.lotZoom += (this.lotZoomTarget - this.lotZoom) * 0.08;
-      const baseZ = -6.5;
-      const zoomedZ = -9.0;
+      const baseZ = -6.5,
+        zoomedZ = -9.0;
       const camZ = baseZ + (zoomedZ - baseZ) * this.lotZoom;
       const camY = 3.2 - this.lotZoom * 0.3;
-      this.camera.position.x =
-        -2.8 + Math.sin(t * 0.04) * (0.15 * (1 - this.lotZoom));
-      this.camera.position.y = camY + Math.sin(t * 0.06) * 0.03;
-      this.camera.position.z = camZ;
+      this.camera.position.set(-2.8, camY, camZ);
       this.camera.lookAt(-2.8, 2.7, -10);
-    }
-    if (this.easelGroup) {
-      this.easelGroup.position.y = Math.sin(t * 0.28) * 0.025;
     }
     this.renderer.render(this.scene, this.camera);
   }
@@ -388,9 +516,12 @@ export function AuctionRoom3D() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<AuctionScene | null>(null);
   const rafRef = useRef<number>(0);
+  const prevLotRef = useRef<string | null>(null);
+
   const [view, setView] = useState<"room" | "lot" | "vr">("room");
   const [activeImageIdx, setIdx] = useState(0);
   const [sceneReady, setSceneReady] = useState(false);
+  const [toastLot, setToastLot] = useState<Lot | null>(null);
 
   const {
     auctionState,
@@ -403,7 +534,19 @@ export function AuctionRoom3D() {
     placeBid,
   } = useAuction(id);
   const { bidder, canBid } = useBidder(id);
+  const watchedLotIds = useWatchedLots(bidder?.id ?? null);
   const [overlayLot, setOverlayLot] = useState<Lot | null>(null);
+
+  // ── Watched lot toast trigger ─────────────────────────
+  useEffect(() => {
+    if (!currentLot) return;
+    if (currentLot.id === prevLotRef.current) return;
+    prevLotRef.current = currentLot.id;
+
+    if (watchedLotIds.has(currentLot.id)) {
+      setToastLot(currentLot);
+    }
+  }, [currentLot, watchedLotIds]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -515,6 +658,18 @@ export function AuctionRoom3D() {
         }}
       />
 
+      {/* Watched lot toast */}
+      {toastLot && (
+        <WatchedLotToast
+          lot={toastLot}
+          onBid={() => {
+            setOverlayLot(toastLot);
+            setToastLot(null);
+          }}
+          onClose={() => setToastLot(null)}
+        />
+      )}
+
       {/* Top bar */}
       <div
         className="auction-topbar"
@@ -566,8 +721,10 @@ export function AuctionRoom3D() {
           style={{
             position: "absolute",
             left: 14,
-            top: "50%",
-            transform: "translateY(-50%)",
+            top: 0,
+            bottom: 0,
+            display: "flex",
+            alignItems: "center",
             zIndex: 10,
           }}
         >
@@ -579,6 +736,7 @@ export function AuctionRoom3D() {
             bidder={bidder}
             canBid={canBid}
             onPlaceBid={handlePlaceBid}
+            onJumpToLot={setOverlayLot}
           />
         </div>
       )}
@@ -640,6 +798,58 @@ export function AuctionRoom3D() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Zoom controls — close-up only */}
+      {view === "lot" && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 80,
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            gap: 8,
+            zIndex: 10,
+          }}
+        >
+          <button
+            onClick={() => sceneRef.current?.applyZoomDelta(-0.15)}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 4,
+              background: "rgba(0,0,0,.65)",
+              border: "1px solid rgba(255,255,255,.25)",
+              color: "#fff",
+              fontSize: 20,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            −
+          </button>
+          <button
+            onClick={() => sceneRef.current?.applyZoomDelta(0.15)}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 4,
+              background: "rgba(0,0,0,.65)",
+              border: "1px solid rgba(255,255,255,.25)",
+              color: "#fff",
+              fontSize: 20,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            +
+          </button>
         </div>
       )}
 
@@ -838,8 +1048,12 @@ export function AuctionRoom3D() {
           canBid={canBid}
           onBid={handleOverlayBid}
           onClose={() => setOverlayLot(null)}
+          bidderId={bidder?.id ?? null}
         />
       )}
+
+      {/* Bidder chat */}
+      <BidderChat saleId={id} bidder={bidder} />
     </div>
   );
 }

@@ -1,8 +1,4 @@
 // hooks/useAuction.ts
-// Updated to match CatalogPro's actual schema:
-//   sales (not auctions), photos (not lot_images),
-//   lots.name (not title), lots.sale_id (not auction_id)
-
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import type { AuctionState, Lot, Bid, PlaceBidResult } from '../types/auction'
@@ -41,18 +37,17 @@ export function useAuction(saleId: string) {
 
     const sorted = (data || []).map((lot: any) => ({
       ...lot,
-      // Normalise: use name as title for components
-      title:      lot.name,
-      artist:     lot.creator,
-      medium:     lot.materials,
+      title:            lot.name,
+      artist:           lot.creator,
+      medium:           lot.materials,
       dimensions: [lot.height, lot.width, lot.depth]
         .filter(Boolean)
         .map((d: number) => d.toString())
         .join(' × ') + (lot.dimension_unit ? ` ${lot.dimension_unit}.` : ''),
       condition_report: lot.condition,
-      status: callStatusToLotStatus(lot.call_status),
-      sold_amount: lot.sold_price,
-      images: sortImages(lot.images || []),
+      status:           callStatusToLotStatus(lot.call_status),
+      sold_amount:      lot.sold_price,
+      images:           sortImages(lot.images || []),
     }))
 
     setAllLots(sorted)
@@ -102,8 +97,11 @@ export function useAuction(saleId: string) {
     const { data, error } = await supabase
       .from('bids')
       .select(`
-        id, lot_id, amount, source, is_winning, placed_at,
-        bidder:bidders ( first_name, last_name, paddle_number )
+        id, lot_id, sale_id, amount, source, is_winning, is_retracted, placed_at,
+        bidder:bidders (
+          first_name, last_name,
+          registrations:auction_registrations ( paddle_number, sale_id )
+        )
       `)
       .eq('lot_id', lotId)
       .order('placed_at', { ascending: false })
@@ -152,6 +150,7 @@ export function useAuction(saleId: string) {
     const channel = supabase
       .channel(`auction:${saleId}`)
 
+      // auction_state UPDATE — this is the key one for winning/outbid detection
       .on(
         'postgres_changes',
         {
@@ -175,6 +174,7 @@ export function useAuction(saleId: string) {
         }
       )
 
+      // bids INSERT — optimistic update for new bids
       .on(
         'postgres_changes',
         {
@@ -187,17 +187,37 @@ export function useAuction(saleId: string) {
           const { data } = await supabase
             .from('bids')
             .select(`
-              id, lot_id, amount, source, is_winning, placed_at,
-              bidder:bidders ( first_name, last_name, paddle_number )
+              id, lot_id, sale_id, amount, source, is_winning, is_retracted, placed_at,
+              bidder:bidders (
+                first_name, last_name,
+                registrations:auction_registrations ( paddle_number, sale_id )
+              )
             `)
             .eq('id', (payload.new as Bid).id)
             .single()
 
           if (data) {
             setBids(prev => {
+              if (prev.some(b => b.id === data.id)) return prev
               const cleared = prev.map(b => ({ ...b, is_winning: false }))
               return [data, ...cleared].slice(0, 8)
             })
+          }
+        }
+      )
+
+      // bids UPDATE — handles retractions
+      .on(
+        'postgres_changes',
+        {
+          event:  'UPDATE',
+          schema: 'public',
+          table:  'bids',
+          filter: `sale_id=eq.${saleId}`,
+        },
+        async () => {
+          if (currentLotRef.current) {
+            await loadRecentBids(currentLotRef.current)
           }
         }
       )
@@ -250,7 +270,6 @@ export function useAuction(saleId: string) {
 // ── Utilities ─────────────────────────────────────────────────
 function sortImages(images: any[]) {
   return [...images].sort((a, b) => {
-    // Primary photo always first
     if (a.is_primary && !b.is_primary) return -1
     if (!a.is_primary && b.is_primary) return 1
     return (a.sort_order ?? 0) - (b.sort_order ?? 0)
