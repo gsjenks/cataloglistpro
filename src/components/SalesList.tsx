@@ -1,10 +1,10 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import type { Sale } from '../types';
-import { Calendar, MapPin, Edit, Trash2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { useApp } from '../context/AppContext';
-import SaleModal from '../components/SaleModal';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import type { Sale } from "../types";
+import { Calendar, MapPin, Edit, Trash2 } from "lucide-react";
+import { supabase } from "../lib/supabase";
+import { useApp } from "../context/AppContext";
+import SaleModal from "../components/SaleModal";
 
 interface SalesListProps {
   sales: Sale[];
@@ -18,34 +18,35 @@ export default function SalesList({ sales, onRefresh }: SalesListProps) {
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
 
   const handleDelete = async (sale: Sale) => {
-    if (!confirm(`Delete sale "${sale.name}"? This will also delete all lots, contacts, and documents associated with this sale.`)) {
+    if (
+      !confirm(
+        `Delete sale "${sale.name}"? This will also delete all lots, contacts, and documents associated with this sale.`,
+      )
+    ) {
       return;
     }
 
     try {
-      const { error } = await supabase
-        .from('sales')
-        .delete()
-        .eq('id', sale.id);
+      const { error } = await supabase.from("sales").delete().eq("id", sale.id);
 
       if (error) throw error;
       onRefresh();
     } catch (error) {
-      console.error('Error deleting sale:', error);
-      alert('Failed to delete sale');
+      console.error("Error deleting sale:", error);
+      alert("Failed to delete sale");
     }
   };
 
-  const getStatusColor = (status: Sale['status']) => {
+  const getStatusColor = (status: Sale["status"]) => {
     switch (status) {
-      case 'upcoming':
-        return 'bg-indigo-100 text-indigo-700';
-      case 'active':
-        return 'bg-green-100 text-green-700';
-      case 'completed':
-        return 'bg-gray-100 text-gray-700';
+      case "upcoming":
+        return "bg-indigo-100 text-indigo-700";
+      case "active":
+        return "bg-green-100 text-green-700";
+      case "completed":
+        return "bg-gray-100 text-gray-700";
       default:
-        return 'bg-gray-100 text-gray-700';
+        return "bg-gray-100 text-gray-700";
     }
   };
 
@@ -57,7 +58,9 @@ export default function SalesList({ sales, onRefresh }: SalesListProps) {
         <div className="flex flex-col items-center justify-center py-12 text-gray-500">
           <Calendar className="w-12 h-12 text-gray-400 mb-4" />
           <p className="text-sm text-gray-600 mb-4">No sales yet</p>
-          <p className="text-xs text-gray-500">Use the "New Sale" button at the bottom to create your first sale</p>
+          <p className="text-xs text-gray-500">
+            Use the "New Sale" button at the bottom to create your first sale
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -93,9 +96,7 @@ export default function SalesList({ sales, onRefresh }: SalesListProps) {
               </div>
 
               <div className="mb-3">
-                <h3 
-                  className="font-semibold text-gray-900 text-lg hover:text-indigo-600 transition-colors pr-20"
-                >
+                <h3 className="font-semibold text-gray-900 text-lg hover:text-indigo-600 transition-colors pr-20">
                   {sale.name}
                 </h3>
               </div>
@@ -103,22 +104,38 @@ export default function SalesList({ sales, onRefresh }: SalesListProps) {
               <div className="space-y-2 mb-3">
                 {sale.start_date && (
                   <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Calendar className="w-4 h-4" style={{ color: '#374151' }} />
+                    <Calendar
+                      className="w-4 h-4"
+                      style={{ color: "#374151" }}
+                    />
                     {new Date(sale.start_date).toLocaleDateString()}
                   </div>
                 )}
                 {sale.location && (
                   <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <MapPin className="w-4 h-4" style={{ color: '#374151' }} />
+                    <MapPin className="w-4 h-4" style={{ color: "#374151" }} />
                     {sale.location}
                   </div>
                 )}
               </div>
 
-              <div>
-                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(sale.status)}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(sale.status)}`}
+                >
                   {sale.status.charAt(0).toUpperCase() + sale.status.slice(1)}
                 </span>
+                {sale.status === "active" && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/auction/${sale.id}`);
+                    }}
+                    className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-medium transition-colors"
+                  >
+                    Go Live →
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -128,7 +145,7 @@ export default function SalesList({ sales, onRefresh }: SalesListProps) {
       {showModal && (
         <SaleModal
           sale={editingSale}
-          companyId={currentCompany?.id || ''}
+          companyId={currentCompany?.id || ""}
           onClose={() => {
             setShowModal(false);
             setEditingSale(null);
