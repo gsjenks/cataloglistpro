@@ -1,9 +1,11 @@
 // src/components/LotDetail.tsx
 // OPTIMIZED: Split into smaller components, memoized handlers
+// UPDATED: Added QR code generation on lot save
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { generateQRCodeForLot } from "../lib/qr";
 import { useFooter, type FooterAction } from "../context/FooterContext";
 import ConnectivityService from "../services/ConnectivityService";
 import SyncService from "../services/SyncService";
@@ -371,15 +373,13 @@ export default function LotDetail() {
                 .from("photos")
                 .upload(`${lotId}/${photoId}.jpg`, file, { upsert: true });
               if (!error) {
-                await supabase
-                  .from("photos")
-                  .upsert({
-                    id: photoId,
-                    lot_id: lotId,
-                    file_path: `${lotId}/${photoId}.jpg`,
-                    file_name: metadata.file_name,
-                    is_primary: isPrimary,
-                  });
+                await supabase.from("photos").upsert({
+                  id: photoId,
+                  lot_id: lotId,
+                  file_path: `${lotId}/${photoId}.jpg`,
+                  file_name: metadata.file_name,
+                  is_primary: isPrimary,
+                });
                 metadata.synced = true;
                 await offlineStorage.updatePhoto(metadata);
               }
@@ -851,9 +851,20 @@ export default function LotDetail() {
           SyncService.startOperation();
           try {
             await supabase.from("lots").insert(newLot);
+            // Generate QR code after lot is created
+            await generateQRCodeForLot(
+              saleId,
+              newLot.id,
+              newLot.lot_number || 0,
+            );
           } finally {
             SyncService.endOperation();
           }
+        } else {
+          // Also generate QR code offline (will sync later)
+          generateQRCodeForLot(saleId, newLot.id, newLot.lot_number || 0).catch(
+            (e) => console.error("QR generation failed:", e),
+          );
         }
         navigate(`/sales/${saleId}/lots/${newLot.id}`, { replace: true });
       } else {
@@ -874,6 +885,12 @@ export default function LotDetail() {
           SyncService.startOperation();
           try {
             await supabase.from("lots").update(updatedLot).eq("id", lotId);
+            // Regenerate QR code when lot is updated
+            await generateQRCodeForLot(
+              saleId,
+              updatedLot.id,
+              updatedLot.lot_number || 0,
+            );
           } finally {
             SyncService.endOperation();
           }
