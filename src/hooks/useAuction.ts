@@ -141,21 +141,23 @@ export function useAuction(saleId: string) {
         .from('auction_state')
         .select('*')
         .eq('sale_id', saleId)
-        .single()
+        .maybeSingle()
 
-      if (stErr || cancelled) {
-        setError(stErr?.message ?? null)
-        setLoading(false)
-        return
-      }
+if (stErr || cancelled) {
+  setError(stErr?.message ?? null)
+  setLoading(false)
+  return
+}
 
-      setState(st)
-      await loadAllLots()
+if (st) {
+  setState(st)
+  if (st.current_lot_id) {
+    await loadLotDetail(st.current_lot_id)
+    await loadRecentBids(st.current_lot_id)
+  }
+}
 
-      if (st.current_lot_id) {
-        await loadLotDetail(st.current_lot_id)
-        await loadRecentBids(st.current_lot_id)
-      }
+await loadAllLots()
 
       if (!cancelled) setLoading(false)
     }

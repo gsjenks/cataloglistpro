@@ -5,12 +5,7 @@
  */
 
 import QRCode from 'qrcode';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { supabase } from './supabase';
 
 /**
  * Generates a QR code for a lot and stores it in Supabase storage
@@ -28,7 +23,8 @@ export async function generateQRCodeForLot(
 ): Promise<string | null> {
   try {
     // Create the public URL that the QR code will link to
-    const lotUrl = `${process.env.NEXT_PUBLIC_APP_URL}/sale/${saleId}/lot/${lotNumber}`;
+    const appUrl = import.meta.env.VITE_APP_URL || 'http://localhost:5173';
+    const lotUrl = `${appUrl}/sale/${saleId}/lot/${lotNumber}`;
 
     console.log(`Generating QR code for lot ${lotNumber}: ${lotUrl}`);
 

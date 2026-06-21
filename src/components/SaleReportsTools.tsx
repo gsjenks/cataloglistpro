@@ -1,15 +1,31 @@
-import { useState } from 'react';
-import { Download, Upload, ChevronRight, X, FileSpreadsheet, Archive, AlertCircle, FileText } from 'lucide-react';
-import LiveAuctioneersUpload from './LiveAuctioneersUpload';
-import EOAProcessing from './EOAProcessing';
+import { useState } from "react";
+import {
+  Download,
+  Upload,
+  ChevronRight,
+  X,
+  FileSpreadsheet,
+  Archive,
+  AlertCircle,
+  FileText,
+  QrCode,
+} from "lucide-react";
+import LiveAuctioneersUpload from "./LiveAuctioneersUpload";
+import EOAProcessing from "./EOAProcessing";
+import { QRCodeLabelGenerator } from "./QRCodeLabelGenerator";
 
-type ToolView = 'menu' | 'la-import' | 'la-export' | 'invoice-import';
+type ToolView =
+  | "menu"
+  | "la-import"
+  | "la-export"
+  | "invoice-import"
+  | "qr-labels";
 
 interface SaleReportsToolsProps {
   saleId: string;
   saleName: string;
   exporting: boolean;
-  exportMessage: { type: 'success' | 'error' | 'info'; text: string } | null;
+  exportMessage: { type: "success" | "error" | "info"; text: string } | null;
   exportStats: {
     totalLots: number;
     lotsWithPhotos: number;
@@ -25,42 +41,53 @@ export default function SaleReportsTools({
   exporting,
   exportMessage,
   exportStats,
-  onExportCSV
+  onExportCSV,
 }: SaleReportsToolsProps) {
-  const [activeView, setActiveView] = useState<ToolView>('menu');
+  const [activeView, setActiveView] = useState<ToolView>("menu");
 
   // Tool menu items
   const tools = [
     {
-      id: 'la-export',
-      title: 'LiveAuctioneers Export',
-      description: 'Export this sale\'s catalog to LiveAuctioneers CSV format with photos',
+      id: "la-export",
+      title: "LiveAuctioneers Export",
+      description:
+        "Export this sale's catalog to LiveAuctioneers CSV format with photos",
       icon: <Download className="w-6 h-6 text-indigo-600" />,
-      view: 'la-export' as ToolView,
+      view: "la-export" as ToolView,
     },
     {
-      id: 'la-import',
-      title: 'LiveAuctioneers Import',
-      description: 'Upload and validate CSV catalog and images for LiveAuctioneers',
+      id: "la-import",
+      title: "LiveAuctioneers Import",
+      description:
+        "Upload and validate CSV catalog and images for LiveAuctioneers",
       icon: <Upload className="w-6 h-6 text-indigo-600" />,
-      view: 'la-import' as ToolView,
+      view: "la-import" as ToolView,
     },
     {
-      id: 'invoice-import',
-      title: 'EOA Processing',
-      description: 'Import EOA report, update prices, and generate shipping documents',
+      id: "invoice-import",
+      title: "EOA Processing",
+      description:
+        "Import EOA report, update prices, and generate shipping documents",
       icon: <FileText className="w-6 h-6 text-indigo-600" />,
-      view: 'invoice-import' as ToolView,
+      view: "invoice-import" as ToolView,
+    },
+    {
+      id: "qr-labels",
+      title: "QR Code Price Tags",
+      description:
+        'Generate printable 1.75" × 1.1" price tags with QR codes for Square checkout',
+      icon: <QrCode className="w-6 h-6 text-indigo-600" />,
+      view: "qr-labels" as ToolView,
     },
   ];
 
   // Render Export View
-  if (activeView === 'la-export') {
+  if (activeView === "la-export") {
     return (
       <div className="space-y-6">
         {/* Back button */}
         <button
-          onClick={() => setActiveView('menu')}
+          onClick={() => setActiveView("menu")}
           className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
         >
           <X className="w-4 h-4" />
@@ -71,11 +98,11 @@ export default function SaleReportsTools({
         {exportMessage && (
           <div
             className={`p-4 rounded-lg border ${
-              exportMessage.type === 'success'
-                ? 'bg-green-50 border-green-200 text-green-800'
-                : exportMessage.type === 'error'
-                ? 'bg-red-50 border-red-200 text-red-800'
-                : 'bg-blue-50 border-blue-200 text-blue-800'
+              exportMessage.type === "success"
+                ? "bg-green-50 border-green-200 text-green-800"
+                : exportMessage.type === "error"
+                  ? "bg-red-50 border-red-200 text-red-800"
+                  : "bg-blue-50 border-blue-200 text-blue-800"
             }`}
           >
             <p className="text-sm font-medium">{exportMessage.text}</p>
@@ -85,23 +112,33 @@ export default function SaleReportsTools({
         {/* Export Overview */}
         {exportStats && (
           <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Export Overview</h3>
-            
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Export Overview
+            </h3>
+
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <p className="text-3xl font-bold text-indigo-600">{exportStats.totalLots}</p>
+                <p className="text-3xl font-bold text-indigo-600">
+                  {exportStats.totalLots}
+                </p>
                 <p className="text-sm text-gray-600 mt-1">Total Lots</p>
               </div>
               <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <p className="text-3xl font-bold text-indigo-600">{exportStats.lotsWithPhotos}</p>
+                <p className="text-3xl font-bold text-indigo-600">
+                  {exportStats.lotsWithPhotos}
+                </p>
                 <p className="text-sm text-gray-600 mt-1">With Photos</p>
               </div>
               <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <p className="text-3xl font-bold text-indigo-600">{exportStats.totalPhotos}</p>
+                <p className="text-3xl font-bold text-indigo-600">
+                  {exportStats.totalPhotos}
+                </p>
                 <p className="text-sm text-gray-600 mt-1">Total Photos</p>
               </div>
               <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <p className={`text-3xl font-bold ${exportStats.missingData.length > 0 ? 'text-yellow-600' : 'text-green-600'}`}>
+                <p
+                  className={`text-3xl font-bold ${exportStats.missingData.length > 0 ? "text-yellow-600" : "text-green-600"}`}
+                >
                   {exportStats.missingData.length}
                 </p>
                 <p className="text-sm text-gray-600 mt-1">Issues Found</p>
@@ -122,7 +159,9 @@ export default function SaleReportsTools({
                         <li key={idx}>• {issue}</li>
                       ))}
                       {exportStats.missingData.length > 5 && (
-                        <li>• ... and {exportStats.missingData.length - 5} more</li>
+                        <li>
+                          • ... and {exportStats.missingData.length - 5} more
+                        </li>
                       )}
                     </ul>
                     <p className="text-xs text-yellow-800 mt-2">
@@ -140,8 +179,12 @@ export default function SaleReportsTools({
           <div className="flex items-center gap-3 mb-4">
             <FileSpreadsheet className="w-8 h-8 text-indigo-600" />
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">LiveAuctioneers Export</h3>
-              <p className="text-sm text-gray-600">Export catalog in LiveAuctioneers CSV format</p>
+              <h3 className="text-lg font-semibold text-gray-900">
+                LiveAuctioneers Export
+              </h3>
+              <p className="text-sm text-gray-600">
+                Export catalog in LiveAuctioneers CSV format
+              </p>
             </div>
           </div>
 
@@ -149,7 +192,9 @@ export default function SaleReportsTools({
             {/* Export CSV Only */}
             <button
               onClick={() => onExportCSV(false)}
-              disabled={exporting || !exportStats || exportStats.totalLots === 0}
+              disabled={
+                exporting || !exportStats || exportStats.totalLots === 0
+              }
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
             >
               {exporting ? (
@@ -168,7 +213,9 @@ export default function SaleReportsTools({
             {/* Export CSV + Photos */}
             <button
               onClick={() => onExportCSV(true)}
-              disabled={exporting || !exportStats || exportStats.totalLots === 0}
+              disabled={
+                exporting || !exportStats || exportStats.totalLots === 0
+              }
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
             >
               {exporting ? (
@@ -187,8 +234,12 @@ export default function SaleReportsTools({
 
           <div className="mt-4 p-3 bg-gray-50 rounded-lg">
             <p className="text-xs text-gray-600">
-              <strong>CSV Only:</strong> Downloads a LiveAuctioneers-formatted CSV file with lot data.<br/>
-              <strong>CSV + Photos:</strong> Downloads a ZIP file containing the CSV and all photos renamed to LiveAuctioneers format (lotNumber_sequence.jpg).
+              <strong>CSV Only:</strong> Downloads a LiveAuctioneers-formatted
+              CSV file with lot data.
+              <br />
+              <strong>CSV + Photos:</strong> Downloads a ZIP file containing the
+              CSV and all photos renamed to LiveAuctioneers format
+              (lotNumber_sequence.jpg).
             </p>
           </div>
 
@@ -205,9 +256,10 @@ export default function SaleReportsTools({
 
         {/* More Reports Coming Soon */}
         <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Additional Reports</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+            Additional Reports
+          </h3>
           <div className="text-sm text-gray-600 space-y-2">
-            <p>• Shipping Labels with QR Codes (Coming Soon)</p>
             <p>• Unsold Items Report (Coming Soon)</p>
             <p>• Sales Analytics Dashboard (Coming Soon)</p>
           </div>
@@ -217,12 +269,12 @@ export default function SaleReportsTools({
   }
 
   // Render Import View
-  if (activeView === 'la-import') {
+  if (activeView === "la-import") {
     return (
       <div>
         {/* Back button */}
         <button
-          onClick={() => setActiveView('menu')}
+          onClick={() => setActiveView("menu")}
           className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-4"
         >
           <X className="w-4 h-4" />
@@ -234,18 +286,47 @@ export default function SaleReportsTools({
   }
 
   // Render Invoice Import View
-  if (activeView === 'invoice-import') {
+  if (activeView === "invoice-import") {
     return (
       <div>
         {/* Back button */}
         <button
-          onClick={() => setActiveView('menu')}
+          onClick={() => setActiveView("menu")}
           className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-4"
         >
           <X className="w-4 h-4" />
           Back to Tools
         </button>
         <EOAProcessing saleId={_saleId} saleName={saleName} />
+      </div>
+    );
+  }
+
+  // Render QR Code Labels View
+  if (activeView === "qr-labels") {
+    return (
+      <div className="space-y-4">
+        {/* Back button */}
+        <button
+          onClick={() => setActiveView("menu")}
+          className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+        >
+          <X className="w-4 h-4" />
+          Back to Tools
+        </button>
+
+        {/* Header */}
+        <div>
+          <h3 className="text-xl font-bold text-gray-900">
+            QR Code Price Tags
+          </h3>
+          <p className="text-sm text-gray-600 mt-1">
+            Generate printable 1.75" × 1.1" price tags with QR codes for{" "}
+            {saleName}
+          </p>
+        </div>
+
+        <QRCodeLabelGenerator saleId={_saleId} saleName={saleName} />
       </div>
     );
   }
