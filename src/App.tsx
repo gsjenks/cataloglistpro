@@ -2,6 +2,7 @@
 // FALLBACK VERSION: Works with or without isPasswordRecovery in AppContext
 // FIXED: Non-blocking sync, all TypeScript errors resolved
 
+import PublicLotDetail from "./pages/PublicLotDetail";
 import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -271,6 +272,11 @@ function AppContent() {
         <Header />
         <main className="content-with-footer">
           <Routes>
+            {/* Public lot detail - accessible without authentication */}
+            <Route
+              path="/view/sales/:saleId/lots/:lotId"
+              element={<PublicLotDetail />}
+            />
             <Route path="/" element={<Dashboard />} />
             <Route path="/sales/:saleId" element={<SaleDetail />} />
             <Route path="/sales/:saleId/lots/:lotId" element={<LotDetail />} />

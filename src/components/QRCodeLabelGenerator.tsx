@@ -41,7 +41,7 @@ export function QRCodeLabelGenerator({ saleId, saleName }: Props) {
   const generateLotUrl = (lotId: string) => {
     // Use production URL for QR codes
     const baseUrl = "https://cataloglistpro.vercel.app";
-    return `${baseUrl}/sales/${saleId}/lots/${lotId}`;
+    return `${baseUrl}/view/sales/${saleId}/lots/${lotId}`;
   };
   useEffect(() => {
     if (lots.length === 0) return;
