@@ -293,8 +293,15 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public routes - no auth needed */}
         <Route path="/auction/:saleId" element={<AuctionRoom3D />} />
         <Route path="/clerk/:saleId" element={<ClerkPanel />} />
+        <Route
+          path="/view/sales/:saleId/lots/:lotId"
+          element={<PublicLotDetail />}
+        />
+
+        {/* Authenticated routes */}
         <Route
           path="/*"
           element={
