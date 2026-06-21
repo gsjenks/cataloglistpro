@@ -1,6 +1,7 @@
 // src/App.tsx
 // FALLBACK VERSION: Works with or without isPasswordRecovery in AppContext
 // FIXED: Non-blocking sync, all TypeScript errors resolved
+// FIXED: Removed duplicate /view/ route from AppContent (now only in App)
 
 import PublicLotDetail from "./pages/PublicLotDetail";
 import { useState, useEffect, useRef } from "react";
@@ -88,7 +89,7 @@ function AppContent() {
         // Set sync timeout (30 seconds)
         syncTimeoutRef.current = setTimeout(() => {
           if (isMounted) {
-            console.warn("⚠ï¸ Sync timeout - continuing with cached data");
+            console.warn("⚠️ Sync timeout - continuing with cached data");
             setSyncError(
               "Sync is taking longer than expected. Using cached data.",
             );
@@ -136,7 +137,7 @@ function AppContent() {
         }
 
         if (isMounted) {
-          console.error("âŒ Sync failed:", error);
+          console.error("❌ Sync failed:", error);
           setSyncError(
             error instanceof Error
               ? error.message
@@ -272,11 +273,6 @@ function AppContent() {
         <Header />
         <main className="content-with-footer">
           <Routes>
-            {/* Public lot detail - accessible without authentication */}
-            <Route
-              path="/view/sales/:saleId/lots/:lotId"
-              element={<PublicLotDetail />}
-            />
             <Route path="/" element={<Dashboard />} />
             <Route path="/sales/:saleId" element={<SaleDetail />} />
             <Route path="/sales/:saleId/lots/:lotId" element={<LotDetail />} />
