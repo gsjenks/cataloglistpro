@@ -25,19 +25,6 @@ function statusColor(status: string) {
   }
 }
 
-function statusBg(status: string) {
-  switch (status) {
-    case "sold":
-      return "#e8f5e9";
-    case "open":
-      return "#fff0ee";
-    case "passed":
-      return "#f5f5f5";
-    default:
-      return "#fffde7";
-  }
-}
-
 const col: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -622,10 +609,13 @@ export function ClerkPanel() {
                   </div>
                 )}
                 {recentBids.slice(0, 12).map((bid) => {
-                  const isRetracted = (bid as any).is_retracted;
-                  const regs = (bid as any).bidder?.registrations;
+                  const isRetracted = bid.is_retracted;
+                  const regs = bid.bidder?.registrations;
                   const reg = Array.isArray(regs)
-                    ? regs.find((r: any) => r.sale_id === id)
+                    ? regs.find(
+                        (r: { sale_id: string; paddle_number: number }) =>
+                          r.sale_id === id,
+                      )
                     : null;
                   const paddleStr = reg?.paddle_number
                     ? `#${reg.paddle_number}`
@@ -1027,15 +1017,14 @@ export function ClerkPanel() {
                         ["Artist / Maker", displayLot.artist],
                         [
                           "Medium / Materials",
-                          displayLot.medium ?? (displayLot as any).materials,
+                          displayLot.medium ?? displayLot.materials,
                         ],
                         ["Dimensions", displayLot.dimensions],
                         [
                           "Condition",
-                          displayLot.condition_report ??
-                            (displayLot as any).condition,
+                          displayLot.condition_report ?? displayLot.condition,
                         ],
-                        ["Category", (displayLot as any).category],
+                        ["Category", displayLot.category],
                         ["Status", displayLot.status?.toUpperCase()],
                         [
                           "Estimate",
@@ -1046,25 +1035,20 @@ export function ClerkPanel() {
                         [
                           "Opening Bid",
                           fmt(
-                            displayLot.opening_bid ??
-                              (displayLot as any).starting_bid,
+                            displayLot.opening_bid ?? displayLot.starting_bid,
                           ),
                         ],
-                        ["Reserve", fmt((displayLot as any).reserve_price)],
-                        [
-                          "Bid Increment",
-                          fmt((displayLot as any).bid_increment),
-                        ],
+                        ["Reserve", fmt(displayLot.reserve_price)],
+                        ["Bid Increment", fmt(displayLot.bid_increment)],
                         [
                           "Sold Price",
                           displayLot.status === "sold"
                             ? fmt(
-                                (displayLot as any).sold_price ??
-                                  displayLot.sold_amount,
+                                displayLot.sold_price ?? displayLot.sold_amount,
                               )
                             : null,
                         ],
-                        ["Consignor", (displayLot as any).consignor],
+                        ["Consignor", displayLot.consignor],
                       ]
                         .filter(([, v]) => v)
                         .map(([label, value]) => (

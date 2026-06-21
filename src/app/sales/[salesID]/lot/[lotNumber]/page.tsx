@@ -4,6 +4,7 @@
  * This is the page that buyers see when they scan a QR code
  * URL format: /sale/abc123/lot/001
  */
+/* eslint-disable react-refresh/only-export-components */
 
 import { PublicLotPage } from "@/components/PublicLotPage";
 import { Metadata } from "next";
@@ -22,7 +23,7 @@ interface PageProps {
 export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
-  const { saleId, lotNumber } = await params;
+  const { lotNumber } = await params;
 
   return {
     title: `Item #${lotNumber} - Benson Estate Sales`,

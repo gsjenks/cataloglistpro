@@ -102,12 +102,12 @@ serve(async (req) => {
     if (liveWatchers?.length) {
       await Promise.all(
         liveWatchers
-          .filter((w: any) => w.bidder?.email)
-          .map((w: any) => sendEmail(
-            w.bidder.email,
+          .filter((w: { bidder?: { first_name: string; email: string } | null }) => w.bidder?.email)
+          .map((w: { bidder?: { first_name: string; email: string } | null }) => sendEmail(
+            w.bidder!.email,
             `🔨 LOT ${currentLot.lot_number} is NOW LIVE — ${currentLot.name}`,
             buildEmail({
-              firstName: w.bidder.first_name, lotNumber: currentLot.lot_number,
+              firstName: w.bidder!.first_name, lotNumber: currentLot.lot_number,
               lotName: currentLot.name, estimateLow: currentLot.estimate_low,
               estimateHigh: currentLot.estimate_high, saleUrl, isLive: true,
             })
@@ -135,12 +135,12 @@ serve(async (req) => {
       if (upcomingWatchers?.length) {
         await Promise.all(
           upcomingWatchers
-            .filter((w: any) => w.bidder?.email)
-            .map((w: any) => sendEmail(
-              w.bidder.email,
+            .filter((w: { bidder?: { first_name: string; email: string } | null }) => w.bidder?.email)
+            .map((w: { bidder?: { first_name: string; email: string } | null }) => sendEmail(
+              w.bidder!.email,
               `⏰ LOT ${upcomingLot.lot_number} coming up in ${LOTS_AHEAD} lots — ${upcomingLot.name}`,
               buildEmail({
-                firstName: w.bidder.first_name, lotNumber: upcomingLot.lot_number,
+                firstName: w.bidder!.first_name, lotNumber: upcomingLot.lot_number,
                 lotName: upcomingLot.name, estimateLow: upcomingLot.estimate_low,
                 estimateHigh: upcomingLot.estimate_high, saleUrl,
                 isLive: false, lotsAway: LOTS_AHEAD,

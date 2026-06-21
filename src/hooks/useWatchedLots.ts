@@ -16,7 +16,7 @@ export function useWatchedLots(bidderId: string | null) {
       .select('lot_id')
       .eq('bidder_id', bidderId)
       .then(({ data }) => {
-        setWatchedLotIds(new Set((data ?? []).map((r: any) => r.lot_id)))
+        setWatchedLotIds(new Set((data ?? []).map((r: { lot_id: string }) => r.lot_id)))
       })
   }, [bidderId])
 

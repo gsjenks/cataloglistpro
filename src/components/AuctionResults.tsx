@@ -26,7 +26,6 @@ interface Props {
 export function AuctionResults({ saleId, onClose }: Props) {
   const [lots, setLots] = useState<ResultLot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saleTitle, setSaleTitle] = useState("Fine Arts Winter Collection");
 
   useEffect(() => {
     async function load() {
@@ -55,7 +54,7 @@ export function AuctionResults({ saleId, onClose }: Props) {
         .filter((l) => l.sold_to_bidder)
         .map((l) => l.sold_to_bidder);
 
-      let bidderMap: Record<string, { paddle: number | null; name: string }> =
+      const bidderMap: Record<string, { paddle: number | null; name: string }> =
         {};
 
       if (soldBidderIds.length > 0) {
@@ -68,12 +67,18 @@ export function AuctionResults({ saleId, onClose }: Props) {
           .in("bidder_id", soldBidderIds);
 
         if (regs) {
-          regs.forEach((r: any) => {
-            bidderMap[r.bidder_id] = {
-              paddle: r.paddle_number,
-              name: `${r.bidder?.first_name ?? ""} ${r.bidder?.last_name ?? ""}`.trim(),
-            };
-          });
+          regs.forEach(
+            (r: {
+              bidder_id: string;
+              paddle_number: number | null;
+              bidder?: { first_name: string; last_name: string } | null;
+            }) => {
+              bidderMap[r.bidder_id] = {
+                paddle: r.paddle_number,
+                name: `${r.bidder?.first_name ?? ""} ${r.bidder?.last_name ?? ""}`.trim(),
+              };
+            },
+          );
         }
       }
 
@@ -338,7 +343,6 @@ export function AuctionResults({ saleId, onClose }: Props) {
                 {lots.map((lot, idx) => {
                   const isSold = lot.call_status === "sold";
                   const isPassed = lot.call_status === "passed";
-                  const isPending = !isSold && !isPassed;
 
                   return (
                     <div

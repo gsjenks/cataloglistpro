@@ -1,5 +1,4 @@
 // BidPanel.tsx — with watched lots drawer + winning/outbid status
-/* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { useState, useEffect, useRef } from "react";
 import { BidderLoginModal } from "./BidderLoginModal";
@@ -153,7 +152,7 @@ export function BidPanel({
       .eq("bidder_id", bidder.id)
       .order("created_at", { ascending: true })
       .then(({ data }) => {
-        setWatchedLots((data as any) ?? []);
+        setWatchedLots((data as WatchedLotRow[]) ?? []);
         setWatchLoading(false);
       });
   }, [showWatched, bidder?.id]);
@@ -176,8 +175,7 @@ export function BidPanel({
   const currentBid = auctionState?.current_bid;
   const callStatus = auctionState?.call_status ?? "open";
   const callText = auctionState?.auctioneer_call;
-  const openingBid =
-    currentLot?.opening_bid ?? (currentLot as any)?.starting_bid ?? 0;
+  const openingBid = currentLot?.opening_bid ?? currentLot?.starting_bid ?? 0;
 
   return (
     <>
@@ -357,7 +355,7 @@ export function BidPanel({
                 key={bid.id}
                 className={`bid-feed__row ${bid.is_winning ? "bid-feed__row--winning" : ""}`}
                 style={
-                  bidder && (bid as any).bidder_id === bidder.id
+                  bidder && bid.bidder_id === bidder.id
                     ? { background: "rgba(45,106,79,.2)" }
                     : undefined
                 }
@@ -365,7 +363,7 @@ export function BidPanel({
                 <div>
                   <div className="bid-feed__src">
                     {sourceLabel(bid.source)}
-                    {bidder && (bid as any).bidder_id === bidder.id && (
+                    {bidder && bid.bidder_id === bidder.id && (
                       <span
                         style={{
                           marginLeft: 4,
@@ -556,8 +554,10 @@ export function BidPanel({
                 watchedLots.map((w) => {
                   const status = watchedLotStatus(w.lot?.call_status ?? null);
                   const thumb =
-                    w.lot?.images?.find((i: any) => i.is_primary)?.public_url ??
-                    w.lot?.images?.[0]?.public_url;
+                    w.lot?.images?.find(
+                      (i: { public_url: string | null; is_primary: boolean }) =>
+                        i.is_primary,
+                    )?.public_url ?? w.lot?.images?.[0]?.public_url;
                   const isLive =
                     w.lot?.call_status === "open" ||
                     w.lot?.call_status === "going_once" ||
@@ -679,7 +679,7 @@ export function BidPanel({
                             <button
                               onClick={() => {
                                 setShowWatched(false);
-                                onJumpToLot(w.lot as any);
+                                onJumpToLot(w.lot as unknown as Lot);
                               }}
                               style={{
                                 background: "#cc2200",

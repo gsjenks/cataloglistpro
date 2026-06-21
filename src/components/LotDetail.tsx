@@ -753,7 +753,7 @@ export default function LotDetail() {
         .replace(/```json\s*/gi, "")
         .replace(/```\s*/g, "")
         .trim();
-      let aiData: any;
+      let aiData: Record<string, unknown>;
       try {
         aiData = JSON.parse(cleanedText);
       } catch {

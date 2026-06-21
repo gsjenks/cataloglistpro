@@ -3,6 +3,25 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import type { AuctionState, Lot, Bid, PlaceBidResult } from '../types/auction'
 
+interface DatabaseLot {
+  id: string
+  sale_id: string
+  lot_number: number
+  name: string
+  description: string | null
+  creator: string | null
+  materials: string | null
+  height: number | null
+  width: number | null
+  depth: number | null
+  dimension_unit: string | null
+  condition: string | null
+  call_status: string | null
+  sold_price: number | null
+  images: { public_url: string | null; is_primary: boolean }[]
+  [key: string]: unknown
+}
+
 export function useAuction(saleId: string) {
   const [state,      setState]   = useState<AuctionState | null>(null)
   const [currentLot, setLot]     = useState<Lot | null>(null)
@@ -35,7 +54,7 @@ export function useAuction(saleId: string) {
 
     if (error) { setError(error.message); return }
 
-    const sorted = (data || []).map((lot: any) => ({
+    const sorted = (data || []).map((lot: DatabaseLot) => ({
       ...lot,
       title:            lot.name,
       artist:           lot.creator,
@@ -268,7 +287,7 @@ export function useAuction(saleId: string) {
 }
 
 // ── Utilities ─────────────────────────────────────────────────
-function sortImages(images: any[]) {
+function sortImages(images: { is_primary: boolean; sort_order?: number }[]) {
   return [...images].sort((a, b) => {
     if (a.is_primary && !b.is_primary) return -1
     if (!a.is_primary && b.is_primary) return 1

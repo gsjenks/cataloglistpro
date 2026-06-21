@@ -36,15 +36,23 @@ export interface Lot {
   description: string | null
   artist: string | null
   medium: string | null
+  materials?: string | null
   dimensions: string | null
   condition_report: string | null
+  condition?: string | null
   provenance: string | null
+  category?: string | null
   estimate_low: number | null
   estimate_high: number | null
   bid_increment: number
   opening_bid: number
+  starting_bid?: number
+  reserve_price?: number | null
+  call_status?: string | null
   status: 'pending' | 'open' | 'sold' | 'passed' | 'withdrawn'
   sold_amount: number | null
+  sold_price?: number | null
+  consignor?: string | null
   sort_order: number
   images: LotImage[]
 }
@@ -55,11 +63,14 @@ export interface Bid {
   amount: number
   source: string
   is_winning: boolean
+  is_retracted?: boolean
   placed_at: string
+  bidder_id?: string
   bidder?: {
     first_name: string
     last_name: string
     paddle_number: number
+    registrations?: Array<{ sale_id: string; paddle_number: number }>
   } | null
 }
 

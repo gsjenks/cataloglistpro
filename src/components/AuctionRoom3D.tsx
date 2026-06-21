@@ -1,1059 +1,759 @@
-// AuctionRoom3D.tsx
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { useParams } from "react-router-dom";
-import { useAuction } from "../hooks/useAuction";
-import { useBidder } from "../hooks/useBidder";
-import { useWatchedLots } from "../hooks/useWatchedLots";
-import { LotRibbon } from "./LotRibbon";
-import { BidPanel } from "./BidPanel";
-import { LotDetailOverlay } from "./LotDetailOverlay";
-import type { Lot } from "../types/auction";
-import "../auction-room.css";
-import { BidderChat } from "./BidderChat";
+// BidPanel.tsx — with watched lots drawer + winning/outbid status
 
-// ── Watched Lot Toast ─────────────────────────────────────
-interface ToastProps {
-  lot: Lot;
-  onBid: () => void;
-  onClose: () => void;
+import { useState, useEffect, useRef } from "react";
+import { BidderLoginModal } from "./BidderLoginModal";
+import type { AuctionState, Lot, Bid, BidderProfile } from "../types/auction";
+import { supabase } from "../lib/supabase";
+
+interface Props {
+  auctionState: AuctionState | null;
+  currentLot: Lot | null;
+  recentBids: Bid[];
+  nextBidAmount: number | null;
+  bidder: BidderProfile | null;
+  canBid: boolean;
+  onPlaceBid: (amount: number) => Promise<void>;
+  onJumpToLot?: (lot: Lot) => void;
 }
 
-function WatchedLotToast({ lot, onBid, onClose }: ToastProps) {
-  useEffect(() => {
-    const t = setTimeout(onClose, 10000);
-    return () => clearTimeout(t);
-  }, [onClose]);
+interface WatchedLotRow {
+  id: string;
+  lot_id: string;
+  lot: {
+    id: string;
+    lot_number: number;
+    name: string;
+    call_status: string | null;
+    estimate_low: number | null;
+    estimate_high: number | null;
+    sold_price: number | null;
+    images: { public_url: string | null; is_primary: boolean }[];
+  };
+}
 
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top: 70,
-        left: "50%",
-        transform: "translateX(-50%)",
-        zIndex: 500,
-        background: "#1a1a1a",
-        border: "2px solid #cc2200",
-        borderRadius: 8,
-        padding: "14px 18px",
-        boxShadow: "0 8px 40px rgba(0,0,0,.7)",
-        display: "flex",
-        alignItems: "center",
-        gap: 14,
-        minWidth: 320,
-        maxWidth: 460,
-        animation: "slideDown .3s ease",
-        fontFamily: "DM Sans, sans-serif",
-      }}
-    >
-      {/* Icon */}
-      <div
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: "50%",
-          background: "#cc2200",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 20,
-          flexShrink: 0,
-        }}
-      >
-        🔨
-      </div>
+function sourceLabel(source: string): string {
+  const map: Record<string, string> = {
+    floor: "Floor bid",
+    phone: "Phone bid",
+    web: "Web bid",
+    liveauctioneers: "LiveAuctioneers",
+    proxibid: "ProxiBid",
+    hibid: "HiBid",
+    absentee: "Absentee",
+    maxbid: "Auto-bid",
+  };
+  return map[source] ?? source;
+}
 
-      {/* Text */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            color: "#cc2200",
-            letterSpacing: ".1em",
-            textTransform: "uppercase",
-            marginBottom: 3,
-          }}
-        >
-          ★ Watched Lot — Now Live!
-        </div>
-        <div
-          style={{
-            fontSize: 14,
-            fontWeight: 700,
-            color: "#fff",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          Lot {lot.lot_number} — {lot.title}
-        </div>
-        {lot.estimate_low && lot.estimate_high && (
-          <div
-            style={{
-              fontSize: 11,
-              color: "rgba(255,255,255,.5)",
-              marginTop: 2,
-            }}
-          >
-            Est ${lot.estimate_low.toLocaleString()} – $
-            {lot.estimate_high.toLocaleString()}
-          </div>
-        )}
-      </div>
+function callStatusLabel(status: AuctionState["call_status"]): string {
+  switch (status) {
+    case "going_once":
+      return "Going once…";
+    case "going_twice":
+      return "Going twice…";
+    case "sold":
+      return "SOLD! 🔨";
+    case "passed":
+      return "Passed";
+    default:
+      return "Bidding open";
+  }
+}
 
-      {/* Actions */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 5,
-          flexShrink: 0,
-        }}
-      >
-        <button
-          onClick={onBid}
-          style={{
-            background: "#cc2200",
-            border: "none",
-            borderRadius: 4,
-            color: "#fff",
-            fontSize: 12,
-            fontWeight: 700,
-            padding: "6px 14px",
-            cursor: "pointer",
-            fontFamily: "DM Sans, sans-serif",
-          }}
-        >
-          Bid Now →
-        </button>
-        <button
-          onClick={onClose}
-          style={{
-            background: "transparent",
-            border: "1px solid rgba(255,255,255,.2)",
-            borderRadius: 4,
-            color: "rgba(255,255,255,.5)",
-            fontSize: 10,
-            padding: "4px 10px",
-            cursor: "pointer",
-            fontFamily: "DM Sans, sans-serif",
-          }}
-        >
-          Dismiss
-        </button>
-      </div>
-    </div>
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function watchedLotStatus(callStatus: string | null) {
+  switch (callStatus) {
+    case "sold":
+      return { label: "SOLD", color: "#2d6a4f", bg: "#e8f5e9" };
+    case "passed":
+      return { label: "PASSED", color: "#888", bg: "#f5f5f5" };
+    case "open":
+    case "going_once":
+    case "going_twice":
+      return { label: "LIVE NOW", color: "#cc2200", bg: "#fff0f0" };
+    default:
+      return { label: "UPCOMING", color: "#1a6496", bg: "#e8f4f8" };
+  }
+}
+
+export function BidPanel({
+  auctionState,
+  currentLot,
+  recentBids,
+  nextBidAmount,
+  bidder,
+  canBid,
+  onPlaceBid,
+  onJumpToLot,
+}: Props) {
+  const [placing, setPlacing] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [showLogin, setShowLogin] = useState(false);
+  const [showWatched, setShowWatched] = useState(false);
+  const [watchedLots, setWatchedLots] = useState<WatchedLotRow[]>([]);
+  const [watchLoading, setWatchLoading] = useState(false);
+  const [outbidFlash, setOutbidFlash] = useState(false);
+  const prevWinnerRef = useRef<string | null>(null);
+
+  // ── Winning / outbid detection ───────────────────────
+  const currentBidderId = auctionState?.current_bidder_id ?? null;
+  const isWinning = !!(
+    bidder &&
+    currentBidderId &&
+    currentBidderId === bidder.id &&
+    auctionState?.current_bid != null
   );
-}
-
-class AuctionScene {
-  renderer: any;
-  scene: any;
-  camera: any;
-  clock: any;
-  animTime: number = 0;
-  currentView: "room" | "lot" | "vr" = "room";
-  easelGroup: any;
-  easelFrame: any;
-  canvasMesh: any;
-  currentTexture: any = null;
-  lotZoom: number = 0;
-  lotZoomTarget: number = 0;
-  THREE: any;
-
-  constructor(canvas: HTMLCanvasElement, THREE: any) {
-    this.THREE = THREE;
-    const T = THREE;
-    this.renderer = new T.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = false;
-    this.renderer.setClearColor(0x2a1a0e);
-    this.scene = new T.Scene();
-    this.camera = new T.PerspectiveCamera(
-      62,
-      canvas.clientWidth / canvas.clientHeight,
-      0.1,
-      100,
-    );
-    this.camera.position.set(0, 4.5, 12);
-    this.camera.lookAt(0, 2.5, -9);
-    this.clock = new T.Clock();
-    this.buildRoom();
-    this.buildPodiumAndAvatar();
-    this.buildEasel();
-    this.buildSeats();
-    this.buildWallArt();
-  }
-
-  mat(color: number) {
-    return new this.THREE.MeshBasicMaterial({ color });
-  }
-
-  buildRoom() {
-    const T = this.THREE;
-    const floor = new T.Mesh(new T.PlaneGeometry(44, 44), this.mat(0x8b5e3c));
-    floor.rotation.x = -Math.PI / 2;
-    this.scene.add(floor);
-    for (let i = -20; i < 20; i += 0.85) {
-      const p = new T.Mesh(new T.PlaneGeometry(44, 0.04), this.mat(0x6b4428));
-      p.rotation.x = -Math.PI / 2;
-      p.position.set(0, 0.001, i);
-      this.scene.add(p);
-    }
-    [
-      [0, 7, -16, 0],
-      [0, 7, 11, Math.PI],
-      [-16, 7, -2, Math.PI / 2],
-      [16, 7, -2, -Math.PI / 2],
-    ].forEach((w: number[]) => {
-      const wm = new T.Mesh(new T.PlaneGeometry(34, 16), this.mat(0x5c3d2e));
-      wm.rotation.y = w[3];
-      wm.position.set(w[0], w[1], w[2]);
-      this.scene.add(wm);
-    });
-    const ceil = new T.Mesh(new T.PlaneGeometry(34, 34), this.mat(0x2a2020));
-    ceil.rotation.x = Math.PI / 2;
-    ceil.position.set(0, 14, -2);
-    this.scene.add(ceil);
-    for (let wp = -13; wp <= 13; wp += 3.4) {
-      const pan = new T.Mesh(
-        new T.BoxGeometry(3.0, 5.6, 0.09),
-        this.mat(0x6b4560),
-      );
-      pan.position.set(wp, 2.6, -15.9);
-      this.scene.add(pan);
-    }
-    const mol = new T.Mesh(new T.BoxGeometry(34, 0.3, 0.5), this.mat(0xc9a84c));
-    mol.position.set(0, 12.2, -15.8);
-    this.scene.add(mol);
-    const bas = new T.Mesh(
-      new T.BoxGeometry(34, 0.35, 0.35),
-      this.mat(0x8b6914),
-    );
-    bas.position.set(0, 0.17, -15.8);
-    this.scene.add(bas);
-    const carpet = new T.Mesh(new T.PlaneGeometry(3.4, 28), this.mat(0x8b2a42));
-    carpet.rotation.x = -Math.PI / 2;
-    carpet.position.set(0, 0.002, 4);
-    this.scene.add(carpet);
-    const chanBody = new T.Mesh(
-      new T.SphereGeometry(0.45, 12, 8),
-      this.mat(0xf0d070),
-    );
-    chanBody.position.set(0, 12.5, -3);
-    this.scene.add(chanBody);
-  }
-
-  buildPodiumAndAvatar() {
-    const T = this.THREE;
-    const pod = new T.Mesh(
-      new T.BoxGeometry(3.2, 1.5, 1.3),
-      this.mat(0x5c2e0a),
-    );
-    pod.position.set(2.8, 0.75, -10.5);
-    this.scene.add(pod);
-    const podTop = new T.Mesh(
-      new T.BoxGeometry(3.45, 0.12, 1.5),
-      this.mat(0x7a4010),
-    );
-    podTop.position.set(2.8, 1.56, -10.5);
-    this.scene.add(podTop);
-    const emb = new T.Mesh(new T.PlaneGeometry(1.8, 0.55), this.mat(0xc9a84c));
-    emb.position.set(2.8, 0.75, -10.0);
-    this.scene.add(emb);
-    const avRoot = new T.Group();
-    avRoot.position.set(2.8, 1.62, -10.5);
-    const screenFrame = new T.Mesh(
-      new T.BoxGeometry(1.2, 1.6, 0.08),
-      this.mat(0x1a1a1a),
-    );
-    screenFrame.position.y = 0.8;
-    avRoot.add(screenFrame);
-    const screenFace = new T.Mesh(
-      new T.PlaneGeometry(1.1, 1.5),
-      this.mat(0x0a0a30),
-    );
-    screenFace.position.set(0, 0.8, 0.05);
-    avRoot.add(screenFace);
-    const labelBar = new T.Mesh(
-      new T.BoxGeometry(1.1, 0.18, 0.05),
-      this.mat(0xf06a00),
-    );
-    labelBar.position.set(0, 0.06, 0.06);
-    avRoot.add(labelBar);
-    const dot = new T.Mesh(
-      new T.SphereGeometry(0.04, 8, 8),
-      this.mat(0xff6666),
-    );
-    dot.position.set(-0.42, 0.06, 0.07);
-    avRoot.add(dot);
-    this.scene.add(avRoot);
-  }
-
-  buildEasel() {
-    const T = this.THREE;
-    this.easelGroup = new T.Group();
-    this.easelGroup.position.set(-2.8, 0, -10);
-    const legMat = this.mat(0x7a5020);
-    const legL = new T.Mesh(new T.BoxGeometry(0.09, 3.6, 0.09), legMat);
-    legL.position.set(-0.85, 1.8, 0);
-    legL.rotation.z = 0.1;
-    this.easelGroup.add(legL);
-    const legR = new T.Mesh(new T.BoxGeometry(0.09, 3.6, 0.09), legMat);
-    legR.position.set(0.85, 1.8, 0);
-    legR.rotation.z = -0.1;
-    this.easelGroup.add(legR);
-    const legB = new T.Mesh(new T.BoxGeometry(0.09, 3.6, 0.09), legMat);
-    legB.position.set(0, 1.8, -0.55);
-    legB.rotation.x = -0.22;
-    this.easelGroup.add(legB);
-    const crossBar = new T.Mesh(new T.BoxGeometry(1.85, 0.09, 0.09), legMat);
-    crossBar.position.set(0, 1.25, 0);
-    this.easelGroup.add(crossBar);
-    this.easelFrame = new T.Mesh(
-      new T.BoxGeometry(1.9, 2.4, 0.12),
-      this.mat(0xe8c060),
-    );
-    this.easelFrame.position.set(0, 2.8, 0);
-    this.easelGroup.add(this.easelFrame);
-    this.canvasMesh = new T.Mesh(
-      new T.PlaneGeometry(1.6, 2.0),
-      new T.MeshBasicMaterial({ color: 0x1a1208 }),
-    );
-    this.canvasMesh.position.set(0, 2.8, 0.07);
-    this.easelGroup.add(this.canvasMesh);
-    const placard = new T.Mesh(
-      new T.BoxGeometry(0.85, 0.28, 0.06),
-      this.mat(0x1a1410),
-    );
-    placard.position.set(0, 1.55, 0);
-    this.easelGroup.add(placard);
-    this.scene.add(this.easelGroup);
-  }
-
-  buildSeats() {
-    const T = this.THREE;
-    const positions: { x: number; z: number }[] = [];
-    for (let row = 0; row < 4; row++)
-      for (let s = -3; s <= 3; s++) {
-        if (s === 0) continue;
-        positions.push({ x: s * 1.65, z: 2.5 + row * 2.3 });
-      }
-    positions.forEach((pos) => {
-      const cg = new T.Group();
-      cg.position.set(pos.x, 0, pos.z);
-      const seat = new T.Mesh(
-        new T.BoxGeometry(0.72, 0.09, 0.72),
-        this.mat(0x4a3020),
-      );
-      seat.position.y = 0.52;
-      cg.add(seat);
-      const back = new T.Mesh(
-        new T.BoxGeometry(0.72, 0.72, 0.07),
-        this.mat(0x4a3020),
-      );
-      back.position.set(0, 0.9, -0.33);
-      cg.add(back);
-      [
-        [-0.29, -0.29],
-        [0.29, -0.29],
-        [-0.29, 0.29],
-        [0.29, 0.29],
-      ].forEach(([lx, lz]) => {
-        const leg = new T.Mesh(
-          new T.BoxGeometry(0.06, 0.52, 0.06),
-          this.mat(0x8a5828),
-        );
-        leg.position.set(lx, 0.26, lz);
-        cg.add(leg);
-      });
-      if (Math.random() > 0.28) {
-        const bodyColors = [0x1a2030, 0x201010, 0x102018, 0x201808];
-        const skinTones = [0xd4956e, 0xa07048, 0xc49060, 0xb07048];
-        const bm = new T.Mesh(
-          new T.CylinderGeometry(0.13, 0.16, 0.75, 8),
-          this.mat(bodyColors[Math.floor(Math.random() * bodyColors.length)]),
-        );
-        bm.position.y = 1.1;
-        cg.add(bm);
-        const hm = new T.Mesh(
-          new T.SphereGeometry(0.15, 8, 8),
-          this.mat(skinTones[Math.floor(Math.random() * skinTones.length)]),
-        );
-        hm.position.y = 1.6;
-        cg.add(hm);
-      }
-      this.scene.add(cg);
-    });
-  }
-
-  buildWallArt() {
-    const T = this.THREE;
-    const arts = [
-      { p: [-13.8, 5.5, -9], r: Math.PI / 2, w: 2.2, h: 1.7, c: 0x4a7aaa },
-      { p: [-13.8, 5.5, -4], r: Math.PI / 2, w: 1.5, h: 1.9, c: 0xc07848 },
-      { p: [-13.8, 5.5, 1], r: Math.PI / 2, w: 1.9, h: 1.5, c: 0x486090 },
-      { p: [13.8, 5.5, -9], r: -Math.PI / 2, w: 1.7, h: 1.9, c: 0x5a8a48 },
-      { p: [13.8, 5.5, -4], r: -Math.PI / 2, w: 2.1, h: 1.6, c: 0xa05828 },
-      { p: [13.8, 5.5, 1], r: -Math.PI / 2, w: 1.6, h: 2.1, c: 0x3050a0 },
-    ];
-    arts.forEach((a) => {
-      const fr = new T.Mesh(
-        new T.BoxGeometry(a.w + 0.26, a.h + 0.26, 0.1),
-        this.mat(0xc9a84c),
-      );
-      fr.rotation.y = a.r;
-      fr.position.set(a.p[0], a.p[1], a.p[2]);
-      this.scene.add(fr);
-      const cv = new T.Mesh(new T.PlaneGeometry(a.w, a.h), this.mat(a.c));
-      cv.rotation.y = a.r;
-      cv.position.set(a.p[0] + (a.r > 0 ? 0.07 : -0.07), a.p[1], a.p[2]);
-      this.scene.add(cv);
-    });
-  }
-
-  updateEaselTexture(url: string | null) {
-    if (!this.canvasMesh) return;
-    const T = this.THREE;
-    if (this.currentTexture) {
-      this.currentTexture.dispose();
-      this.currentTexture = null;
-    }
-    if (!url) {
-      this.canvasMesh.material = new T.MeshBasicMaterial({ color: 0x1a1208 });
-      return;
-    }
-    const loader = new T.TextureLoader();
-    loader.crossOrigin = "anonymous";
-    loader.load(
-      url,
-      (texture: any) => {
-        texture.generateMipmaps = false;
-        texture.minFilter = T.LinearFilter;
-        texture.flipY = true;
-        const maxW = 2.0,
-          maxH = 2.0;
-        const aspect = texture.image.width / texture.image.height;
-        let w: number, h: number;
-        if (aspect >= 1) {
-          w = maxW;
-          h = maxW / aspect;
-        } else {
-          h = maxH;
-          w = maxH * aspect;
-        }
-        this.canvasMesh.geometry.dispose();
-        this.canvasMesh.geometry = new T.PlaneGeometry(w, h);
-        if (this.easelFrame) {
-          this.easelFrame.geometry.dispose();
-          this.easelFrame.geometry = new T.BoxGeometry(w + 0.3, h + 0.4, 0.12);
-        }
-        this.currentTexture = texture;
-        this.canvasMesh.material = new T.MeshBasicMaterial({ map: texture });
-        this.canvasMesh.material.needsUpdate = true;
-      },
-      undefined,
-      (e: any) => console.log("EASEL TEXTURE ERROR", e),
-    );
-  }
-
-  setView(v: "room" | "lot" | "vr") {
-    this.currentView = v;
-    if (v === "vr") {
-      this.camera.position.set(0, 1.8, 4);
-      this.camera.lookAt(0, 2.5, -10);
-    }
-    if (v !== "lot") {
-      this.lotZoom = 0;
-      this.lotZoomTarget = 0;
-    }
-  }
-
-  applyZoomDelta(delta: number) {
-    if (this.currentView !== "lot") return;
-    this.lotZoomTarget = Math.max(0, Math.min(1, this.lotZoomTarget + delta));
-  }
-
-  animate() {
-    const delta = this.clock.getDelta();
-    this.animTime += delta;
-    if (this.currentView === "room") {
-      this.camera.position.set(0, 4.5, 12);
-      this.camera.lookAt(0, 2.5, -9);
-    } else if (this.currentView === "lot") {
-      this.lotZoom += (this.lotZoomTarget - this.lotZoom) * 0.08;
-      const baseZ = -6.5,
-        zoomedZ = -9.0;
-      const camZ = baseZ + (zoomedZ - baseZ) * this.lotZoom;
-      const camY = 3.2 - this.lotZoom * 0.3;
-      this.camera.position.set(-2.8, camY, camZ);
-      this.camera.lookAt(-2.8, 2.7, -10);
-    }
-    this.renderer.render(this.scene, this.camera);
-  }
-
-  resize(w: number, h: number) {
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h);
-  }
-
-  dispose() {
-    this.currentTexture?.dispose();
-    this.renderer.dispose();
-  }
-}
-
-// ── React component ───────────────────────────────────────
-export function AuctionRoom3D() {
-  const { saleId } = useParams<{ saleId: string }>();
-  const id = saleId ?? import.meta.env.VITE_SALE_ID ?? "";
-
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const sceneRef = useRef<AuctionScene | null>(null);
-  const rafRef = useRef<number>(0);
-  const prevLotRef = useRef<string | null>(null);
-
-  const [view, setView] = useState<"room" | "lot" | "vr">("room");
-  const [activeImageIdx, setIdx] = useState(0);
-  const [sceneReady, setSceneReady] = useState(false);
-  const [toastLot, setToastLot] = useState<Lot | null>(null);
-
-  const {
-    auctionState,
-    currentLot,
-    allLots,
-    recentBids,
-    nextBidAmount,
-    loading,
-    error,
-    placeBid,
-  } = useAuction(id);
-  const { bidder, canBid } = useBidder(id);
-  const watchedLotIds = useWatchedLots(bidder?.id ?? null);
-  const [overlayLot, setOverlayLot] = useState<Lot | null>(null);
-
-  // ── Watched lot toast trigger ─────────────────────────
-  useEffect(() => {
-    if (!currentLot) return;
-    if (currentLot.id === prevLotRef.current) return;
-    prevLotRef.current = currentLot.id;
-
-    if (watchedLotIds.has(currentLot.id)) {
-      setToastLot(currentLot);
-    }
-  }, [currentLot, watchedLotIds]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    import("three").then((THREE) => {
-      if (!canvasRef.current) return;
-      const scene = new AuctionScene(canvasRef.current, THREE);
-      sceneRef.current = scene;
-      setSceneReady(true);
-      const loop = () => {
-        scene.animate();
-        rafRef.current = requestAnimationFrame(loop);
-      };
-      loop();
-    });
-    return () => {
-      cancelAnimationFrame(rafRef.current);
-      sceneRef.current?.dispose();
-      sceneRef.current = null;
-    };
-  }, []);
+    if (!bidder || !currentBidderId) return;
+    const prev = prevWinnerRef.current;
+    prevWinnerRef.current = currentBidderId;
 
-  useEffect(() => {
-    const onResize = () => {
-      if (canvasRef.current && sceneRef.current)
-        sceneRef.current.resize(window.innerWidth, window.innerHeight);
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+    if (prev === bidder.id && currentBidderId !== bidder.id) {
+      setOutbidFlash(true);
+      const t = setTimeout(() => setOutbidFlash(false), 5000);
+      return () => clearTimeout(t);
+    }
+    // If bidder retakes lead, clear outbid flash immediately
+    if (currentBidderId === bidder.id) {
+      setOutbidFlash(false);
+    }
+  }, [currentBidderId, bidder]);
 
+  // Reset outbid flash when lot changes
   useEffect(() => {
-    const onWheel = (e: WheelEvent) => {
-      if (!sceneRef.current) return;
-      e.preventDefault();
-      sceneRef.current.applyZoomDelta(e.deltaY > 0 ? 0.08 : -0.08);
-    };
-    window.addEventListener("wheel", onWheel, { passive: false });
-    return () => window.removeEventListener("wheel", onWheel);
-  }, []);
-
-  useEffect(() => {
-    setIdx(0);
+    setOutbidFlash(false);
+    prevWinnerRef.current = null;
   }, [currentLot?.id]);
 
+  // Load watched lots when drawer opens
   useEffect(() => {
-    if (!sceneReady || !sceneRef.current) return;
-    const sorted = currentLot?.images
-      ? [...currentLot.images].sort((a, b) => a.sort_order - b.sort_order)
-      : [];
-    const url = sorted[activeImageIdx]?.public_url ?? null;
-    sceneRef.current.updateEaselTexture(url);
-  }, [sceneReady, currentLot, activeImageIdx]);
+    if (!showWatched || !bidder?.id) return;
+    setWatchLoading(true);
+    supabase
+      .from("watched_lots")
+      .select(
+        `
+        id, lot_id,
+        lot:lots (
+          id, lot_number, name, call_status,
+          estimate_low, estimate_high, sold_price,
+          images:photos ( public_url, is_primary )
+        )
+      `,
+      )
+      .eq("bidder_id", bidder.id)
+      .order("created_at", { ascending: true })
+      .then(({ data }) => {
+        setWatchedLots((data as WatchedLotRow[]) ?? []);
+        setWatchLoading(false);
+      });
+  }, [showWatched, bidder?.id]);
 
-  const handleViewChange = useCallback((v: "room" | "lot" | "vr") => {
-    if (v === "room") setIdx(0);
-    setView(v);
-    sceneRef.current?.setView(v);
-  }, []);
+  const handleBid = async () => {
+    if (!nextBidAmount || placing) return;
+    setPlacing(true);
+    setFeedback(null);
+    await onPlaceBid(nextBidAmount);
+    setFeedback(`✓ $${nextBidAmount.toLocaleString()} placed!`);
+    setPlacing(false);
+    setTimeout(() => setFeedback(null), 2000);
+  };
 
-  const handlePlaceBid = useCallback(
-    async (amount: number): Promise<void> => {
-      if (!currentLot || !bidder) return;
-      await placeBid(currentLot.id, bidder.id, amount, "web");
-    },
-    [currentLot, bidder, placeBid],
-  );
+  const removeWatch = async (watchId: string) => {
+    await supabase.from("watched_lots").delete().eq("id", watchId);
+    setWatchedLots((prev) => prev.filter((w) => w.id !== watchId));
+  };
 
-  const handleOverlayBid = useCallback(async () => {
-    await handlePlaceBid(nextBidAmount ?? 0);
-    setOverlayLot(null);
-  }, [handlePlaceBid, nextBidAmount]);
-
-  const sortedImages = currentLot?.images
-    ? [...currentLot.images].sort((a, b) => a.sort_order - b.sort_order)
-    : [];
-
-  const btnStyle = (v: string): React.CSSProperties => ({
-    background: view === v ? "rgba(201,168,76,.4)" : "rgba(0,0,0,.65)",
-    border:
-      view === v ? "1px solid #C9A84C" : "1px solid rgba(255,255,255,.25)",
-    borderRadius: 4,
-    padding: "6px 16px",
-    fontSize: 12,
-    fontWeight: 600,
-    color: view === v ? "#C9A84C" : "rgba(255,255,255,.75)",
-    cursor: "pointer",
-    fontFamily: "DM Sans, sans-serif",
-    whiteSpace: "nowrap",
-  });
+  const currentBid = auctionState?.current_bid;
+  const callStatus = auctionState?.call_status ?? "open";
+  const callText = auctionState?.auctioneer_call;
+  const openingBid = currentLot?.opening_bid ?? currentLot?.starting_bid ?? 0;
 
   return (
-    <div
-      style={{
-        position: "relative",
-        width: "100vw",
-        height: "100vh",
-        overflow: "hidden",
-        background: "#2a1a0e",
-      }}
-    >
-      <canvas
-        ref={canvasRef}
-        style={{
-          position: "absolute",
-          inset: 0,
-          width: "100%",
-          height: "100%",
-        }}
-      />
-
-      {/* Watched lot toast */}
-      {toastLot && (
-        <WatchedLotToast
-          lot={toastLot}
-          onBid={() => {
-            setOverlayLot(toastLot);
-            setToastLot(null);
-          }}
-          onClose={() => setToastLot(null)}
-        />
-      )}
-
-      {/* Top bar */}
-      <div
-        className="auction-topbar"
-        style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 }}
-      >
-        <div className="auction-topbar__logo">BENSON AUCTION SERVICES</div>
-        <div className="auction-topbar__title">
-          {auctionState
-            ? `LOT ${currentLot?.lot_number ?? "—"} OF ${allLots.length} · Fine Arts Winter Collection`
-            : loading
-              ? "Connecting…"
-              : "Live Auction"}
-        </div>
-        <div className="auction-topbar__live">
-          <span className="auction-topbar__dot" />
-          LIVE
-        </div>
-      </div>
-
-      {/* View toggle */}
-      <div
-        style={{
-          position: "absolute",
-          top: 44,
-          left: "50%",
-          transform: "translateX(-50%)",
-          display: "flex",
-          gap: 6,
-          zIndex: 10,
-        }}
-      >
-        <button
-          style={btnStyle("room")}
-          onClick={() => handleViewChange("room")}
-        >
-          🏛 Room
-        </button>
-        <button style={btnStyle("lot")} onClick={() => handleViewChange("lot")}>
-          🖼 Close-up
-        </button>
-        <button style={btnStyle("vr")} onClick={() => handleViewChange("vr")}>
-          🥽 VR
-        </button>
-      </div>
-
-      {/* Bid panel */}
-      {view !== "vr" && (
-        <div
-          style={{
-            position: "absolute",
-            left: 14,
-            top: 0,
-            bottom: 0,
-            display: "flex",
-            alignItems: "center",
-            zIndex: 10,
-          }}
-        >
-          <BidPanel
-            auctionState={auctionState}
-            currentLot={currentLot}
-            recentBids={recentBids}
-            nextBidAmount={nextBidAmount}
-            bidder={bidder}
-            canBid={canBid}
-            onPlaceBid={handlePlaceBid}
-            onJumpToLot={setOverlayLot}
-          />
-        </div>
-      )}
-
-      {/* Lot info panel */}
-      {view !== "vr" && currentLot && (
-        <div
-          style={{
-            position: "absolute",
-            right: 14,
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: 200,
-            background: "rgba(255,255,255,0.94)",
-            borderRadius: 7,
-            overflow: "hidden",
-            boxShadow: "0 6px 28px rgba(0,0,0,.55)",
-            zIndex: 10,
-          }}
-        >
-          <div className="ip-header">
-            <div className="ip-lot-tag">LOT {currentLot.lot_number} ★</div>
-            <div className="ip-title">{currentLot.title}</div>
+    <>
+      <aside className="bid-panel">
+        {/* Lot header */}
+        {currentLot && (
+          <div className="bid-panel__header">
+            <div className="bid-panel__lot-num">{currentLot.lot_number}</div>
+            <div className="bid-panel__lot-name">
+              {currentLot.title.toUpperCase()}
+            </div>
             {currentLot.estimate_low && currentLot.estimate_high && (
-              <div className="ip-est">
-                Est ${currentLot.estimate_low.toLocaleString()} – $
-                {currentLot.estimate_high.toLocaleString()}
+              <div className="bid-panel__est">
+                Est ${currentLot.estimate_low.toLocaleString()}
+                {" – "}${currentLot.estimate_high.toLocaleString()}
               </div>
             )}
-            {currentLot.status === "open" && <div className="ip-now">NOW!</div>}
           </div>
-          <div className="ip-body">
-            {currentLot.artist && (
-              <div className="ip-section">
-                <div className="ip-label">Artist</div>
-                <div className="ip-text">{currentLot.artist}</div>
-              </div>
+        )}
+
+        {/* NOW badge */}
+        {currentLot?.status === "open" && (
+          <div className="bid-panel__now">NOW!</div>
+        )}
+
+        {/* ── Winning / Outbid banner ───────────────────── */}
+        {canBid &&
+          currentBid != null &&
+          (isWinning && !outbidFlash ? (
+            <div
+              style={{
+                background: "#2d6a4f",
+                color: "#fff",
+                textAlign: "center",
+                padding: "7px 10px",
+                fontSize: 12,
+                fontWeight: 700,
+                fontFamily: "DM Sans, sans-serif",
+                letterSpacing: ".06em",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <span style={{ fontSize: 16 }}>🏆</span>
+              YOU'RE WINNING!
+            </div>
+          ) : outbidFlash ? (
+            <div
+              style={{
+                background: "#cc2200",
+                color: "#fff",
+                textAlign: "center",
+                padding: "7px 10px",
+                fontSize: 12,
+                fontWeight: 700,
+                fontFamily: "DM Sans, sans-serif",
+                letterSpacing: ".06em",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                animation: "pulse .5s infinite",
+              }}
+            >
+              <span style={{ fontSize: 16 }}>⚠️</span>
+              YOU'VE BEEN OUTBID!
+            </div>
+          ) : null)}
+
+        {/* Current bid */}
+        <div className="bid-panel__bid-block">
+          <div className="bid-panel__bid-label">Current Bid</div>
+          <div
+            className="bid-panel__bid-amount"
+            style={{
+              color: isWinning ? "#7fff9a" : outbidFlash ? "#ff8888" : "#fff",
+              transition: "color .3s",
+            }}
+          >
+            {currentBid != null
+              ? `$${currentBid.toLocaleString()}`
+              : currentLot
+                ? `$${openingBid.toLocaleString()}`
+                : "—"}
+          </div>
+          {currentLot && (
+            <div className="bid-panel__increment">
+              (Bid increment is{" "}
+              <strong>${currentLot.bid_increment.toLocaleString()}</strong>)
+            </div>
+          )}
+        </div>
+
+        {/* BID / Login button */}
+        <div className="bid-panel__btn-wrap">
+          {canBid ? (
+            <button
+              className={`bid-panel__btn ${placing ? "bid-panel__btn--placed" : ""}`}
+              onClick={handleBid}
+              disabled={placing || !nextBidAmount || callStatus === "sold"}
+              style={
+                outbidFlash && !placing
+                  ? { background: "#cc2200", animation: "pulse .6s 3" }
+                  : undefined
+              }
+            >
+              {feedback
+                ? feedback
+                : placing
+                  ? "Placing…"
+                  : nextBidAmount
+                    ? `BID $${nextBidAmount.toLocaleString()}`
+                    : "BID"}
+            </button>
+          ) : bidder ? (
+            <div className="bid-panel__login-prompt">
+              ⏳ Awaiting paddle approval
+            </div>
+          ) : (
+            <button
+              className="bid-panel__btn"
+              onClick={() => setShowLogin(true)}
+            >
+              Log in to bid
+            </button>
+          )}
+        </div>
+
+        {/* Watched lots button */}
+        {bidder && (
+          <button
+            onClick={() => setShowWatched(true)}
+            style={{
+              margin: "0 10px 8px",
+              padding: "7px 10px",
+              background: "rgba(0,0,0,.2)",
+              border: "1px solid rgba(255,255,255,.2)",
+              borderRadius: 4,
+              color: "rgba(255,255,255,.8)",
+              fontSize: 11,
+              fontWeight: 600,
+              fontFamily: "DM Sans, sans-serif",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            ★ My Watched Lots
+            {watchedLots.length > 0 && (
+              <span
+                style={{
+                  background: "#cc2200",
+                  color: "#fff",
+                  borderRadius: 10,
+                  fontSize: 9,
+                  padding: "1px 6px",
+                  fontWeight: 700,
+                }}
+              >
+                {watchedLots.length}
+              </span>
             )}
-            <div className="ip-grid">
-              {currentLot.medium && (
-                <div className="ip-cell">
-                  <div className="ip-cell-label">Medium</div>
-                  <div className="ip-cell-val">{currentLot.medium}</div>
-                </div>
-              )}
-              {currentLot.dimensions && (
-                <div className="ip-cell">
-                  <div className="ip-cell-label">Size</div>
-                  <div className="ip-cell-val">{currentLot.dimensions}</div>
-                </div>
-              )}
-              {currentLot.condition_report && (
-                <div className="ip-cell">
-                  <div className="ip-cell-label">Condition</div>
-                  <div className="ip-cell-val">
-                    {currentLot.condition_report}
+          </button>
+        )}
+
+        {/* Live bid feed */}
+        <div className="bid-feed">
+          <div className="bid-feed__header">Live Bid Feed</div>
+          {recentBids.length === 0 ? (
+            <div className="bid-feed__empty">No bids yet</div>
+          ) : (
+            recentBids.map((bid) => (
+              <div
+                key={bid.id}
+                className={`bid-feed__row ${bid.is_winning ? "bid-feed__row--winning" : ""}`}
+                style={
+                  bidder && bid.bidder_id === bidder.id
+                    ? { background: "rgba(45,106,79,.2)" }
+                    : undefined
+                }
+              >
+                <div>
+                  <div className="bid-feed__src">
+                    {sourceLabel(bid.source)}
+                    {bidder && bid.bidder_id === bidder.id && (
+                      <span
+                        style={{
+                          marginLeft: 4,
+                          fontSize: 8,
+                          color: "#7fff9a",
+                          fontWeight: 700,
+                        }}
+                      >
+                        YOU
+                      </span>
+                    )}
+                  </div>
+                  <div className="bid-feed__time">
+                    {formatTime(bid.placed_at)}
                   </div>
                 </div>
+                <div className="bid-feed__amount">
+                  ${bid.amount.toLocaleString()}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Auctioneer call */}
+        <div className="bid-panel__call">
+          <div className="bid-panel__call-status">
+            {callStatusLabel(callStatus)}
+          </div>
+          {callText && <div className="bid-panel__call-text">"{callText}"</div>}
+          <div className="bid-panel__watching">
+            <span className="bid-panel__dot" />
+            {auctionState?.watching_count ?? 0} watching
+          </div>
+        </div>
+
+        {/* Paddle bar */}
+        <div className="bid-panel__paddle">
+          {bidder ? (
+            <>
+              <span className="bid-panel__paddle-dot" />
+              <span className="bid-panel__paddle-num" style={{ flex: 1 }}>
+                PADDLE {bidder.paddle_number ?? "—"} · {bidder.first_name}{" "}
+                {bidder.last_name}
+              </span>
+              <button
+                onClick={() => supabase.auth.signOut()}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "rgba(255,255,255,.45)",
+                  fontSize: 9,
+                  cursor: "pointer",
+                  fontFamily: "DM Sans, sans-serif",
+                  textDecoration: "underline",
+                  padding: 0,
+                  marginLeft: 6,
+                }}
+              >
+                logout
+              </button>
+            </>
+          ) : (
+            <button
+              className="bid-panel__paddle-login"
+              onClick={() => setShowLogin(true)}
+            >
+              Guest — log in to bid
+            </button>
+          )}
+        </div>
+      </aside>
+
+      {/* ── Watched Lots Drawer ─────────────────────────── */}
+      {showWatched && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.6)",
+            zIndex: 300,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowWatched(false);
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 8,
+              width: "100%",
+              maxWidth: 480,
+              maxHeight: "80vh",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 20px 60px rgba(0,0,0,.5)",
+            }}
+          >
+            <div
+              style={{
+                background: "#1a1a1a",
+                padding: "14px 18px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                borderBottom: "2px solid #c9a84c",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    color: "#c9a84c",
+                    fontWeight: 700,
+                    fontSize: 15,
+                    fontFamily: "DM Sans, sans-serif",
+                    letterSpacing: ".05em",
+                  }}
+                >
+                  ★ MY WATCHED LOTS
+                </div>
+                <div
+                  style={{
+                    color: "rgba(255,255,255,.45)",
+                    fontSize: 11,
+                    fontFamily: "DM Sans, sans-serif",
+                    marginTop: 2,
+                  }}
+                >
+                  {bidder?.first_name} {bidder?.last_name} · Paddle{" "}
+                  {bidder?.paddle_number}
+                </div>
+              </div>
+              <button
+                onClick={() => setShowWatched(false)}
+                style={{
+                  background: "rgba(255,255,255,.1)",
+                  border: "none",
+                  borderRadius: 4,
+                  color: "rgba(255,255,255,.6)",
+                  width: 28,
+                  height: 28,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {watchLoading ? (
+                <div
+                  style={{
+                    padding: 24,
+                    textAlign: "center",
+                    color: "#aaa",
+                    fontSize: 13,
+                    fontFamily: "DM Sans, sans-serif",
+                  }}
+                >
+                  Loading…
+                </div>
+              ) : watchedLots.length === 0 ? (
+                <div
+                  style={{
+                    padding: 24,
+                    textAlign: "center",
+                    color: "#aaa",
+                    fontSize: 13,
+                    fontFamily: "DM Sans, sans-serif",
+                  }}
+                >
+                  No watched lots yet.
+                  <br />
+                  <span style={{ fontSize: 11, color: "#ccc" }}>
+                    Click ☆ Watch Lot on any upcoming lot.
+                  </span>
+                </div>
+              ) : (
+                watchedLots.map((w) => {
+                  const status = watchedLotStatus(w.lot?.call_status ?? null);
+                  const thumb =
+                    w.lot?.images?.find(
+                      (i: { public_url: string | null; is_primary: boolean }) =>
+                        i.is_primary,
+                    )?.public_url ?? w.lot?.images?.[0]?.public_url;
+                  const isLive =
+                    w.lot?.call_status === "open" ||
+                    w.lot?.call_status === "going_once" ||
+                    w.lot?.call_status === "going_twice";
+                  return (
+                    <div
+                      key={w.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "10px 14px",
+                        borderBottom: "1px solid #f0f0f0",
+                        background: isLive ? "#fff8f0" : "#fff",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 52,
+                          height: 44,
+                          borderRadius: 4,
+                          overflow: "hidden",
+                          background: "#f0f0f0",
+                          flexShrink: 0,
+                          border: isLive
+                            ? "2px solid #cc2200"
+                            : "2px solid #eee",
+                        }}
+                      >
+                        {thumb ? (
+                          <img
+                            src={thumb}
+                            alt=""
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                          />
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: 20,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              height: "100%",
+                            }}
+                          >
+                            🖼
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: "#aaa",
+                            fontFamily: "DM Sans, sans-serif",
+                            letterSpacing: ".08em",
+                          }}
+                        >
+                          LOT {w.lot?.lot_number}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: "#1a1a1a",
+                            fontFamily: "DM Sans, sans-serif",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {w.lot?.name}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            color: "#aaa",
+                            fontFamily: "DM Sans, sans-serif",
+                            marginTop: 1,
+                          }}
+                        >
+                          {w.lot?.estimate_low && w.lot?.estimate_high
+                            ? `Est $${w.lot.estimate_low.toLocaleString()} – $${w.lot.estimate_high.toLocaleString()}`
+                            : w.lot?.call_status === "sold" && w.lot?.sold_price
+                              ? `Sold $${w.lot.sold_price.toLocaleString()}`
+                              : ""}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "flex-end",
+                          gap: 4,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            padding: "2px 7px",
+                            borderRadius: 3,
+                            background: status.bg,
+                            color: status.color,
+                            fontFamily: "DM Sans, sans-serif",
+                            letterSpacing: ".06em",
+                          }}
+                        >
+                          {status.label}
+                        </span>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          {isLive && onJumpToLot && (
+                            <button
+                              onClick={() => {
+                                setShowWatched(false);
+                                onJumpToLot(w.lot as unknown as Lot);
+                              }}
+                              style={{
+                                background: "#cc2200",
+                                border: "none",
+                                borderRadius: 3,
+                                color: "#fff",
+                                fontSize: 9,
+                                fontWeight: 700,
+                                padding: "3px 8px",
+                                cursor: "pointer",
+                                fontFamily: "DM Sans, sans-serif",
+                              }}
+                            >
+                              BID NOW
+                            </button>
+                          )}
+                          <button
+                            onClick={() => removeWatch(w.id)}
+                            style={{
+                              background: "#f0f0f0",
+                              border: "none",
+                              borderRadius: 3,
+                              color: "#aaa",
+                              fontSize: 9,
+                              padding: "3px 6px",
+                              cursor: "pointer",
+                              fontFamily: "DM Sans, sans-serif",
+                            }}
+                            title="Remove from watchlist"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
               )}
+            </div>
+
+            <div
+              style={{
+                padding: "10px 14px",
+                borderTop: "1px solid #eee",
+                background: "#f8f8f8",
+                textAlign: "center",
+              }}
+            >
+              <button
+                onClick={() => setShowWatched(false)}
+                style={{
+                  background: "transparent",
+                  border: "1px solid #ccc",
+                  borderRadius: 4,
+                  padding: "6px 20px",
+                  fontSize: 12,
+                  color: "#555",
+                  cursor: "pointer",
+                  fontFamily: "DM Sans, sans-serif",
+                }}
+              >
+                ← Return to Auction
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Zoom controls — close-up only */}
-      {view === "lot" && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 80,
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            gap: 8,
-            zIndex: 10,
-          }}
-        >
-          <button
-            onClick={() => sceneRef.current?.applyZoomDelta(-0.15)}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 4,
-              background: "rgba(0,0,0,.65)",
-              border: "1px solid rgba(255,255,255,.25)",
-              color: "#fff",
-              fontSize: 20,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            −
-          </button>
-          <button
-            onClick={() => sceneRef.current?.applyZoomDelta(0.15)}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 4,
-              background: "rgba(0,0,0,.65)",
-              border: "1px solid rgba(255,255,255,.25)",
-              color: "#fff",
-              fontSize: 20,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            +
-          </button>
-        </div>
-      )}
-
-      {/* Vertical image ribbon — close-up only */}
-      {view === "lot" && sortedImages.length > 1 && (
-        <div
-          style={{
-            position: "absolute",
-            right: 224,
-            top: "50%",
-            transform: "translateY(-50%)",
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-            zIndex: 10,
-            background: "rgba(0,0,0,.55)",
-            borderRadius: 6,
-            padding: "6px 5px",
-            border: "1px solid rgba(201,168,76,.25)",
-          }}
-        >
-          {sortedImages.map((img, idx) => (
-            <button
-              key={img.id}
-              onClick={() => setIdx(idx)}
-              style={{
-                width: 64,
-                height: 54,
-                borderRadius: 4,
-                padding: 0,
-                border:
-                  idx === activeImageIdx
-                    ? "2px solid #cc2200"
-                    : "2px solid rgba(255,255,255,.2)",
-                overflow: "hidden",
-                cursor: "pointer",
-                background: "#1a1208",
-                transform: idx === activeImageIdx ? "scale(1.05)" : "scale(1)",
-                transition: "all .15s",
-              }}
-            >
-              {img.public_url ? (
-                <img
-                  src={img.public_url}
-                  alt={img.caption ?? `View ${idx + 1}`}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                />
-              ) : (
-                <span
-                  style={{
-                    fontSize: 22,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                  }}
-                >
-                  🖼
-                </span>
-              )}
-            </button>
-          ))}
-          <div
-            style={{
-              fontSize: 9,
-              color: "rgba(255,255,255,.4)",
-              textAlign: "center",
-              marginTop: 2,
-              lineHeight: 1.4,
-            }}
-          >
-            Scroll to
-            <br />
-            zoom
-          </div>
-        </div>
-      )}
-
-      {/* VR auctioneer call */}
-      {view === "vr" && auctionState?.auctioneer_call && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 110,
-            left: "50%",
-            transform: "translateX(-50%)",
-            background: "rgba(0,0,0,.68)",
-            border: "1px solid rgba(201,168,76,.4)",
-            borderRadius: 5,
-            padding: "7px 12px",
-            fontSize: 13,
-            color: "rgba(255,240,200,.9)",
-            fontStyle: "italic",
-            maxWidth: 320,
-            textAlign: "center",
-            zIndex: 10,
-          }}
-        >
-          <span
-            style={{
-              display: "block",
-              fontSize: 10,
-              fontStyle: "normal",
-              fontWeight: 700,
-              color: "#C9A84C",
-              marginBottom: 3,
-            }}
-          >
-            🔨 AUCTIONEER
-          </span>
-          "{auctionState.auctioneer_call}"
-        </div>
-      )}
-
-      {/* Lot ribbon */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 14,
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 10,
-        }}
-      >
-        <LotRibbon
-          lots={allLots}
-          activeLotId={auctionState?.current_lot_id ?? null}
-          onLotClick={setOverlayLot}
-        />
-      </div>
-
-      {/* Watching count */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 14,
-          left: 14,
-          zIndex: 10,
-          display: "flex",
-          alignItems: "center",
-          gap: 5,
-          background: "rgba(0,0,0,.62)",
-          border: "1px solid rgba(255,255,255,.15)",
-          borderRadius: 4,
-          padding: "4px 10px",
-        }}
-      >
-        <div
-          style={{
-            width: 5,
-            height: 5,
-            background: "#7fff6a",
-            borderRadius: "50%",
-          }}
-        />
-        <span style={{ fontSize: 10, color: "rgba(255,255,255,.65)" }}>
-          {auctionState?.watching_count ?? 0} watching
-        </span>
-      </div>
-
-      {loading && (
-        <div
-          className="auction-loading"
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 20,
-            background: "rgba(10,8,4,.85)",
-          }}
-        >
-          <div className="auction-loading__spinner" />
-          <p>Connecting to live auction…</p>
-        </div>
-      )}
-
-      {error && (
-        <div
-          className="auction-error"
-          style={{
-            position: "absolute",
-            inset: 0,
-            zIndex: 20,
-            background: "rgba(10,8,4,.85)",
-          }}
-        >
-          <p>⚠ Could not connect: {error}</p>
-          <button onClick={() => window.location.reload()}>Retry</button>
-        </div>
-      )}
-
-      {overlayLot && (
-        <LotDetailOverlay
-          lot={overlayLot}
-          auctionState={auctionState}
-          nextBidAmount={nextBidAmount}
-          canBid={canBid}
-          onBid={handleOverlayBid}
-          onClose={() => setOverlayLot(null)}
-          bidderId={bidder?.id ?? null}
+      {showLogin && (
+        <BidderLoginModal
+          onClose={() => setShowLogin(false)}
+          onSuccess={() => setShowLogin(false)}
         />
       )}
-
-      {/* Bidder chat */}
-      <BidderChat saleId={id} bidder={bidder} />
-    </div>
+    </>
   );
 }
