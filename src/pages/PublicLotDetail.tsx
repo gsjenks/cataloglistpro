@@ -1,10 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
 import { ArrowLeft } from "lucide-react";
 import type { Lot } from "../types/auction";
 
-// Create a public-only Supabase client (no auth required)
+interface Photo {
+  id: string;
+  lot_id: string;
+  file_path: string;
+  file_name: string;
+  is_primary?: boolean;
+  created_at: string;
+  url?: string;
+}
+
 const supabasePublic = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY,
@@ -14,15 +23,11 @@ export default function PublicLotDetail() {
   const { saleId, lotId } = useParams<{ saleId: string; lotId: string }>();
   const navigate = useNavigate();
   const [lot, setLot] = useState<Lot | null>(null);
-  const [photos, setPhotos] = useState<any[]>([]);
+  const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadLotData();
-  }, [lotId, saleId]);
-
-  const loadLotData = async () => {
+  const loadLotData = useCallback(async () => {
     if (!lotId || !saleId) {
       setError("Invalid lot or sale");
       setLoading(false);
@@ -32,7 +37,6 @@ export default function PublicLotDetail() {
     try {
       setLoading(true);
 
-      // Fetch lot data (RLS: public read allowed)
       const { data: lotData, error: lotError } = await supabasePublic
         .from("lots")
         .select("*")
@@ -47,7 +51,6 @@ export default function PublicLotDetail() {
 
       setLot(lotData);
 
-      // Fetch photos (RLS: public read allowed)
       const { data: photoData, error: photoError } = await supabasePublic
         .from("photos")
         .select("*")
@@ -56,15 +59,14 @@ export default function PublicLotDetail() {
         .order("created_at", { ascending: true });
 
       if (!photoError && photoData) {
-        // Generate signed URLs for public access
         const photosWithUrls = await Promise.all(
-          photoData.map(async (photo: any) => {
+          photoData.map(async (photo: Photo) => {
             const { data } = await supabasePublic.storage
               .from("photos")
               .createSignedUrl(photo.file_path, 3600);
             return {
               ...photo,
-              url: data?.signedUrl || null,
+              url: data?.signedUrl || undefined,
             };
           }),
         );
@@ -76,7 +78,11 @@ export default function PublicLotDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [lotId, saleId]);
+
+  useEffect(() => {
+    loadLotData();
+  }, [loadLotData]);
 
   if (loading) {
     return (
@@ -136,7 +142,7 @@ export default function PublicLotDetail() {
             Back
           </button>
           <h1 className="text-lg font-bold text-gray-900">Item Details</h1>
-          <div className="w-12" /> {/* Spacer for centering */}
+          <div className="w-12" />
         </div>
       </div>
 
@@ -146,7 +152,6 @@ export default function PublicLotDetail() {
         {allPhotos.length > 0 && (
           <div className="mb-8">
             <div className="bg-white rounded-lg overflow-hidden border border-gray-200">
-              {/* Primary Photo */}
               {primaryPhoto?.url && (
                 <div className="mb-4">
                   <img
@@ -157,7 +162,6 @@ export default function PublicLotDetail() {
                 </div>
               )}
 
-              {/* Thumbnail Strip */}
               {otherPhotos.length > 0 && (
                 <div className="px-4 pb-4 flex gap-2 overflow-x-auto">
                   {otherPhotos
@@ -181,7 +185,6 @@ export default function PublicLotDetail() {
 
         {/* Item Details Card */}
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          {/* Lot Number & Title */}
           <div className="mb-6">
             <div className="flex items-center gap-3 mb-2">
               <span className="inline-block px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm font-medium">
@@ -196,7 +199,6 @@ export default function PublicLotDetail() {
             <h2 className="text-3xl font-bold text-gray-900">{lot.name}</h2>
           </div>
 
-          {/* Price Section */}
           <div className="bg-indigo-50 rounded-lg p-4 mb-6 border border-indigo-200">
             <p className="text-sm text-indigo-600 font-medium mb-1">Estimate</p>
             <p className="text-2xl font-bold text-indigo-900">
@@ -204,7 +206,6 @@ export default function PublicLotDetail() {
             </p>
           </div>
 
-          {/* Item Details Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             {lot.category && (
               <div>
@@ -252,7 +253,6 @@ export default function PublicLotDetail() {
             )}
           </div>
 
-          {/* Dimensions */}
           {(lot.height || lot.width || lot.depth) && (
             <div className="mb-6">
               <p className="text-sm text-gray-600 font-medium mb-3">
@@ -266,7 +266,6 @@ export default function PublicLotDetail() {
             </div>
           )}
 
-          {/* Description */}
           {lot.description && (
             <div>
               <p className="text-sm text-gray-600 font-medium mb-3">
@@ -279,7 +278,6 @@ export default function PublicLotDetail() {
           )}
         </div>
 
-        {/* Footer Note */}
         <div className="text-center text-sm text-gray-500 py-4">
           For questions about this item, contact the auctioneer.
         </div>

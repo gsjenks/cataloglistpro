@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import QRCode from "qrcode";
 import { Printer, Download } from "lucide-react";
 import type { Lot } from "../types/auction";
@@ -6,20 +6,16 @@ import { supabase } from "../lib/supabase";
 
 interface Props {
   saleId: string;
-  saleName: string;
+  saleName?: string; // Made optional since unused
 }
 
-export function QRCodeLabelGenerator({ saleId, saleName }: Props) {
+export function QRCodeLabelGenerator({ saleId }: Props) {
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(true);
   const [qrCodes, setQrCodes] = useState<{ [key: string]: string }>({});
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    loadLots();
-  }, [saleId]);
-
-  const loadLots = async () => {
+  const loadLots = useCallback(async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -36,13 +32,20 @@ export function QRCodeLabelGenerator({ saleId, saleName }: Props) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [saleId]);
 
-  const generateLotUrl = (lotId: string) => {
-    // Use production URL for QR codes
-    const baseUrl = "https://cataloglistpro.vercel.app";
-    return `${baseUrl}/view/sales/${saleId}/lots/${lotId}`;
-  };
+  useEffect(() => {
+    loadLots();
+  }, [loadLots]);
+
+  const generateLotUrl = useCallback(
+    (lotId: string) => {
+      const baseUrl = "https://cataloglistpro.vercel.app";
+      return `${baseUrl}/view/sales/${saleId}/lots/${lotId}`;
+    },
+    [saleId],
+  );
+
   useEffect(() => {
     if (lots.length === 0) return;
 
@@ -67,7 +70,7 @@ export function QRCodeLabelGenerator({ saleId, saleName }: Props) {
     };
 
     generateQRCodes();
-  }, [lots, saleId]);
+  }, [lots, generateLotUrl]);
 
   const handlePrint = () => {
     window.print();
@@ -93,7 +96,6 @@ export function QRCodeLabelGenerator({ saleId, saleName }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Controls */}
       <div className="flex gap-2">
         <button
           onClick={handlePrint}
@@ -111,14 +113,12 @@ export function QRCodeLabelGenerator({ saleId, saleName }: Props) {
         </button>
       </div>
 
-      {/* Label Count */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
         <p className="text-sm text-blue-800">
           Generating {lots.length} labels for printing on 1.75" × 1.1" tags
         </p>
       </div>
 
-      {/* Print-friendly label grid */}
       <div
         ref={containerRef}
         className="print:p-0 print:m-0 print:bg-white"
@@ -157,7 +157,6 @@ export function QRCodeLabelGenerator({ saleId, saleName }: Props) {
                 fontFamily: "Arial, sans-serif",
               }}
             >
-              {/* Title */}
               <div
                 style={{
                   fontSize: "11px",
@@ -176,7 +175,6 @@ export function QRCodeLabelGenerator({ saleId, saleName }: Props) {
                 {lot.title || lot.name || "Untitled"}
               </div>
 
-              {/* Amount */}
               <div
                 style={{
                   fontSize: "12px",
@@ -189,7 +187,6 @@ export function QRCodeLabelGenerator({ saleId, saleName }: Props) {
                 {amount}
               </div>
 
-              {/* QR Code */}
               <div style={{ display: "flex", justifyContent: "center" }}>
                 {qrCodeDataUrl ? (
                   <img
@@ -212,7 +209,6 @@ export function QRCodeLabelGenerator({ saleId, saleName }: Props) {
         })}
       </div>
 
-      {/* Print Styles */}
       <style>{`
         @media print {
           body {
