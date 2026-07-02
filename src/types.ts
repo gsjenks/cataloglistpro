@@ -26,6 +26,14 @@ export interface Sale {
   start_date?: string;
   location?: string;
   status: 'upcoming' | 'active' | 'completed';
+  // Estate Sale vs Auction path (see Phase 0 of the estate-sale POS work).
+  // Defaults to 'auction' for legacy sales created before this field existed.
+  sale_type?: 'estate_sale' | 'auction';
+  // Buyer self-checkout (Square Mode 1). Only meaningful for estate sales.
+  online_checkout_enabled?: boolean;
+  // When public self-checkout opens. null/undefined = opens immediately once
+  // enabled. A future timestamp gives in-person shoppers a priority window.
+  online_checkout_opens_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -55,6 +63,9 @@ export interface Lot {
   weight?: number;
   dimension_unit?: string;
   consignor?: string;
+  // Estate-sale floor inventory state. Staff can set this at any time; it is
+  // independent of the online self-checkout delay. Defaults to 'available'.
+  inventory_status?: 'available' | 'held' | 'sold';
   created_at?: string;
   updated_at?: string;
 }

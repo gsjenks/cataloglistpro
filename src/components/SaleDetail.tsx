@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document } from '../types';
+import { useLotInventoryRealtime } from '../hooks/useLotInventoryRealtime';
+import type { ScannedLot } from '../services/ScannerService';
 import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
+import QRScanner from './QRScanner';
 import ContactsList from './ContactsList';
 import DocumentsList from './DocumentsList';
 import ExportService from '../services/ExportService';
@@ -21,6 +24,7 @@ export default function SaleDetail() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [activeTab, setActiveTab] = useState('items');
   const [loading, setLoading] = useState(true);
+  const [showScanner, setShowScanner] = useState(false);
   
   // Export state
   const [exporting, setExporting] = useState(false);
@@ -93,6 +97,16 @@ export default function SaleDetail() {
             onClick: () => navigate(`/sales/${saleId}/lots/new`),
             variant: 'primary'
           },
+          // Estate sales: scan a printed QR tag to jump straight to a lot.
+          ...(sale?.sale_type === 'estate_sale'
+            ? [{
+                id: 'scan-lot',
+                label: 'Scan',
+                icon: <ScanLine className="w-4 h-4" />,
+                onClick: () => setShowScanner(true),
+                variant: 'secondary' as const,
+              }]
+            : []),
           {
             id: 'back',
             label: 'Back',
@@ -165,7 +179,7 @@ export default function SaleDetail() {
     return () => {
       clearActions();
     };
-  }, [activeTab, saleId, setActions, clearActions, navigate]);
+  }, [activeTab, saleId, sale?.sale_type, setActions, clearActions, navigate]);
 
   const loadSale = async () => {
     if (!saleId) return;
@@ -202,6 +216,51 @@ export default function SaleDetail() {
       console.error('Error loading lots:', error);
     }
   };
+
+  // Estate-sale floor: patch a single lot in place when another device changes
+  // it (status, etc.) via realtime.
+  const handleRealtimeLotUpdate = useCallback((updated: Lot) => {
+    setLots((prev) => prev.map((l) => (l.id === updated.id ? { ...l, ...updated } : l)));
+  }, []);
+
+  // A lot was added or removed elsewhere — reload the list to stay consistent.
+  const handleStructuralChange = useCallback(() => {
+    loadLots();
+  }, [saleId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Staff mark a lot Available / Held / Sold. Optimistic update + write-back;
+  // realtime echoes the change to other devices.
+  const handleInventoryChange = useCallback(
+    async (lotId: string, status: NonNullable<Lot['inventory_status']>) => {
+      setLots((prev) =>
+        prev.map((l) => (l.id === lotId ? { ...l, inventory_status: status } : l)),
+      );
+      const { error } = await supabase
+        .from('lots')
+        .update({ inventory_status: status, updated_at: new Date().toISOString() })
+        .eq('id', lotId);
+      if (error) {
+        console.error('Failed to update inventory status:', error);
+        loadLots(); // reconcile on failure
+      }
+    },
+    [saleId], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  useLotInventoryRealtime(saleId, {
+    onUpdate: handleRealtimeLotUpdate,
+    onStructuralChange: handleStructuralChange,
+    enabled: sale?.sale_type === 'estate_sale',
+  });
+
+  // Scanned a lot tag on the floor — jump to that lot (may be in another sale).
+  const handleScanned = useCallback(
+    (scanned: ScannedLot) => {
+      setShowScanner(false);
+      navigate(`/sales/${scanned.saleId}/lots/${scanned.lotId}`);
+    },
+    [navigate],
+  );
 
   const loadContacts = async () => {
     if (!saleId) return;
@@ -613,6 +672,8 @@ export default function SaleDetail() {
               lots={filteredLots}
               saleId={saleId!}
               onRefresh={loadLots}
+              saleType={sale?.sale_type}
+              onInventoryChange={handleInventoryChange}
             />
             
             {/* Show "No results" message when searching */}
@@ -681,6 +742,10 @@ export default function SaleDetail() {
           />
         )}
       </div>
+
+      {showScanner && (
+        <QRScanner onScan={handleScanned} onClose={() => setShowScanner(false)} />
+      )}
     </div>
   );
 }

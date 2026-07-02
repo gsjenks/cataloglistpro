@@ -2,17 +2,23 @@
 // OPTIMIZED: Parallel photo loading, lazy images, memoization
 
 import { useNavigate } from 'react-router-dom';
-import type { Lot } from '../types';
+import type { Lot, Sale } from '../types';
 import { Edit2, Trash2, Package } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { supabase } from '../lib/supabase';
 import PhotoService from '../services/PhotoService';
 import SyncService from '../services/SyncService';
+import InventoryStatusControl from './InventoryStatusControl';
+
+type InventoryStatus = NonNullable<Lot['inventory_status']>;
 
 interface LotsListProps {
   lots: Lot[];
   saleId: string;
   onRefresh: () => void;
+  // Estate sales show the Available/Held/Sold floor control per lot.
+  saleType?: Sale['sale_type'];
+  onInventoryChange?: (lotId: string, status: InventoryStatus) => void;
 }
 
 // Lazy image component with intersection observer
@@ -83,13 +89,15 @@ const LazyImage = memo(({
 LazyImage.displayName = 'LazyImage';
 
 // Lot card component - memoized
-const LotCard = memo(({ 
-  lot, 
-  deleting, 
-  onEdit, 
+const LotCard = memo(({
+  lot,
+  deleting,
+  onEdit,
   onDelete,
   loadPhoto,
-  refreshKey
+  refreshKey,
+  showInventory,
+  onInventoryChange
 }: {
   lot: Lot;
   deleting: string | null;
@@ -97,6 +105,8 @@ const LotCard = memo(({
   onDelete: (lot: Lot) => void;
   loadPhoto: (lotId: string) => Promise<string | null>;
   refreshKey: number;
+  showInventory: boolean;
+  onInventoryChange?: (lotId: string, status: InventoryStatus) => void;
 }) => {
   const formatCurrency = (value: number | null | undefined) => {
     if (value === null || value === undefined) return '';
@@ -174,6 +184,16 @@ const LotCard = memo(({
                 </span>
               )}
             </div>
+
+            {showInventory && onInventoryChange && (
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-xs text-gray-500 w-20 flex-shrink-0">Status:</span>
+                <InventoryStatusControl
+                  status={lot.inventory_status ?? 'available'}
+                  onChange={(s) => onInventoryChange(lot.id, s)}
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -209,7 +229,8 @@ const LotCard = memo(({
 
 LotCard.displayName = 'LotCard';
 
-export default function LotsList({ lots, saleId, onRefresh }: LotsListProps) {
+export default function LotsList({ lots, saleId, onRefresh, saleType, onInventoryChange }: LotsListProps) {
+  const showInventory = saleType === 'estate_sale';
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -342,6 +363,8 @@ export default function LotsList({ lots, saleId, onRefresh }: LotsListProps) {
           onDelete={handleDelete}
           loadPhoto={loadPhoto}
           refreshKey={refreshKey}
+          showInventory={showInventory}
+          onInventoryChange={onInventoryChange}
         />
       ))}
     </div>

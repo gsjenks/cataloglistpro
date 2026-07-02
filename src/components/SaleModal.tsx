@@ -11,11 +11,33 @@ interface SaleModalProps {
   onSave: () => void;
 }
 
+// Convert a stored ISO timestamp to the value a datetime-local input expects
+// ('YYYY-MM-DDTHH:mm' in local time). Returns '' for null/undefined.
+function isoToLocalInput(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+// Convert a datetime-local value back to an ISO timestamp, or null if blank.
+function localInputToIso(value: string): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 export default function SaleModal({ sale, companyId, onClose, onSave }: SaleModalProps) {
   const [name, setName] = useState('');
   const [date, setDate] = useState('');
   const [location, setLocation] = useState('');
   const [status, setStatus] = useState<Sale['status']>('upcoming');
+  // New sales default to the estate-sale path (the priority business).
+  const [saleType, setSaleType] = useState<NonNullable<Sale['sale_type']>>('estate_sale');
+  const [onlineCheckoutEnabled, setOnlineCheckoutEnabled] = useState(false);
+  // datetime-local value ('YYYY-MM-DDTHH:mm'); blank = opens immediately.
+  const [onlineOpensAt, setOnlineOpensAt] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -25,6 +47,9 @@ export default function SaleModal({ sale, companyId, onClose, onSave }: SaleModa
       setDate(sale.start_date || '');
       setLocation(sale.location || '');
       setStatus(sale.status);
+      setSaleType(sale.sale_type ?? 'auction'); // legacy sales are auctions
+      setOnlineCheckoutEnabled(sale.online_checkout_enabled ?? false);
+      setOnlineOpensAt(isoToLocalInput(sale.online_checkout_opens_at));
     }
   }, [sale]);
 
@@ -33,16 +58,26 @@ export default function SaleModal({ sale, companyId, onClose, onSave }: SaleModa
     setLoading(true);
     setError('');
 
+    // Self-checkout settings only apply to estate sales.
+    const isEstate = saleType === 'estate_sale';
+    const checkoutEnabled = isEstate && onlineCheckoutEnabled;
+    const salePayload = {
+      name,
+      start_date: date || null,
+      location: location || null,
+      status,
+      sale_type: saleType,
+      online_checkout_enabled: checkoutEnabled,
+      online_checkout_opens_at: checkoutEnabled ? localInputToIso(onlineOpensAt) : null,
+    };
+
     try {
       if (sale) {
         // Update existing sale
         const { error: updateError } = await supabase
           .from('sales')
           .update({
-            name,
-            start_date: date || null,
-            location: location || null,
-            status,
+            ...salePayload,
             updated_at: new Date().toISOString(),
           })
           .eq('id', sale.id);
@@ -54,10 +89,7 @@ export default function SaleModal({ sale, companyId, onClose, onSave }: SaleModa
           .from('sales')
           .insert({
             company_id: companyId,
-            name,
-            start_date: date || null,
-            location: location || null,
-            status,
+            ...salePayload,
           });
 
         if (insertError) throw insertError;
@@ -115,6 +147,21 @@ export default function SaleModal({ sale, companyId, onClose, onSave }: SaleModa
           </div>
 
           <div>
+            <label htmlFor="saleType" className="block text-sm font-medium text-gray-700 mb-1">
+              Sale Type *
+            </label>
+            <select
+              id="saleType"
+              value={saleType}
+              onChange={(e) => setSaleType(e.target.value as NonNullable<Sale['sale_type']>)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-opacity-10 transition-all"
+            >
+              <option value="estate_sale">Estate Sale</option>
+              <option value="auction">Auction</option>
+            </select>
+          </div>
+
+          <div>
             <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-1">
               Start Date
             </label>
@@ -156,6 +203,50 @@ export default function SaleModal({ sale, companyId, onClose, onSave }: SaleModa
               <option value="completed">Completed</option>
             </select>
           </div>
+
+          {/* Estate-sale buyer self-checkout (Square Mode 1) */}
+          {saleType === 'estate_sale' && (
+            <div className="rounded-md border border-gray-200 bg-gray-50 p-3 space-y-3">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={onlineCheckoutEnabled}
+                  onChange={(e) => setOnlineCheckoutEnabled(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-gray-700">
+                    Enable buyer self-checkout (online)
+                  </span>
+                  <span className="block text-xs text-gray-500">
+                    Lets shoppers buy items by scanning the QR tag and paying with Square.
+                  </span>
+                </span>
+              </label>
+
+              {onlineCheckoutEnabled && (
+                <div>
+                  <label
+                    htmlFor="onlineOpensAt"
+                    className="block text-sm font-medium text-gray-700 mb-1"
+                  >
+                    Online checkout opens at
+                  </label>
+                  <input
+                    id="onlineOpensAt"
+                    type="datetime-local"
+                    value={onlineOpensAt}
+                    onChange={(e) => setOnlineOpensAt(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-600 focus:ring-opacity-10 transition-all"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Leave blank to open immediately. Set a later time to give in-person
+                    shoppers first pick before online buyers can purchase.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Footer Buttons */}
           <div className="flex items-center justify-end gap-2 pt-4">

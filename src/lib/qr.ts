@@ -22,9 +22,13 @@ export async function generateQRCodeForLot(
   lotNumber: number
 ): Promise<string | null> {
   try {
-    // Create the public URL that the QR code will link to
-    const appUrl = import.meta.env.VITE_APP_URL || 'http://localhost:5173';
-    const lotUrl = `${appUrl}/sale/${saleId}/lot/${lotNumber}`;
+    // Create the public URL that the QR code will link to.
+    // Must match the public route in App.tsx: /view/sales/:saleId/lots/:lotId
+    // (uses the lot UUID, not the human lot number). Fall back to the current
+    // origin so QRs point at wherever the app is actually served (prod or dev),
+    // rather than a hardcoded localhost.
+    const appUrl = import.meta.env.VITE_APP_URL || window.location.origin;
+    const lotUrl = `${appUrl}/view/sales/${saleId}/lots/${lotId}`;
 
     console.log(`Generating QR code for lot ${lotNumber}: ${lotUrl}`);
 
