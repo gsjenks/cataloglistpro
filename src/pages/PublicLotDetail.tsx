@@ -5,6 +5,7 @@ import type { Lot } from "../types/auction";
 import { supabasePublic } from "../lib/publicClient";
 import LotQRCode from "../components/LotQRCode";
 import BuyerBasket from "../components/BuyerBasket";
+import SaveBasketButtons from "../components/SaveBasketButtons";
 import { useBuyerBasket } from "../hooks/useBuyerBasket";
 import { useHoldRenewal } from "../hooks/useHoldRenewal";
 import { holdLot, releaseLot, effectiveStatus, HOLD_MINUTES } from "../lib/holds";
@@ -31,6 +32,7 @@ export default function PublicLotDetail() {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
   const basket = useBuyerBasket(saleId);
 
   const loadLotData = useCallback(async () => {
@@ -214,6 +216,7 @@ export default function PublicLotDetail() {
       setAddError(map[res.error ?? "unknown"] ?? "Could not add to basket. Please try again.");
       return;
     }
+    const wasFirstItem = basket.items.length === 0;
     basket.addItem({
       lotId: l.id,
       lotNumber: l.lot_number ?? null,
@@ -221,6 +224,11 @@ export default function PublicLotDetail() {
       price: l.starting_bid ?? 0,
       heldUntil: res.heldUntil,
     });
+    // Nudge the buyer to save their basket link once, on their first item.
+    if (wasFirstItem && saleId && !localStorage.getItem(`basket_prompted_${saleId}`)) {
+      setShowSavePrompt(true);
+      localStorage.setItem(`basket_prompted_${saleId}`, "1");
+    }
   };
 
   const handleRemove = async (removeLotId: string) => {
@@ -461,6 +469,29 @@ export default function PublicLotDetail() {
           onRemove={handleRemove}
           saleId={saleId!}
         />
+      )}
+
+      {/* One-time nudge after the first item to save the basket link */}
+      {showSavePrompt && saleId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowSavePrompt(false)}>
+          <div className="bg-white rounded-lg max-w-sm w-full p-6 text-center" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Added to your basket!</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Save your basket link now so you can get back to it later — even if you
+              close this page.
+            </p>
+            <SaveBasketButtons
+              url={`${import.meta.env.VITE_APP_URL || window.location.origin}/view/sales/${saleId}/basket`}
+              title="My basket"
+            />
+            <button
+              onClick={() => setShowSavePrompt(false)}
+              className="mt-4 text-sm text-gray-500 hover:text-gray-700"
+            >
+              Maybe later
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
