@@ -4,11 +4,14 @@
 // each lot sold and shows a printable receipt. Card tender arrives in Phase 4.
 
 import { useEffect, useMemo, useState } from 'react';
-import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2 } from 'lucide-react';
+import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2, ShoppingBasket } from 'lucide-react';
 import type { Lot, TenderType } from '../types';
+import { supabase } from '../lib/supabase';
 import { createTransaction, computeTotals, type PosLineItem } from '../services/PosService';
-import type { ScannedLot } from '../services/ScannerService';
+import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
 import QRScanner from './QRScanner';
+
+const STAFF_HOLD_MS = 30 * 60 * 1000;
 
 interface Props {
   saleId: string;
@@ -60,6 +63,8 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [buyerBasketId, setBuyerBasketId] = useState<string | null>(null);
+  const [scanMode, setScanMode] = useState<'item' | 'basket'>('item');
 
   useEffect(() => {
     localStorage.setItem(`pos_taxrate_${saleId}`, String(taxRate));
@@ -86,7 +91,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     );
   }, [availableLots, pickerSearch]);
 
-  const addLot = (lot: Lot) => {
+  const addLot = async (lot: Lot) => {
     if (cartLotIds.has(lot.id)) return;
     setCart((prev) => [
       ...prev,
@@ -97,6 +102,19 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       },
     ]);
     setError(null);
+    // When ringing up a shared basket, hold the item under it so it also shows
+    // on the buyer's phone. Staff update lots directly (bypasses the buyer gate).
+    if (buyerBasketId) {
+      await supabase
+        .from('lots')
+        .update({
+          inventory_status: 'held',
+          held_by: buyerBasketId,
+          held_until: new Date(Date.now() + STAFF_HOLD_MS).toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', lot.id);
+    }
   };
 
   const handleScan = (scanned: ScannedLot) => {
@@ -113,13 +131,57 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     addLot(lot);
   };
 
+  // Staff: load a buyer's basket (held items) into the cart by scanning its QR.
+  const loadBuyerBasket = async (bId: string) => {
+    const { data } = await supabase
+      .from('lots')
+      .select('id, lot_number, name, starting_bid, held_until, inventory_status, held_by')
+      .eq('sale_id', saleId)
+      .eq('held_by', bId)
+      .eq('inventory_status', 'held');
+    const now = Date.now();
+    const held = ((data as Lot[] | null) || []).filter(
+      (l) => l.held_until && new Date(l.held_until).getTime() > now,
+    );
+    setCart((prev) => {
+      const existing = new Set(prev.map((i) => i.lotId));
+      const additions = held
+        .filter((l) => !existing.has(l.id))
+        .map((l) => ({
+          lotId: l.id,
+          description: `#${l.lot_number ?? '—'} ${l.name}`,
+          price: defaultPrice(l),
+        }));
+      return [...prev, ...additions];
+    });
+    setBuyerBasketId(bId);
+    setError(null);
+  };
+
+  const handleBasketRaw = (raw: string): boolean => {
+    const parsed = parseBasketUrl(raw);
+    if (!parsed || parsed.saleId !== saleId) return false;
+    setShowScanner(false);
+    loadBuyerBasket(parsed.basketId);
+    return true;
+  };
+
   const updatePrice = (index: number, value: string) => {
     const price = Number(value);
     setCart((prev) => prev.map((it, i) => (i === index ? { ...it, price: isNaN(price) ? 0 : price } : it)));
   };
 
-  const removeItem = (index: number) => {
+  const removeItem = async (index: number) => {
+    const item = cart[index];
     setCart((prev) => prev.filter((_, i) => i !== index));
+    // Release the hold if this item was held under the loaded buyer basket.
+    if (buyerBasketId && item?.lotId) {
+      await supabase
+        .from('lots')
+        .update({ inventory_status: 'available', held_by: null, held_until: null, updated_at: new Date().toISOString() })
+        .eq('id', item.lotId)
+        .eq('held_by', buyerBasketId);
+    }
   };
 
   const completeSale = async () => {
@@ -133,6 +195,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       taxRate,
       tenderType: tender,
       buyerName: buyerName.trim() || undefined,
+      note: buyerBasketId ? `basket ${buyerBasketId.slice(0, 8)}` : undefined,
     });
     setProcessing(false);
     if (!result.success || !result.transactionId || !result.totals) {
@@ -157,6 +220,8 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setTender(null);
     setBuyerName('');
     setError(null);
+    setBuyerBasketId(null);
+    setScanMode('item');
   };
 
   // ---- Receipt view -------------------------------------------------------
@@ -238,7 +303,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       {/* Add buttons */}
       <div className="px-4 py-3 flex gap-2 bg-white border-b border-gray-100">
         <button
-          onClick={() => setShowScanner(true)}
+          onClick={() => { setScanMode('item'); setShowScanner(true); }}
           className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
         >
           <ScanLine className="w-4 h-4" /> Scan
@@ -249,7 +314,25 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         >
           <Plus className="w-4 h-4" /> Add Item
         </button>
+        <button
+          onClick={() => { setScanMode('basket'); setShowScanner(true); }}
+          className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 border border-indigo-300 text-indigo-700 rounded-md text-sm font-medium hover:bg-indigo-50"
+        >
+          <ShoppingBasket className="w-4 h-4" /> Basket
+        </button>
       </div>
+
+      {/* Loaded buyer basket indicator */}
+      {buyerBasketId && (
+        <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-200 flex items-center justify-between">
+          <span className="text-xs text-indigo-800">
+            Ringing up a shopper's basket · items you add sync to their phone
+          </span>
+          <button onClick={() => setBuyerBasketId(null)} className="text-xs text-indigo-600 underline">
+            Unlink
+          </button>
+        </div>
+      )}
 
       {/* Picker */}
       {showPicker && (
@@ -373,7 +456,16 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         </button>
       </div>
 
-      {showScanner && <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />}
+      {showScanner &&
+        (scanMode === 'basket' ? (
+          <QRScanner
+            onRawScan={handleBasketRaw}
+            hintText="That's not a basket code — ask the shopper to open their basket page."
+            onClose={() => setShowScanner(false)}
+          />
+        ) : (
+          <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />
+        ))}
     </div>
   );
 }

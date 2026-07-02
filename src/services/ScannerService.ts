@@ -71,3 +71,22 @@ export function parseLotUrl(raw: string): ScannedLot | null {
   if (!match) return null;
   return { saleId: match[1], lotId: match[2], raw };
 }
+
+const BASKET_URL_RE = new RegExp(`/sales?/(${UUID})/basket`, 'i');
+
+export interface ScannedBasket {
+  saleId: string;
+  basketId: string;
+  raw: string;
+}
+
+/**
+ * Parse a scanned buyer-basket QR (…/view/sales/:saleId/basket?b=<basketId>).
+ */
+export function parseBasketUrl(raw: string): ScannedBasket | null {
+  const saleMatch = raw.match(BASKET_URL_RE);
+  if (!saleMatch) return null;
+  const bMatch = raw.match(/[?&]b=([^&\s]+)/);
+  if (!bMatch) return null;
+  return { saleId: saleMatch[1], basketId: decodeURIComponent(bMatch[1]), raw };
+}

@@ -7,11 +7,15 @@ import { X } from 'lucide-react';
 import { decodeFrame, parseLotUrl, type ScannedLot } from '../services/ScannerService';
 
 interface Props {
-  onScan: (lot: ScannedLot) => void;
+  onScan?: (lot: ScannedLot) => void;
+  // Custom decode handler (e.g. for basket QRs). Return true to accept & close,
+  // false to keep scanning. When provided, it replaces the default lot parsing.
+  onRawScan?: (raw: string) => boolean;
   onClose: () => void;
+  hintText?: string;
 }
 
-export default function QRScanner({ onScan, onClose }: Props) {
+export default function QRScanner({ onScan, onRawScan, onClose, hintText }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | undefined>(undefined);
@@ -50,14 +54,23 @@ export default function QRScanner({ onScan, onClose }: Props) {
       try {
         const raw = await decodeFrame(canvas, ctx, w, h);
         if (raw && !doneRef.current) {
-          const parsed = parseLotUrl(raw);
-          if (parsed) {
-            doneRef.current = true;
-            stop();
-            onScan(parsed);
-            return;
+          if (onRawScan) {
+            if (onRawScan(raw)) {
+              doneRef.current = true;
+              stop();
+              return;
+            }
+            setHint(hintText ?? 'QR code not recognized — try another.');
+          } else {
+            const parsed = parseLotUrl(raw);
+            if (parsed) {
+              doneRef.current = true;
+              stop();
+              onScan?.(parsed);
+              return;
+            }
+            setHint(hintText ?? 'That QR code is not a lot tag — try another.');
           }
-          setHint('That QR code is not a lot tag — try another.');
         }
       } catch {
         // ignore per-frame decode errors and keep scanning
@@ -97,7 +110,8 @@ export default function QRScanner({ onScan, onClose }: Props) {
       cancelled = true;
       stop();
     };
-  }, [onScan]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onScan, onRawScan]);
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
