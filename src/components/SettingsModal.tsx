@@ -23,10 +23,11 @@ interface CompanyFormData {
 }
 
 function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { refreshActiveSalesData, refreshProgress, currentCompany, refreshCompanies } = useApp();
+  const { refreshActiveSalesData, refreshProgress, currentCompany, refreshCompanies, user, setCurrentCompany } = useApp();
   const [activeTab, setActiveTab] = useState<TabType>('companies');
   const [isOnline] = useState(navigator.onLine);
   const [isEditing, setIsEditing] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [formData, setFormData] = useState<CompanyFormData>({
@@ -159,6 +160,62 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     } catch (error: unknown) {
       console.error('Error updating company:', error);
       alert('Failed to update company: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleStartCreate = () => {
+    setFormData({ name: '', address: '', phone: '', currency: 'USD', units: 'imperial', logo_url: '' });
+    setIsEditing(false);
+    setIsCreating(true);
+  };
+
+  const handleCreateCompany = async () => {
+    if (!user) {
+      alert('You must be signed in to create a company');
+      return;
+    }
+    if (!formData.name.trim()) {
+      alert('Company name is required');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      // 1. Create the company (owner = current user)
+      const { data: company, error } = await supabase
+        .from('companies')
+        .insert([{
+          name: formData.name.trim(),
+          address: formData.address.trim() || null,
+          phone: formData.phone.trim() || null,
+          currency: formData.currency,
+          units: formData.units,
+          logo_url: formData.logo_url || null,
+          user_id: user.id,
+        }])
+        .select()
+        .single();
+      if (error) throw error;
+
+      // 2. Link the user to the company as owner
+      const { error: linkError } = await supabase
+        .from('user_companies')
+        .insert([{ user_id: user.id, company_id: company.id, role: 'owner' }]);
+      if (linkError) {
+        // Roll back the orphaned company so we don't leave junk behind
+        await supabase.from('companies').delete().eq('id', company.id);
+        throw new Error('Failed to link company to your account. Please try again.');
+      }
+
+      // 3. Reload companies and switch to the new one
+      await refreshCompanies();
+      setCurrentCompany(company);
+      setIsCreating(false);
+      alert('Company created!');
+    } catch (error: unknown) {
+      console.error('Error creating company:', error);
+      alert('Failed to create company: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setIsSaving(false);
     }
@@ -325,12 +382,15 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Your Companies</h3>
-                <button className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700">
+                <button
+                  onClick={handleStartCreate}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700"
+                >
                   + New Company
                 </button>
               </div>
               
-              {currentCompany && !isEditing && (
+              {currentCompany && !isEditing && !isCreating && (
                 <div className="border border-indigo-600 rounded-lg p-4 bg-indigo-50">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-start gap-3 flex-1">
@@ -378,10 +438,12 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </div>
               )}
 
-              {/* Edit Form */}
-              {currentCompany && isEditing && (
+              {/* Edit / Create Form */}
+              {(isEditing || isCreating) && (
                 <div className="border border-indigo-600 rounded-lg p-6 bg-white">
-                  <h4 className="font-semibold text-gray-900 mb-4">Edit Company</h4>
+                  <h4 className="font-semibold text-gray-900 mb-4">
+                    {isCreating ? 'New Company' : 'Edit Company'}
+                  </h4>
                   
                   <div className="space-y-4">
                     {/* Logo Upload */}
@@ -499,14 +561,14 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   {/* Action Buttons */}
                   <div className="flex gap-3 mt-6">
                     <button
-                      onClick={handleSaveCompany}
+                      onClick={isCreating ? handleCreateCompany : handleSaveCompany}
                       disabled={isSaving}
                       className="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                     >
-                      {isSaving ? 'Saving...' : 'Save Changes'}
+                      {isSaving ? 'Saving...' : isCreating ? 'Create Company' : 'Save Changes'}
                     </button>
                     <button
-                      onClick={handleCancelEdit}
+                      onClick={isCreating ? () => setIsCreating(false) : handleCancelEdit}
                       disabled={isSaving}
                       className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-50 disabled:cursor-not-allowed"
                     >
