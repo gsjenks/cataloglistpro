@@ -42,8 +42,13 @@ function genCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-async function sendEmail(to: string, code: string): Promise<boolean> {
-  if (!RESEND_API_KEY) return false;
+interface SendResult {
+  ok: boolean;
+  detail?: string;
+}
+
+async function sendEmail(to: string, code: string): Promise<SendResult> {
+  if (!RESEND_API_KEY) return { ok: false, detail: "RESEND_API_KEY not set" };
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
@@ -56,11 +61,13 @@ async function sendEmail(to: string, code: string): Promise<boolean> {
         <p style="color:#888;font-size:12px">This code expires in 10 minutes.</p></div>`,
     }),
   });
-  return res.ok;
+  if (res.ok) return { ok: true };
+  const detail = await res.text().catch(() => "");
+  return { ok: false, detail: `resend ${res.status}: ${detail.slice(0, 300)}` };
 }
 
-async function sendSms(to: string, code: string): Promise<boolean> {
-  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM) return false;
+async function sendSms(to: string, code: string): Promise<SendResult> {
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_FROM) return { ok: false, detail: "twilio secrets not set" };
   const body = new URLSearchParams({
     To: to,
     From: TWILIO_FROM,
@@ -74,7 +81,9 @@ async function sendSms(to: string, code: string): Promise<boolean> {
     },
     body: body.toString(),
   });
-  return res.ok;
+  if (res.ok) return { ok: true };
+  const detail = await res.text().catch(() => "");
+  return { ok: false, detail: `twilio ${res.status}: ${detail.slice(0, 300)}` };
 }
 
 serve(async (req) => {
@@ -134,9 +143,15 @@ serve(async (req) => {
         expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       });
 
-      const sent = channel === "sms" ? await sendSms(destination, code) : await sendEmail(destination, code);
-      // Test mode: return the code when the provider isn't configured.
-      return json({ shopperId, channel, sent, testCode: sent ? undefined : code });
+      const result = channel === "sms" ? await sendSms(destination, code) : await sendEmail(destination, code);
+      // Test mode: return the code (and the provider error) when sending fails.
+      return json({
+        shopperId,
+        channel,
+        sent: result.ok,
+        testCode: result.ok ? undefined : code,
+        debug: result.ok ? undefined : result.detail,
+      });
     }
 
     if (payload.action === "verify") {
