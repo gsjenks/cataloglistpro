@@ -28,6 +28,12 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [isOnline] = useState(navigator.onLine);
   const [isEditing, setIsEditing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [profileName, setProfileName] = useState(
+    (user as { user_metadata?: { name?: string } } | null)?.user_metadata?.name ?? ''
+  );
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [formData, setFormData] = useState<CompanyFormData>({
@@ -162,6 +168,38 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       alert('Failed to update company: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    setSavingProfile(true);
+    try {
+      const updates: { data?: { name: string }; password?: string } = {
+        data: { name: profileName.trim() },
+      };
+      if (newPassword) {
+        if (newPassword.length < 6) {
+          alert('Password must be at least 6 characters');
+          setSavingProfile(false);
+          return;
+        }
+        if (newPassword !== confirmPassword) {
+          alert('Passwords do not match');
+          setSavingProfile(false);
+          return;
+        }
+        updates.password = newPassword;
+      }
+      const { error } = await supabase.auth.updateUser(updates);
+      if (error) throw error;
+      setNewPassword('');
+      setConfirmPassword('');
+      alert('Profile updated!');
+    } catch (error: unknown) {
+      console.error('Error updating profile:', error);
+      alert('Failed to update profile: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -610,9 +648,53 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           {activeTab === 'profile' && (
             <div>
               <h3 className="text-lg font-semibold text-gray-900 mb-4">User Profile</h3>
-              <p className="text-sm text-gray-600">
-                Profile settings coming soon. Update your personal information, preferences, and password.
-              </p>
+              <div className="space-y-4 max-w-md">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                  <input
+                    value={user?.email ?? ''}
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-gray-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Display Name</label>
+                  <input
+                    value={profileName}
+                    onChange={(e) => setProfileName(e.target.value)}
+                    placeholder="Your name"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="pt-2 border-t border-gray-100">
+                  <h4 className="text-sm font-semibold text-gray-900 mb-2 mt-2">Change Password</h4>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="New password (min 6 characters)"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-2"
+                  />
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Leave blank to keep your current password.</p>
+                </div>
+
+                <button
+                  onClick={handleSaveProfile}
+                  disabled={savingProfile}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {savingProfile ? 'Saving...' : 'Save Profile'}
+                </button>
+              </div>
             </div>
           )}
         </div>
