@@ -91,6 +91,22 @@ export default function PublicLotDetail() {
     loadLotData();
   }, [loadLotData]);
 
+  // Keep the lot (esp. its status) live so a buyer sees it sell in real time.
+  useEffect(() => {
+    if (!lotId) return;
+    const channel = supabasePublic
+      .channel(`public-lot:${lotId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "lots", filter: `id=eq.${lotId}` },
+        (payload) => setLot((prev) => (prev ? { ...prev, ...(payload.new as Lot) } : prev)),
+      )
+      .subscribe();
+    return () => {
+      supabasePublic.removeChannel(channel);
+    };
+  }, [lotId]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -142,6 +158,20 @@ export default function PublicLotDetail() {
         ? `$${lot.opening_bid.toLocaleString()} (Opening Bid)`
         : "Price TBD";
 
+  // Estate-sale floor status, so buyers know if an item is still available.
+  const inventoryStatus =
+    (lot as { inventory_status?: string }).inventory_status ?? "available";
+  const statusBadge: Record<string, string> = {
+    available: "bg-green-100 text-green-800",
+    held: "bg-amber-100 text-amber-800",
+    sold: "bg-gray-200 text-gray-700",
+  };
+  const statusText: Record<string, string> = {
+    available: "Available",
+    held: "On Hold",
+    sold: "Sold",
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -161,6 +191,21 @@ export default function PublicLotDetail() {
 
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-4 py-8">
+        {/* Status banner so buyers aren't confused about availability */}
+        {isEstate && inventoryStatus !== "available" && (
+          <div
+            className={`mb-6 rounded-lg p-4 text-center font-semibold ${
+              inventoryStatus === "sold"
+                ? "bg-gray-800 text-white"
+                : "bg-amber-100 text-amber-900"
+            }`}
+          >
+            {inventoryStatus === "sold"
+              ? "This item has been sold."
+              : "This item is currently on hold."}
+          </div>
+        )}
+
         {/* Photos */}
         {allPhotos.length > 0 && (
           <div className="mb-8">
@@ -203,6 +248,15 @@ export default function PublicLotDetail() {
               <span className="inline-block px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm font-medium">
                 Lot #{lot.lot_number}
               </span>
+              {isEstate && (
+                <span
+                  className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                    statusBadge[inventoryStatus] ?? statusBadge.available
+                  }`}
+                >
+                  {statusText[inventoryStatus] ?? "Available"}
+                </span>
+              )}
               {lot.condition && (
                 <span className="inline-block px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
                   {lot.condition}
