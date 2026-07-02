@@ -24,6 +24,7 @@ export default function PublicLotDetail() {
   const { saleId, lotId } = useParams<{ saleId: string; lotId: string }>();
   const navigate = useNavigate();
   const [lot, setLot] = useState<Lot | null>(null);
+  const [saleType, setSaleType] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +52,14 @@ export default function PublicLotDetail() {
       }
 
       setLot(lotData);
+
+      // Sale type controls pricing display (estate = fixed price on starting_bid)
+      const { data: saleRow } = await supabasePublic
+        .from("sales")
+        .select("sale_type")
+        .eq("id", saleId)
+        .single();
+      setSaleType(saleRow?.sale_type ?? null);
 
       const { data: photoData, error: photoError } = await supabasePublic
         .from("photos")
@@ -120,8 +129,14 @@ export default function PublicLotDetail() {
   const otherPhotos = photos.filter((p) => !p.is_primary);
   const allPhotos = primaryPhoto ? [primaryPhoto, ...otherPhotos] : photos;
 
-  const estimateDisplay =
-    lot.estimate_low && lot.estimate_high
+  const isEstate = saleType === "estate_sale";
+  // Estate sales: the price is the starting_bid; estimate is not shown.
+  const priceLabel = isEstate ? "Price" : "Estimate";
+  const priceDisplay = isEstate
+    ? lot.starting_bid != null
+      ? `$${lot.starting_bid.toLocaleString()}`
+      : "Price TBD"
+    : lot.estimate_low && lot.estimate_high
       ? `$${lot.estimate_low.toLocaleString()}-$${lot.estimate_high.toLocaleString()}`
       : lot.opening_bid
         ? `$${lot.opening_bid.toLocaleString()} (Opening Bid)`
@@ -198,9 +213,9 @@ export default function PublicLotDetail() {
           </div>
 
           <div className="bg-indigo-50 rounded-lg p-4 mb-6 border border-indigo-200">
-            <p className="text-sm text-indigo-600 font-medium mb-1">Estimate</p>
+            <p className="text-sm text-indigo-600 font-medium mb-1">{priceLabel}</p>
             <p className="text-2xl font-bold text-indigo-900">
-              {estimateDisplay}
+              {priceDisplay}
             </p>
           </div>
 

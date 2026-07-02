@@ -142,21 +142,26 @@ const LotCard = memo(({
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-baseline gap-2">
-              <span className="text-xs text-gray-500 w-20 flex-shrink-0">Estimate:</span>
-              <span className="text-sm font-semibold text-gray-900">
-                {lot.estimate_low && lot.estimate_high ? (
-                  `${formatCurrency(lot.estimate_low)} - ${formatCurrency(lot.estimate_high)}`
-                ) : lot.estimate_low ? (
-                  formatCurrency(lot.estimate_low)
-                ) : (
-                  <span className="text-gray-400">Not set</span>
-                )}
-              </span>
-            </div>
+            {/* Estate sales price on starting_bid; estimate is not used there */}
+            {!showInventory && (
+              <div className="flex items-baseline gap-2">
+                <span className="text-xs text-gray-500 w-20 flex-shrink-0">Estimate:</span>
+                <span className="text-sm font-semibold text-gray-900">
+                  {lot.estimate_low && lot.estimate_high ? (
+                    `${formatCurrency(lot.estimate_low)} - ${formatCurrency(lot.estimate_high)}`
+                  ) : lot.estimate_low ? (
+                    formatCurrency(lot.estimate_low)
+                  ) : (
+                    <span className="text-gray-400">Not set</span>
+                  )}
+                </span>
+              </div>
+            )}
 
             <div className="flex items-baseline gap-2">
-              <span className="text-xs text-gray-500 w-20 flex-shrink-0">Starting Bid:</span>
+              <span className="text-xs text-gray-500 w-20 flex-shrink-0">
+                {showInventory ? 'Price:' : 'Starting Bid:'}
+              </span>
               <span className="text-sm font-semibold text-indigo-600">
                 {lot.starting_bid ? formatCurrency(lot.starting_bid) : <span className="text-gray-400">Not set</span>}
               </span>

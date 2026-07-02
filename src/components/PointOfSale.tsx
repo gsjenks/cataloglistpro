@@ -31,7 +31,9 @@ const TENDERS: { value: TenderType; label: string; disabled?: boolean; note?: st
 const money = (n: number) => `$${n.toFixed(2)}`;
 
 function defaultPrice(lot: Lot): number {
-  return lot.buy_now_price ?? lot.starting_bid ?? lot.estimate_low ?? 0;
+  // For estate sales the starting_bid field IS the item's price. Estimate is
+  // never used for estate-sale pricing.
+  return lot.starting_bid ?? 0;
 }
 
 interface Receipt {

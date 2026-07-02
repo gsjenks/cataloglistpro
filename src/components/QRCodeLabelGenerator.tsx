@@ -11,6 +11,7 @@ interface Props {
 
 export function QRCodeLabelGenerator({ saleId }: Props) {
   const [lots, setLots] = useState<Lot[]>([]);
+  const [saleType, setSaleType] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [qrCodes, setQrCodes] = useState<{ [key: string]: string }>({});
   const containerRef = useRef<HTMLDivElement>(null);
@@ -26,6 +27,14 @@ export function QRCodeLabelGenerator({ saleId }: Props) {
 
       if (error) throw error;
       setLots(data || []);
+
+      // Sale type decides how the label price is derived (estate = starting_bid)
+      const { data: saleRow } = await supabase
+        .from("sales")
+        .select("sale_type")
+        .eq("id", saleId)
+        .single();
+      setSaleType(saleRow?.sale_type ?? null);
     } catch (error) {
       console.error("Error loading lots:", error);
       alert("Failed to load lots");
@@ -131,11 +140,15 @@ export function QRCodeLabelGenerator({ saleId }: Props) {
       >
         {lots.map((lot) => {
           const amount =
-            lot.estimate_low && lot.estimate_high
-              ? `$${lot.estimate_low}-$${lot.estimate_high}`
-              : lot.opening_bid
-                ? `$${lot.opening_bid}`
-                : "TBD";
+            saleType === "estate_sale"
+              ? lot.starting_bid != null
+                ? `$${lot.starting_bid}`
+                : "TBD"
+              : lot.estimate_low && lot.estimate_high
+                ? `$${lot.estimate_low}-$${lot.estimate_high}`
+                : lot.opening_bid
+                  ? `$${lot.opening_bid}`
+                  : "TBD";
 
           const qrCodeDataUrl = qrCodes[lot.id];
 
