@@ -1,39 +1,23 @@
 // src/components/BuyerBasket.tsx
-// Buyer-facing basket for estate-sale self-checkout. A floating button opens a
-// panel listing held items, each with a live 30-minute countdown. Card payment
-// arrives in Phase 4b (Square); for now items are held and paid at the register.
+// Floating basket button + slide-up panel for the public lot page. The panel
+// body is the shared BasketContents; a link opens the bookmarkable full page.
 
-import { useEffect, useState } from 'react';
-import { ShoppingBasket, X, Trash2, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { ShoppingBasket, X } from 'lucide-react';
 import type { BasketItem } from '../hooks/useBuyerBasket';
+import BasketContents from './BasketContents';
 
 const money = (n: number) => `$${n.toFixed(2)}`;
-
-function Countdown({ heldUntil }: { heldUntil: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const msLeft = Math.max(0, new Date(heldUntil).getTime() - now);
-  const mins = Math.floor(msLeft / 60000);
-  const secs = Math.floor((msLeft % 60000) / 1000);
-  const low = msLeft < 5 * 60000;
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium ${low ? 'text-red-600' : 'text-gray-500'}`}>
-      <Clock className="w-3.5 h-3.5" />
-      {mins}:{secs.toString().padStart(2, '0')}
-    </span>
-  );
-}
 
 interface Props {
   items: BasketItem[];
   total: number;
   onRemove: (lotId: string) => void;
+  saleId: string;
 }
 
-export default function BuyerBasket({ items, total, onRemove }: Props) {
+export default function BuyerBasket({ items, total, onRemove, saleId }: Props) {
   const [open, setOpen] = useState(false);
 
   if (items.length === 0) return null;
@@ -65,43 +49,17 @@ export default function BuyerBasket({ items, total, onRemove }: Props) {
               </button>
             </div>
 
-            <div className="flex-1 overflow-auto px-4 py-3 divide-y divide-gray-100">
-              {items.map((item) => (
-                <div key={item.lotId} className="flex items-center gap-3 py-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">
-                      #{item.lotNumber ?? '—'} {item.name}
-                    </p>
-                    <div className="mt-0.5">
-                      <Countdown heldUntil={item.heldUntil} />
-                    </div>
-                  </div>
-                  <span className="text-sm font-semibold text-gray-900 whitespace-nowrap">{money(item.price)}</span>
-                  <button onClick={() => onRemove(item.lotId)} className="p-1.5 text-gray-400 hover:text-red-600" aria-label="Remove from basket">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <div className="border-t border-gray-200 px-4 py-3 space-y-3">
-              <div className="flex justify-between text-lg font-bold text-gray-900">
-                <span>Total</span><span>{money(total)}</span>
+            <div className="flex-1 overflow-auto px-4 py-3">
+              <BasketContents items={items} total={total} onRemove={onRemove} />
+              <div className="mt-4 text-center">
+                <Link
+                  to={`/view/sales/${saleId}/basket`}
+                  onClick={() => setOpen(false)}
+                  className="text-sm text-indigo-600 hover:underline"
+                >
+                  Open full basket page →
+                </Link>
               </div>
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800">
-                Your items stay held while you're shopping. If you leave without paying,
-                the holds release about 30 minutes later and the items return to the sale.
-              </div>
-              <button
-                disabled
-                className="w-full px-4 py-3 bg-gray-200 text-gray-500 rounded-md font-semibold cursor-not-allowed"
-                title="Card checkout is coming soon"
-              >
-                Pay by Card — Coming Soon
-              </button>
-              <p className="text-center text-xs text-gray-500">
-                For now, take your held items to the register to pay.
-              </p>
             </div>
           </div>
         </div>

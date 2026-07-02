@@ -4,6 +4,7 @@
 // FIXED: Removed duplicate /view/ route from AppContent (now only in App)
 
 import PublicLotDetail from "./pages/PublicLotDetail";
+import PublicBasket from "./pages/PublicBasket";
 import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -296,6 +297,7 @@ function App() {
           path="/view/sales/:saleId/lots/:lotId"
           element={<PublicLotDetail />}
         />
+        <Route path="/view/sales/:saleId/basket" element={<PublicBasket />} />
 
         {/* Authenticated routes */}
         <Route

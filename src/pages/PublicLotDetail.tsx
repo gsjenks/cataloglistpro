@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { createClient } from "@supabase/supabase-js";
 import { ArrowLeft, ShoppingBasket } from "lucide-react";
 import type { Lot } from "../types/auction";
+import { supabasePublic } from "../lib/publicClient";
 import LotQRCode from "../components/LotQRCode";
 import BuyerBasket from "../components/BuyerBasket";
 import { useBuyerBasket } from "../hooks/useBuyerBasket";
+import { useHoldRenewal } from "../hooks/useHoldRenewal";
 import { holdLot, releaseLot, effectiveStatus, HOLD_MINUTES } from "../lib/holds";
 
 interface Photo {
@@ -17,11 +18,6 @@ interface Photo {
   created_at: string;
   url?: string;
 }
-
-const supabasePublic = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
-);
 
 export default function PublicLotDetail() {
   const { saleId, lotId } = useParams<{ saleId: string; lotId: string }>();
@@ -102,34 +98,8 @@ export default function PublicLotDetail() {
     loadLotData();
   }, [loadLotData]);
 
-  // Renew all basket holds while the buyer is actively shopping (a lot page is
-  // open), so items added earlier don't expire mid-shop. The hold_lot RPC
-  // refreshes a hold the same basket already owns. Items lost to another buyer
-  // (or sold) are dropped from the basket.
-  const basketItemsRef = useRef(basket.items);
-  basketItemsRef.current = basket.items;
-  useEffect(() => {
-    if (saleType !== "estate_sale") return;
-    let cancelled = false;
-    const renew = async () => {
-      for (const item of basketItemsRef.current) {
-        const res = await holdLot(supabasePublic, item.lotId, basket.basketId);
-        if (cancelled) return;
-        if (res.success && res.heldUntil) {
-          basket.updateHeldUntil(item.lotId, res.heldUntil);
-        } else if (res.error === "sold" || res.error === "held_by_other") {
-          basket.removeItem(item.lotId);
-        }
-      }
-    };
-    renew(); // refresh on every page open (i.e. as the buyer scans new items)
-    const t = setInterval(renew, 10 * 60 * 1000); // and every 10 minutes
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saleType, basket.basketId]);
+  // Renew basket holds while this page is open so items don't expire mid-shop.
+  useHoldRenewal(supabasePublic, saleType === "estate_sale", basket);
 
   // Keep the lot (esp. its status) live so a buyer sees it sell in real time.
   useEffect(() => {
@@ -485,7 +455,12 @@ export default function PublicLotDetail() {
       </div>
 
       {isEstate && (
-        <BuyerBasket items={basket.items} total={basket.total} onRemove={handleRemove} />
+        <BuyerBasket
+          items={basket.items}
+          total={basket.total}
+          onRemove={handleRemove}
+          saleId={saleId!}
+        />
       )}
     </div>
   );
