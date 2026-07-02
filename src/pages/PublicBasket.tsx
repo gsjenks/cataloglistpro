@@ -8,6 +8,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { ShoppingBasket } from 'lucide-react';
 import { supabasePublic } from '../lib/publicClient';
 import { useServerBasket } from '../hooks/useServerBasket';
+import { useShopper } from '../hooks/useShopper';
 import BasketContents from '../components/BasketContents';
 import SaveBasketButtons from '../components/SaveBasketButtons';
 import UrlQRCode from '../components/UrlQRCode';
@@ -16,7 +17,9 @@ export default function PublicBasket() {
   const { saleId } = useParams<{ saleId: string }>();
   const [searchParams] = useSearchParams();
   const bParam = searchParams.get('b') || undefined;
-  const basket = useServerBasket(saleId, bParam);
+  const { shopperId } = useShopper();
+  const basketId = bParam ?? shopperId ?? undefined;
+  const basket = useServerBasket(saleId, basketId);
   const [saleName, setSaleName] = useState('');
 
   const base = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
@@ -46,15 +49,17 @@ export default function PublicBasket() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <div className="mb-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
-          <p className="text-sm text-indigo-900 font-medium text-center mb-3">
-            Save your basket so you can come back to it.
-          </p>
-          <SaveBasketButtons url={basketUrl} title={saleName ? `My basket — ${saleName}` : 'My basket'} />
-          <p className="mt-3 text-xs text-indigo-700 text-center">
-            Text or email the link to yourself — tapping it reopens your basket.
-          </p>
-        </div>
+        {basket.basketId && (
+          <div className="mb-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+            <p className="text-sm text-indigo-900 font-medium text-center mb-3">
+              Save your basket so you can come back to it.
+            </p>
+            <SaveBasketButtons url={basketUrl} title={saleName ? `My basket — ${saleName}` : 'My basket'} />
+            <p className="mt-3 text-xs text-indigo-700 text-center">
+              Text or email the link to yourself — tapping it reopens your basket.
+            </p>
+          </div>
+        )}
 
         {saleName && <p className="text-sm text-gray-500 mb-4">{saleName}</p>}
 

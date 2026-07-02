@@ -1,28 +1,14 @@
 // src/hooks/useServerBasket.ts
 // Server-backed shared basket. A basket IS the set of lots held_by a basket id
-// (holds are already server-side). Contents load from the server and stay live
-// via realtime, so the buyer's phone, a shared link, and staff all see the same
-// basket. The basket id lives in localStorage (per browser) but can be adopted
-// from a shared link (?b=<id>) for cross-device / staff access.
+// (the id is a verified shopper id, or a ?b=<id> from a shared link). Contents
+// load from the server and stay live via realtime, so the buyer's phone, a
+// shared link, and staff all see the same basket. If no basket id is provided
+// (shopper not registered yet), the basket is empty and adds are refused.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabasePublic } from '../lib/publicClient';
 import { holdLot, releaseLot, type HoldResult } from '../lib/holds';
 import type { BasketItem } from './useBuyerBasket';
-
-const BASKET_ID_KEY = 'buyer_basket_id';
-
-function getOrCreateBasketId(): string {
-  let id = localStorage.getItem(BASKET_ID_KEY);
-  if (!id) {
-    id =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `b_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
-    localStorage.setItem(BASKET_ID_KEY, id);
-  }
-  return id;
-}
 
 interface LotRow {
   id: string;
@@ -32,20 +18,14 @@ interface LotRow {
   held_until: string | null;
 }
 
-export function useServerBasket(saleId: string | undefined, basketIdOverride?: string) {
-  const [basketId] = useState<string>(() => {
-    const stored = getOrCreateBasketId();
-    if (basketIdOverride && basketIdOverride !== stored) {
-      // Adopt a shared basket id so adds go to the same basket on this device.
-      localStorage.setItem(BASKET_ID_KEY, basketIdOverride);
-      return basketIdOverride;
-    }
-    return basketIdOverride || stored;
-  });
+export function useServerBasket(saleId?: string, basketId?: string) {
   const [items, setItems] = useState<BasketItem[]>([]);
 
   const load = useCallback(async () => {
-    if (!saleId) return;
+    if (!saleId || !basketId) {
+      setItems([]);
+      return;
+    }
     const { data } = await supabasePublic
       .from('lots')
       .select('id, lot_number, name, starting_bid, held_until, inventory_status, held_by')
@@ -71,7 +51,7 @@ export function useServerBasket(saleId: string | undefined, basketIdOverride?: s
 
   // Live: any lot change in this sale may affect this basket → reload.
   useEffect(() => {
-    if (!saleId) return;
+    if (!saleId || !basketId) return;
     const channel = supabasePublic
       .channel(`basket:${saleId}:${basketId}`)
       .on(
@@ -89,7 +69,7 @@ export function useServerBasket(saleId: string | undefined, basketIdOverride?: s
   const itemsRef = useRef(items);
   itemsRef.current = items;
   useEffect(() => {
-    if (!saleId) return;
+    if (!saleId || !basketId) return;
     let cancelled = false;
     const renew = async () => {
       for (const it of itemsRef.current) {
@@ -107,6 +87,7 @@ export function useServerBasket(saleId: string | undefined, basketIdOverride?: s
 
   const add = useCallback(
     async (lotId: string): Promise<HoldResult> => {
+      if (!basketId) return { success: false, error: 'unknown' };
       const res = await holdLot(supabasePublic, lotId, basketId);
       if (res.success) await load();
       return res;
@@ -116,6 +97,7 @@ export function useServerBasket(saleId: string | undefined, basketIdOverride?: s
 
   const remove = useCallback(
     async (lotId: string) => {
+      if (!basketId) return;
       await releaseLot(supabasePublic, lotId, basketId);
       await load();
     },
@@ -125,5 +107,5 @@ export function useServerBasket(saleId: string | undefined, basketIdOverride?: s
   const has = useCallback((lotId: string) => items.some((i) => i.lotId === lotId), [items]);
   const total = items.reduce((sum, i) => sum + (Number(i.price) || 0), 0);
 
-  return { basketId, items, add, remove, has, total, reload: load };
+  return { basketId: basketId ?? '', items, add, remove, has, total, reload: load };
 }

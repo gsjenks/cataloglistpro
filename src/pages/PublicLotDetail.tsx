@@ -7,7 +7,9 @@ import LotQRCode from "../components/LotQRCode";
 import BuyerBasket from "../components/BuyerBasket";
 import SaveBasketButtons from "../components/SaveBasketButtons";
 import { useServerBasket } from "../hooks/useServerBasket";
-import { effectiveStatus, HOLD_MINUTES } from "../lib/holds";
+import { useShopper } from "../hooks/useShopper";
+import ShopperRegistration from "../components/ShopperRegistration";
+import { effectiveStatus, HOLD_MINUTES, holdLot } from "../lib/holds";
 
 interface Photo {
   id: string;
@@ -32,7 +34,10 @@ export default function PublicLotDetail() {
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
-  const basket = useServerBasket(saleId);
+  const [showReg, setShowReg] = useState(false);
+  const [pendingAddLotId, setPendingAddLotId] = useState<string | null>(null);
+  const { shopperId, register } = useShopper();
+  const basket = useServerBasket(saleId, shopperId ?? undefined);
 
   const loadLotData = useCallback(async () => {
     if (!lotId || !saleId) {
@@ -197,26 +202,49 @@ export default function PublicLotDetail() {
     in_basket: "In your basket",
   };
 
+  const addErrorMap: Record<string, string> = {
+    checkout_closed: "Online purchasing isn't open yet.",
+    sold: "Sorry, this item was just sold.",
+    held_by_other: "Another shopper just added this to their basket.",
+  };
+
   const handleAdd = async () => {
     if (!lotId) return;
+    // Must be a registered shopper first — the basket keys to the person.
+    if (!shopperId) {
+      setPendingAddLotId(lotId);
+      setShowReg(true);
+      return;
+    }
     setAdding(true);
     setAddError(null);
     const wasFirstItem = basket.items.length === 0;
     const res = await basket.add(lotId);
     setAdding(false);
     if (!res.success) {
-      const map: Record<string, string> = {
-        checkout_closed: "Online purchasing isn't open yet.",
-        sold: "Sorry, this item was just sold.",
-        held_by_other: "Another shopper just added this to their basket.",
-      };
-      setAddError(map[res.error ?? "unknown"] ?? "Could not add to basket. Please try again.");
+      setAddError(addErrorMap[res.error ?? "unknown"] ?? "Could not add to basket. Please try again.");
       return;
     }
-    // Nudge the buyer to save their basket link once, on their first item.
     if (wasFirstItem && saleId && !localStorage.getItem(`basket_prompted_${saleId}`)) {
       setShowSavePrompt(true);
       localStorage.setItem(`basket_prompted_${saleId}`, "1");
+    }
+  };
+
+  const handleVerified = async (id: string, nm: string) => {
+    register(id, nm);
+    setShowReg(false);
+    const toAdd = pendingAddLotId;
+    setPendingAddLotId(null);
+    if (toAdd) {
+      const res = await holdLot(supabasePublic, toAdd, id);
+      // The basket refreshes automatically now that its key is this shopper id.
+      if (res.success && saleId && !localStorage.getItem(`basket_prompted_${saleId}`)) {
+        setShowSavePrompt(true);
+        localStorage.setItem(`basket_prompted_${saleId}`, "1");
+      } else if (!res.success) {
+        setAddError(addErrorMap[res.error ?? "unknown"] ?? "Could not add to basket.");
+      }
     }
   };
 
@@ -457,6 +485,14 @@ export default function PublicLotDetail() {
           onRemove={handleRemove}
           saleId={saleId!}
           basketId={basket.basketId}
+        />
+      )}
+
+      {showReg && saleId && (
+        <ShopperRegistration
+          saleId={saleId}
+          onVerified={handleVerified}
+          onClose={() => setShowReg(false)}
         />
       )}
 
