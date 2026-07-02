@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
 import { ArrowLeft } from "lucide-react";
 import type { Lot } from "../types/auction";
+import LotQRCode from "../components/LotQRCode";
 
 interface Photo {
   id: string;
@@ -277,6 +278,15 @@ export default function PublicLotDetail() {
             </div>
           )}
         </div>
+
+        {saleId && lotId && (
+          <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6 flex flex-col items-center">
+            <p className="text-sm text-gray-600 font-medium mb-3">
+              Scan or share this item
+            </p>
+            <LotQRCode saleId={saleId} lotId={lotId} size={160} className="rounded" />
+          </div>
+        )}
 
         <div className="text-center text-sm text-gray-500 py-4">
           For questions about this item, contact the auctioneer.

@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import PhotoService from '../services/PhotoService';
 import SyncService from '../services/SyncService';
 import InventoryStatusControl from './InventoryStatusControl';
+import LotQRCode from './LotQRCode';
 
 type InventoryStatus = NonNullable<Lot['inventory_status']>;
 
@@ -97,7 +98,8 @@ const LotCard = memo(({
   loadPhoto,
   refreshKey,
   showInventory,
-  onInventoryChange
+  onInventoryChange,
+  saleId
 }: {
   lot: Lot;
   deleting: string | null;
@@ -107,6 +109,7 @@ const LotCard = memo(({
   refreshKey: number;
   showInventory: boolean;
   onInventoryChange?: (lotId: string, status: InventoryStatus) => void;
+  saleId: string;
 }) => {
   const formatCurrency = (value: number | null | undefined) => {
     if (value === null || value === undefined) return '';
@@ -221,6 +224,15 @@ const LotCard = memo(({
           </div>
 
           <LazyImage lotId={lot.id} alt={lot.name} loadPhoto={loadPhoto} refreshKey={refreshKey} onClick={() => onEdit(lot.id)} />
+
+          {showInventory && (
+            <LotQRCode
+              saleId={saleId}
+              lotId={lot.id}
+              size={80}
+              className="rounded border border-gray-200 bg-white p-1"
+            />
+          )}
         </div>
       </div>
     </div>
@@ -365,6 +377,7 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
           refreshKey={refreshKey}
           showInventory={showInventory}
           onInventoryChange={onInventoryChange}
+          saleId={saleId}
         />
       ))}
     </div>
