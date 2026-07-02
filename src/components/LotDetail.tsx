@@ -223,20 +223,21 @@ export default function LotDetail() {
             }
           }
 
-          // Generate signed URLs for ALL photos that don't have local blobs
-          let signedUrlCount = 0;
+          // Public bucket — use public URLs (createSignedUrl 404s on it) for
+          // any photo without a local blob.
+          let publicUrlCount = 0;
           for (const photo of photoData) {
             if (!urls[photo.id]) {
-              const { data: urlData } = await supabase.storage
+              const { data: urlData } = supabase.storage
                 .from("photos")
-                .createSignedUrl(photo.file_path, 3600);
-              if (urlData?.signedUrl) {
-                urls[photo.id] = urlData.signedUrl;
-                signedUrlCount++;
+                .getPublicUrl(photo.file_path);
+              if (urlData?.publicUrl) {
+                urls[photo.id] = urlData.publicUrl;
+                publicUrlCount++;
               }
             }
           }
-          console.log(`[PHOTO] Signed URLs generated: ${signedUrlCount}`);
+          console.log(`[PHOTO] Public URLs generated: ${publicUrlCount}`);
         }
       }
 

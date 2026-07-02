@@ -294,36 +294,33 @@ class PhotoService {
       return null;
     }
     
-    // Get signed URL from Supabase
+    // The photos bucket is PUBLIC — use the public URL. createSignedUrl returns
+    // 404 on a public bucket, which previously left photos blank on any device
+    // without a local blob cache. getPublicUrl is synchronous (no round-trip).
     try {
-      const { data: urlData, error } = await supabase.storage
+      const { data: urlData } = supabase.storage
         .from('photos')
-        .createSignedUrl(filePath, 3600);
-      
-      if (error) {
-        console.error(`📷 Photo ${photoId.slice(0,8)}: Signed URL error:`, error);
-        return null;
-      }
-      
-      if (urlData?.signedUrl) {
-        // Cache the signed URL
+        .getPublicUrl(filePath);
+
+      if (urlData?.publicUrl) {
+        // Cache the URL (kept in the same cache the signed URLs used)
         this.signedUrlCache.set(photoId, {
-          url: urlData.signedUrl,
+          url: urlData.publicUrl,
           expires: Date.now() + (55 * 60 * 1000)
         });
-        
+
         // Download blob in background for future offline use
-        fetch(urlData.signedUrl)
+        fetch(urlData.publicUrl)
           .then(res => res.blob())
           .then(downloadedBlob => this.savePhotoBlob(photoId, downloadedBlob))
           .catch(() => {});
-        
-        return urlData.signedUrl;
+
+        return urlData.publicUrl;
       }
     } catch (error) {
-      console.error(`📷 Photo ${photoId.slice(0,8)}: Failed to get signed URL:`, error);
+      console.error(`📷 Photo ${photoId.slice(0,8)}: Failed to get public URL:`, error);
     }
-    
+
     return null;
   }
 
