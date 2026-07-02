@@ -258,11 +258,11 @@ export default function PublicLotDetail() {
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate(`/view/sales/${saleId}`)}
             className="inline-flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back
+            Back to Sale
           </button>
           <h1 className="text-lg font-bold text-gray-900">Item Details</h1>
           <div className="w-12" />

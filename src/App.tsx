@@ -5,6 +5,7 @@
 
 import PublicLotDetail from "./pages/PublicLotDetail";
 import PublicBasket from "./pages/PublicBasket";
+import PublicSale from "./pages/PublicSale";
 import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -298,6 +299,7 @@ function App() {
           element={<PublicLotDetail />}
         />
         <Route path="/view/sales/:saleId/basket" element={<PublicBasket />} />
+        <Route path="/view/sales/:saleId" element={<PublicSale />} />
 
         {/* Authenticated routes */}
         <Route
