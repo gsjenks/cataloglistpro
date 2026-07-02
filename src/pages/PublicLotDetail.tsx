@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ShoppingBasket } from "lucide-react";
 import type { Lot } from "../types/auction";
 import LotQRCode from "../components/LotQRCode";
+import BuyerBasket from "../components/BuyerBasket";
+import { useBuyerBasket } from "../hooks/useBuyerBasket";
+import { holdLot, releaseLot, effectiveStatus, HOLD_MINUTES } from "../lib/holds";
 
 interface Photo {
   id: string;
@@ -25,9 +28,14 @@ export default function PublicLotDetail() {
   const navigate = useNavigate();
   const [lot, setLot] = useState<Lot | null>(null);
   const [saleType, setSaleType] = useState<string | null>(null);
+  const [checkoutEnabled, setCheckoutEnabled] = useState(false);
+  const [checkoutOpensAt, setCheckoutOpensAt] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const basket = useBuyerBasket(saleId);
 
   const loadLotData = useCallback(async () => {
     if (!lotId || !saleId) {
@@ -53,13 +61,16 @@ export default function PublicLotDetail() {
 
       setLot(lotData);
 
-      // Sale type controls pricing display (estate = fixed price on starting_bid)
+      // Sale type controls pricing display (estate = fixed price on starting_bid);
+      // checkout fields gate the buyer self-checkout / basket.
       const { data: saleRow } = await supabasePublic
         .from("sales")
-        .select("sale_type")
+        .select("sale_type, online_checkout_enabled, online_checkout_opens_at")
         .eq("id", saleId)
         .single();
       setSaleType(saleRow?.sale_type ?? null);
+      setCheckoutEnabled(saleRow?.online_checkout_enabled ?? false);
+      setCheckoutOpensAt(saleRow?.online_checkout_opens_at ?? null);
 
       const { data: photoData, error: photoError } = await supabasePublic
         .from("photos")
@@ -158,18 +169,64 @@ export default function PublicLotDetail() {
         ? `$${lot.opening_bid.toLocaleString()} (Opening Bid)`
         : "Price TBD";
 
-  // Estate-sale floor status, so buyers know if an item is still available.
-  const inventoryStatus =
-    (lot as { inventory_status?: string }).inventory_status ?? "available";
+  // Buyer self-checkout state: effective status (an expired hold counts as
+  // available), whether this buyer already holds it, and if checkout is open.
+  const l = lot as unknown as {
+    id: string;
+    name: string;
+    lot_number: number | string | null;
+    starting_bid?: number | null;
+    inventory_status?: string | null;
+    held_until?: string | null;
+  };
+  const eff = effectiveStatus(l.inventory_status, l.held_until);
+  const inMyBasket = basket.has(l.id);
+  const displayStatus = inMyBasket ? "in_basket" : eff;
+  const checkoutOpen =
+    isEstate &&
+    checkoutEnabled &&
+    (!checkoutOpensAt || new Date(checkoutOpensAt).getTime() <= Date.now());
+
   const statusBadge: Record<string, string> = {
     available: "bg-green-100 text-green-800",
     held: "bg-amber-100 text-amber-800",
     sold: "bg-gray-200 text-gray-700",
+    in_basket: "bg-indigo-100 text-indigo-800",
   };
   const statusText: Record<string, string> = {
     available: "Available",
     held: "On Hold",
     sold: "Sold",
+    in_basket: "In your basket",
+  };
+
+  const handleAdd = async () => {
+    if (!lotId) return;
+    setAdding(true);
+    setAddError(null);
+    const res = await holdLot(supabasePublic, lotId, basket.basketId);
+    setAdding(false);
+    if (!res.success || !res.heldUntil) {
+      const map: Record<string, string> = {
+        checkout_closed: "Online purchasing isn't open yet.",
+        sold: "Sorry, this item was just sold.",
+        held_by_other: "Another shopper just added this to their basket.",
+      };
+      setAddError(map[res.error ?? "unknown"] ?? "Could not add to basket. Please try again.");
+      return;
+    }
+    basket.addItem({
+      lotId: l.id,
+      lotNumber: l.lot_number ?? null,
+      name: l.name,
+      price: l.starting_bid ?? 0,
+      heldUntil: res.heldUntil,
+    });
+  };
+
+  const handleRemove = async (removeLotId: string) => {
+    await releaseLot(supabasePublic, removeLotId, basket.basketId);
+    basket.removeItem(removeLotId);
   };
 
   return (
@@ -192,15 +249,15 @@ export default function PublicLotDetail() {
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Status banner so buyers aren't confused about availability */}
-        {isEstate && inventoryStatus !== "available" && (
+        {isEstate && !inMyBasket && eff !== "available" && (
           <div
             className={`mb-6 rounded-lg p-4 text-center font-semibold ${
-              inventoryStatus === "sold"
+              eff === "sold"
                 ? "bg-gray-800 text-white"
                 : "bg-amber-100 text-amber-900"
             }`}
           >
-            {inventoryStatus === "sold"
+            {eff === "sold"
               ? "This item has been sold."
               : "This item is currently on hold."}
           </div>
@@ -251,10 +308,10 @@ export default function PublicLotDetail() {
               {isEstate && (
                 <span
                   className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-                    statusBadge[inventoryStatus] ?? statusBadge.available
+                    statusBadge[displayStatus] ?? statusBadge.available
                   }`}
                 >
-                  {statusText[inventoryStatus] ?? "Available"}
+                  {statusText[displayStatus] ?? "Available"}
                 </span>
               )}
               {lot.condition && (
@@ -272,6 +329,45 @@ export default function PublicLotDetail() {
               {priceDisplay}
             </p>
           </div>
+
+          {/* Buyer self-checkout: add to basket (estate sales only) */}
+          {isEstate && (
+            <div className="mb-6">
+              {inMyBasket ? (
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 text-center text-sm font-medium text-indigo-800">
+                  In your basket — held for {HOLD_MINUTES} minutes.
+                </div>
+              ) : eff === "sold" ? null : eff === "held" ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center text-sm font-medium text-amber-800">
+                  On hold by another shopper.
+                </div>
+              ) : checkoutOpen ? (
+                <>
+                  <button
+                    onClick={handleAdd}
+                    disabled={adding}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-md font-semibold hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400"
+                  >
+                    <ShoppingBasket className="w-5 h-5" />
+                    {adding ? "Adding…" : "Add to Basket"}
+                  </button>
+                  <p className="mt-2 text-center text-xs text-gray-500">
+                    Adds a {HOLD_MINUTES}-minute hold. If not paid within {HOLD_MINUTES} minutes,
+                    the hold is released and the item returns to the sale.
+                  </p>
+                  {addError && (
+                    <p className="mt-2 text-center text-sm text-red-600">{addError}</p>
+                  )}
+                </>
+              ) : (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-center text-sm text-gray-600">
+                  {checkoutEnabled && checkoutOpensAt
+                    ? `Online purchasing opens ${new Date(checkoutOpensAt).toLocaleString()}.`
+                    : "This item is available to purchase in person at the sale."}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             {lot.category && (
@@ -358,6 +454,10 @@ export default function PublicLotDetail() {
           For questions about this item, contact the auctioneer.
         </div>
       </div>
+
+      {isEstate && (
+        <BuyerBasket items={basket.items} total={basket.total} onRemove={handleRemove} />
+      )}
     </div>
   );
 }

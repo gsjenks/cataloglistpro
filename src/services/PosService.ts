@@ -104,6 +104,8 @@ export async function createTransaction(
           .update({
             inventory_status: 'sold',
             sold_price: round2(Number(i.price) || 0),
+            held_by: null,
+            held_until: null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', i.lotId as string);

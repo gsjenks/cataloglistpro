@@ -66,6 +66,10 @@ export interface Lot {
   // Estate-sale floor inventory state. Staff can set this at any time; it is
   // independent of the online self-checkout delay. Defaults to 'available'.
   inventory_status?: 'available' | 'held' | 'sold';
+  // Buyer-basket hold (Phase 4a): when a buyer adds the item to their basket it
+  // is held until `held_until`; `held_by` is the buyer's basket id.
+  held_until?: string | null;
+  held_by?: string | null;
   created_at?: string;
   updated_at?: string;
 }
