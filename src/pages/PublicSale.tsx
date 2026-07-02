@@ -8,6 +8,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Package } from 'lucide-react';
 import { supabasePublic } from '../lib/publicClient';
 import { effectiveStatus } from '../lib/holds';
+import LotQRCode from '../components/LotQRCode';
 
 interface CatalogLot {
   id: string;
@@ -133,6 +134,14 @@ export default function PublicSale() {
                     <p className="text-sm font-bold text-gray-900">
                       {lot.starting_bid != null ? `$${lot.starting_bid.toLocaleString()}` : '—'}
                     </p>
+                    <div className="mt-2 flex justify-center">
+                      <LotQRCode
+                        saleId={saleId!}
+                        lotId={lot.id}
+                        size={72}
+                        className="rounded border border-gray-200 bg-white p-1"
+                      />
+                    </div>
                   </div>
                 </button>
               );
