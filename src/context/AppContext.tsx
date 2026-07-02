@@ -527,7 +527,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           (async () => {
             return await supabase.auth.getSession();
           })(),
-          5000,
+          10000,
           'Session check timeout'
         );
         
@@ -559,18 +559,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setCompanies([]);
         }
       } catch (err) {
-        console.error('❌ Failed to check session:', err);
-        
-        const keys = Object.keys(localStorage);
-        keys.forEach(key => {
-          if (key.startsWith('sb-') || key.includes('supabase') || key === 'currentCompanyId') {
-            localStorage.removeItem(key);
-          }
-        });
-        
-        setUser(null);
-        setCurrentCompanyState(null);
-        setCompanies([]);
+        // A slow/timed-out session check must NOT wipe the auth token or log the
+        // user out — that dumped valid users to the "create a company" screen.
+        // Leave the stored session intact; onAuthStateChange recovers the user
+        // and loads companies once the (valid) session is read.
+        console.warn('⚠️ Session check slow/failed — keeping session; auth listener will recover:', err);
       } finally {
         console.log('[OK] Session check complete, setting loading = false');
         
