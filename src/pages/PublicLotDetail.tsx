@@ -6,9 +6,8 @@ import { supabasePublic } from "../lib/publicClient";
 import LotQRCode from "../components/LotQRCode";
 import BuyerBasket from "../components/BuyerBasket";
 import SaveBasketButtons from "../components/SaveBasketButtons";
-import { useBuyerBasket } from "../hooks/useBuyerBasket";
-import { useHoldRenewal } from "../hooks/useHoldRenewal";
-import { holdLot, releaseLot, effectiveStatus, HOLD_MINUTES } from "../lib/holds";
+import { useServerBasket } from "../hooks/useServerBasket";
+import { effectiveStatus, HOLD_MINUTES } from "../lib/holds";
 
 interface Photo {
   id: string;
@@ -33,7 +32,7 @@ export default function PublicLotDetail() {
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
-  const basket = useBuyerBasket(saleId);
+  const basket = useServerBasket(saleId);
 
   const loadLotData = useCallback(async () => {
     if (!lotId || !saleId) {
@@ -99,9 +98,6 @@ export default function PublicLotDetail() {
   useEffect(() => {
     loadLotData();
   }, [loadLotData]);
-
-  // Renew basket holds while this page is open so items don't expire mid-shop.
-  useHoldRenewal(supabasePublic, saleType === "estate_sale", basket);
 
   // Keep the lot (esp. its status) live so a buyer sees it sell in real time.
   useEffect(() => {
@@ -205,9 +201,10 @@ export default function PublicLotDetail() {
     if (!lotId) return;
     setAdding(true);
     setAddError(null);
-    const res = await holdLot(supabasePublic, lotId, basket.basketId);
+    const wasFirstItem = basket.items.length === 0;
+    const res = await basket.add(lotId);
     setAdding(false);
-    if (!res.success || !res.heldUntil) {
+    if (!res.success) {
       const map: Record<string, string> = {
         checkout_closed: "Online purchasing isn't open yet.",
         sold: "Sorry, this item was just sold.",
@@ -216,14 +213,6 @@ export default function PublicLotDetail() {
       setAddError(map[res.error ?? "unknown"] ?? "Could not add to basket. Please try again.");
       return;
     }
-    const wasFirstItem = basket.items.length === 0;
-    basket.addItem({
-      lotId: l.id,
-      lotNumber: l.lot_number ?? null,
-      name: l.name,
-      price: l.starting_bid ?? 0,
-      heldUntil: res.heldUntil,
-    });
     // Nudge the buyer to save their basket link once, on their first item.
     if (wasFirstItem && saleId && !localStorage.getItem(`basket_prompted_${saleId}`)) {
       setShowSavePrompt(true);
@@ -232,8 +221,7 @@ export default function PublicLotDetail() {
   };
 
   const handleRemove = async (removeLotId: string) => {
-    await releaseLot(supabasePublic, removeLotId, basket.basketId);
-    basket.removeItem(removeLotId);
+    await basket.remove(removeLotId);
   };
 
   return (
@@ -468,6 +456,7 @@ export default function PublicLotDetail() {
           total={basket.total}
           onRemove={handleRemove}
           saleId={saleId!}
+          basketId={basket.basketId}
         />
       )}
 
@@ -481,7 +470,7 @@ export default function PublicLotDetail() {
               close this page.
             </p>
             <SaveBasketButtons
-              url={`${import.meta.env.VITE_APP_URL || window.location.origin}/view/sales/${saleId}/basket`}
+              url={`${import.meta.env.VITE_APP_URL || window.location.origin}/view/sales/${saleId}/basket?b=${basket.basketId}`}
               title="My basket"
             />
             <button

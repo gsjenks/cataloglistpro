@@ -15,9 +15,10 @@ interface Props {
   total: number;
   onRemove: (lotId: string) => void;
   saleId: string;
+  basketId: string;
 }
 
-export default function BuyerBasket({ items, total, onRemove, saleId }: Props) {
+export default function BuyerBasket({ items, total, onRemove, saleId, basketId }: Props) {
   const [open, setOpen] = useState(false);
 
   if (items.length === 0) return null;
@@ -53,7 +54,7 @@ export default function BuyerBasket({ items, total, onRemove, saleId }: Props) {
               <BasketContents items={items} total={total} onRemove={onRemove} />
               <div className="mt-4 text-center">
                 <Link
-                  to={`/view/sales/${saleId}/basket`}
+                  to={`/view/sales/${saleId}/basket?b=${basketId}`}
                   onClick={() => setOpen(false)}
                   className="text-sm text-indigo-600 hover:underline"
                 >

@@ -1,25 +1,26 @@
 // src/pages/PublicBasket.tsx
-// Dedicated, bookmarkable basket page for buyers (/view/sales/:saleId/basket).
-// Lets a shopper who closed the app return to their basket with one tap.
+// Dedicated, bookmarkable/shareable basket page. The basket is server-backed and
+// live; ?b=<basketId> lets a shared link (or staff) open the exact same basket.
+// A basket QR lets staff pull it up / (Phase 4c step 2) load it into the register.
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { ShoppingBasket } from 'lucide-react';
 import { supabasePublic } from '../lib/publicClient';
-import { useBuyerBasket } from '../hooks/useBuyerBasket';
-import { useHoldRenewal } from '../hooks/useHoldRenewal';
-import { releaseLot } from '../lib/holds';
+import { useServerBasket } from '../hooks/useServerBasket';
 import BasketContents from '../components/BasketContents';
 import SaveBasketButtons from '../components/SaveBasketButtons';
+import UrlQRCode from '../components/UrlQRCode';
 
 export default function PublicBasket() {
   const { saleId } = useParams<{ saleId: string }>();
-  const basket = useBuyerBasket(saleId);
+  const [searchParams] = useSearchParams();
+  const bParam = searchParams.get('b') || undefined;
+  const basket = useServerBasket(saleId, bParam);
   const [saleName, setSaleName] = useState('');
-  const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
 
-  // Keep holds alive while this page is open.
-  useHoldRenewal(supabasePublic, !!saleId, basket);
+  const base = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+  const basketUrl = `${base}/view/sales/${saleId}/basket?b=${basket.basketId}`;
 
   useEffect(() => {
     if (!saleId) return;
@@ -31,9 +32,8 @@ export default function PublicBasket() {
       .then(({ data }) => setSaleName((data as { name?: string } | null)?.name ?? ''));
   }, [saleId]);
 
-  const handleRemove = async (lotId: string) => {
-    await releaseLot(supabasePublic, lotId, basket.basketId);
-    basket.removeItem(lotId);
+  const handleRemove = (lotId: string) => {
+    basket.remove(lotId);
   };
 
   return (
@@ -50,7 +50,7 @@ export default function PublicBasket() {
           <p className="text-sm text-indigo-900 font-medium text-center mb-3">
             Save your basket so you can come back to it.
           </p>
-          <SaveBasketButtons url={shareUrl} title={saleName ? `My basket — ${saleName}` : 'My basket'} />
+          <SaveBasketButtons url={basketUrl} title={saleName ? `My basket — ${saleName}` : 'My basket'} />
           <p className="mt-3 text-xs text-indigo-700 text-center">
             Text or email the link to yourself — tapping it reopens your basket.
           </p>
@@ -67,9 +67,20 @@ export default function PublicBasket() {
             </p>
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <BasketContents items={basket.items} total={basket.total} onRemove={handleRemove} />
-          </div>
+          <>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <BasketContents items={basket.items} total={basket.total} onRemove={handleRemove} />
+            </div>
+
+            {/* Basket QR — staff can scan this to see/ring up this basket */}
+            <div className="mt-6 bg-white rounded-lg border border-gray-200 p-6 flex flex-col items-center">
+              <p className="text-sm font-medium text-gray-700 mb-1">Checking out?</p>
+              <p className="text-xs text-gray-500 mb-3 text-center">
+                Show this code to staff to pay at the register.
+              </p>
+              <UrlQRCode url={basketUrl} size={160} className="rounded" />
+            </div>
+          </>
         )}
       </div>
     </div>
