@@ -60,17 +60,14 @@ export default function PublicLotDetail() {
         .order("created_at", { ascending: true });
 
       if (!photoError && photoData) {
-        const photosWithUrls = await Promise.all(
-          photoData.map(async (photo: Photo) => {
-            const { data } = await supabasePublic.storage
-              .from("photos")
-              .createSignedUrl(photo.file_path, 3600);
-            return {
-              ...photo,
-              url: data?.signedUrl || undefined,
-            };
-          }),
-        );
+        // The photos bucket is public, so use public URLs. createSignedUrl
+        // returns 404 on a public bucket, which left every image blank here.
+        const photosWithUrls = photoData.map((photo: Photo) => {
+          const { data } = supabasePublic.storage
+            .from("photos")
+            .getPublicUrl(photo.file_path);
+          return { ...photo, url: data.publicUrl };
+        });
         setPhotos(photosWithUrls);
       }
     } catch (e) {
