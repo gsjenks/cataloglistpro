@@ -36,6 +36,7 @@ import WebcamModal from "./WebcamModal";
 import PhotoPreviewModal from "./PhotoPreviewModal";
 import LotPhotoSection from "./LotPhotoSection";
 import LotForm from "./LotForm";
+import LotQRCode from "./LotQRCode";
 
 function generateUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -1075,6 +1076,17 @@ export default function LotDetail() {
         saving={saving}
         onAIEnrich={handleAIEnrich}
       />
+
+      {/* QR code — links to the public lot page (existing lots only) */}
+      {!isNewLot && saleId && lotId && (
+        <div className="mt-6 bg-white rounded-lg border border-gray-200 p-6 flex flex-col items-center">
+          <p className="text-sm font-medium text-gray-700 mb-3">Lot QR Code</p>
+          <LotQRCode saleId={saleId} lotId={lotId} size={160} className="rounded" />
+          <p className="mt-3 text-xs text-gray-500 text-center">
+            Scans to the public item page. Print tags from Reports &amp; Tools → QR Code Price Tags.
+          </p>
+        </div>
+      )}
 
       {/* Modals */}
       {showPreview && (
