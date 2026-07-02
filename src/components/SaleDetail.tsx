@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document } from '../types';
@@ -9,6 +9,7 @@ import type { ScannedLot } from '../services/ScannerService';
 import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
 import QRScanner from './QRScanner';
+import PointOfSale from './PointOfSale';
 import ContactsList from './ContactsList';
 import DocumentsList from './DocumentsList';
 import ExportService from '../services/ExportService';
@@ -25,6 +26,7 @@ export default function SaleDetail() {
   const [activeTab, setActiveTab] = useState('items');
   const [loading, setLoading] = useState(true);
   const [showScanner, setShowScanner] = useState(false);
+  const [showRegister, setShowRegister] = useState(false);
   
   // Export state
   const [exporting, setExporting] = useState(false);
@@ -97,15 +99,24 @@ export default function SaleDetail() {
             onClick: () => navigate(`/sales/${saleId}/lots/new`),
             variant: 'primary'
           },
-          // Estate sales: scan a printed QR tag to jump straight to a lot.
+          // Estate sales: open the register, or scan a tag to jump to a lot.
           ...(sale?.sale_type === 'estate_sale'
-            ? [{
-                id: 'scan-lot',
-                label: 'Scan',
-                icon: <ScanLine className="w-4 h-4" />,
-                onClick: () => setShowScanner(true),
-                variant: 'secondary' as const,
-              }]
+            ? [
+                {
+                  id: 'register',
+                  label: 'Register',
+                  icon: <ShoppingCart className="w-4 h-4" />,
+                  onClick: () => setShowRegister(true),
+                  variant: 'primary' as const,
+                },
+                {
+                  id: 'scan-lot',
+                  label: 'Scan',
+                  icon: <ScanLine className="w-4 h-4" />,
+                  onClick: () => setShowScanner(true),
+                  variant: 'secondary' as const,
+                },
+              ]
             : []),
           {
             id: 'back',
@@ -745,6 +756,17 @@ export default function SaleDetail() {
 
       {showScanner && (
         <QRScanner onScan={handleScanned} onClose={() => setShowScanner(false)} />
+      )}
+
+      {showRegister && (
+        <PointOfSale
+          saleId={saleId!}
+          companyId={sale?.company_id ?? null}
+          saleName={sale?.name}
+          lots={lots}
+          onClose={() => setShowRegister(false)}
+          onCompleted={loadLots}
+        />
       )}
     </div>
   );

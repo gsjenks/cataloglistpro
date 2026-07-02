@@ -1,0 +1,377 @@
+// src/components/PointOfSale.tsx
+// Estate-sale register (Phase 3). Build a cart by scanning tags or picking from
+// available lots, set tax, choose a tender, and complete the sale — which marks
+// each lot sold and shows a printable receipt. Card tender arrives in Phase 4.
+
+import { useEffect, useMemo, useState } from 'react';
+import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2 } from 'lucide-react';
+import type { Lot, TenderType } from '../types';
+import { createTransaction, computeTotals, type PosLineItem } from '../services/PosService';
+import type { ScannedLot } from '../services/ScannerService';
+import QRScanner from './QRScanner';
+
+interface Props {
+  saleId: string;
+  companyId: string | null;
+  saleName?: string;
+  lots: Lot[];
+  onClose: () => void;
+  onCompleted?: () => void;
+}
+
+const TENDERS: { value: TenderType; label: string; disabled?: boolean; note?: string }[] = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'check', label: 'Check' },
+  { value: 'venmo', label: 'Venmo' },
+  { value: 'cashapp', label: 'Cash App' },
+  { value: 'card', label: 'Card', disabled: true, note: 'Square — Phase 4' },
+  { value: 'other', label: 'Other' },
+];
+
+const money = (n: number) => `$${n.toFixed(2)}`;
+
+function defaultPrice(lot: Lot): number {
+  return lot.buy_now_price ?? lot.starting_bid ?? lot.estimate_low ?? 0;
+}
+
+interface Receipt {
+  transactionId: string;
+  items: PosLineItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  tender: TenderType;
+  buyerName: string;
+}
+
+export default function PointOfSale({ saleId, companyId, saleName, lots, onClose, onCompleted }: Props) {
+  const [cart, setCart] = useState<PosLineItem[]>([]);
+  const [taxRate, setTaxRate] = useState<number>(() => {
+    const saved = localStorage.getItem(`pos_taxrate_${saleId}`);
+    return saved ? Number(saved) || 0 : 0;
+  });
+  const [buyerName, setBuyerName] = useState('');
+  const [tender, setTender] = useState<TenderType | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem(`pos_taxrate_${saleId}`, String(taxRate));
+  }, [saleId, taxRate]);
+
+  const totals = useMemo(() => computeTotals(cart, taxRate), [cart, taxRate]);
+
+  const cartLotIds = useMemo(() => new Set(cart.map((c) => c.lotId)), [cart]);
+  const availableLots = useMemo(
+    () =>
+      lots.filter(
+        (l) => (l.inventory_status ?? 'available') !== 'sold' && !cartLotIds.has(l.id),
+      ),
+    [lots, cartLotIds],
+  );
+
+  const filteredPicker = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    if (!q) return availableLots;
+    return availableLots.filter(
+      (l) =>
+        l.name?.toLowerCase().includes(q) ||
+        String(l.lot_number ?? '').toLowerCase().includes(q),
+    );
+  }, [availableLots, pickerSearch]);
+
+  const addLot = (lot: Lot) => {
+    if (cartLotIds.has(lot.id)) return;
+    setCart((prev) => [
+      ...prev,
+      {
+        lotId: lot.id,
+        description: `#${lot.lot_number ?? '—'} ${lot.name}`,
+        price: defaultPrice(lot),
+      },
+    ]);
+    setError(null);
+  };
+
+  const handleScan = (scanned: ScannedLot) => {
+    setShowScanner(false);
+    const lot = lots.find((l) => l.id === scanned.lotId);
+    if (!lot) {
+      setError('Scanned item is not part of this sale.');
+      return;
+    }
+    if ((lot.inventory_status ?? 'available') === 'sold') {
+      setError(`"${lot.name}" is already marked sold.`);
+      return;
+    }
+    addLot(lot);
+  };
+
+  const updatePrice = (index: number, value: string) => {
+    const price = Number(value);
+    setCart((prev) => prev.map((it, i) => (i === index ? { ...it, price: isNaN(price) ? 0 : price } : it)));
+  };
+
+  const removeItem = (index: number) => {
+    setCart((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const completeSale = async () => {
+    if (!tender || !cart.length || processing) return;
+    setProcessing(true);
+    setError(null);
+    const result = await createTransaction({
+      saleId,
+      companyId,
+      items: cart,
+      taxRate,
+      tenderType: tender,
+      buyerName: buyerName.trim() || undefined,
+    });
+    setProcessing(false);
+    if (!result.success || !result.transactionId || !result.totals) {
+      setError(result.error || 'Checkout failed.');
+      return;
+    }
+    setReceipt({
+      transactionId: result.transactionId,
+      items: cart,
+      subtotal: result.totals.subtotal,
+      tax: result.totals.tax,
+      total: result.totals.total,
+      tender,
+      buyerName: buyerName.trim(),
+    });
+    onCompleted?.();
+  };
+
+  const startNewSale = () => {
+    setReceipt(null);
+    setCart([]);
+    setTender(null);
+    setBuyerName('');
+    setError(null);
+  };
+
+  // ---- Receipt view -------------------------------------------------------
+  if (receipt) {
+    return (
+      <div className="fixed inset-0 z-50 bg-gray-50 overflow-auto">
+        <div className="max-w-md mx-auto p-6">
+          <div className="text-center mb-6">
+            <CheckCircle2 className="w-12 h-12 text-green-600 mx-auto mb-2" />
+            <h2 className="text-xl font-bold text-gray-900">Sale Complete</h2>
+            <p className="text-sm text-gray-500">Transaction {receipt.transactionId.slice(0, 8)}</p>
+          </div>
+
+          <div id="pos-receipt" className="bg-white rounded-lg border border-gray-200 p-5 mb-6">
+            <h3 className="font-semibold text-gray-900 mb-1">{saleName || 'Estate Sale'}</h3>
+            {receipt.buyerName && (
+              <p className="text-sm text-gray-600 mb-3">Buyer: {receipt.buyerName}</p>
+            )}
+            <div className="divide-y divide-gray-100">
+              {receipt.items.map((it, i) => (
+                <div key={i} className="flex justify-between py-2 text-sm">
+                  <span className="text-gray-700 pr-2">{it.description}</span>
+                  <span className="text-gray-900 font-medium whitespace-nowrap">{money(it.price)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 pt-3 border-t border-gray-200 space-y-1 text-sm">
+              <div className="flex justify-between text-gray-600">
+                <span>Subtotal</span><span>{money(receipt.subtotal)}</span>
+              </div>
+              <div className="flex justify-between text-gray-600">
+                <span>Tax</span><span>{money(receipt.tax)}</span>
+              </div>
+              <div className="flex justify-between text-lg font-bold text-gray-900">
+                <span>Total</span><span>{money(receipt.total)}</span>
+              </div>
+              <div className="flex justify-between text-gray-600 pt-1">
+                <span>Paid via</span><span className="capitalize">{receipt.tender}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => window.print()}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            >
+              <Printer className="w-4 h-4" /> Print
+            </button>
+            <button
+              onClick={startNewSale}
+              className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+            >
+              New Sale
+            </button>
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Register view ------------------------------------------------------
+  return (
+    <div className="fixed inset-0 z-50 bg-gray-50 flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
+        <h2 className="text-lg font-semibold text-gray-900">Register</h2>
+        <button onClick={onClose} className="p-1.5 rounded-full hover:bg-gray-100" aria-label="Close register">
+          <X className="w-5 h-5 text-gray-500" />
+        </button>
+      </div>
+
+      {/* Add buttons */}
+      <div className="px-4 py-3 flex gap-2 bg-white border-b border-gray-100">
+        <button
+          onClick={() => setShowScanner(true)}
+          className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
+        >
+          <ScanLine className="w-4 h-4" /> Scan
+        </button>
+        <button
+          onClick={() => setShowPicker((s) => !s)}
+          className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          <Plus className="w-4 h-4" /> Add Item
+        </button>
+      </div>
+
+      {/* Picker */}
+      {showPicker && (
+        <div className="px-4 py-3 bg-white border-b border-gray-200 max-h-64 overflow-auto">
+          <div className="relative mb-2">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={pickerSearch}
+              onChange={(e) => setPickerSearch(e.target.value)}
+              placeholder="Search available items…"
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+            />
+          </div>
+          {filteredPicker.length === 0 ? (
+            <p className="text-sm text-gray-400 py-2 text-center">No available items</p>
+          ) : (
+            filteredPicker.slice(0, 50).map((lot) => (
+              <button
+                key={lot.id}
+                onClick={() => addLot(lot)}
+                className="w-full flex justify-between items-center px-2 py-2 text-sm text-left hover:bg-gray-50 rounded"
+              >
+                <span className="text-gray-700 truncate pr-2">
+                  #{lot.lot_number ?? '—'} {lot.name}
+                </span>
+                <span className="text-gray-500 whitespace-nowrap">{money(defaultPrice(lot))}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Cart */}
+      <div className="flex-1 overflow-auto px-4 py-3">
+        {cart.length === 0 ? (
+          <div className="text-center text-gray-400 py-12">
+            <p className="text-sm">Cart is empty — scan a tag or add an item.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {cart.map((item, i) => (
+              <div key={item.lotId ?? i} className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 p-3">
+                <span className="flex-1 text-sm text-gray-800 truncate">{item.description}</span>
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={item.price}
+                    onChange={(e) => updatePrice(i, e.target.value)}
+                    className="w-24 pl-5 pr-2 py-1.5 text-sm text-right border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                  />
+                </div>
+                <button onClick={() => removeItem(i)} className="p-1.5 text-gray-400 hover:text-red-600" aria-label="Remove item">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Footer: totals + tender + complete */}
+      <div className="bg-white border-t border-gray-200 px-4 py-3 space-y-3">
+        {error && (
+          <div className="p-2.5 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">{error}</div>
+        )}
+
+        <div className="flex items-center gap-3">
+          <input
+            value={buyerName}
+            onChange={(e) => setBuyerName(e.target.value)}
+            placeholder="Buyer name (optional)"
+            className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+          />
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 whitespace-nowrap">
+            Tax %
+            <input
+              type="number"
+              inputMode="decimal"
+              value={taxRate}
+              onChange={(e) => setTaxRate(Number(e.target.value) || 0)}
+              className="w-16 px-2 py-2 text-sm text-right border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+            />
+          </label>
+        </div>
+
+        <div className="space-y-1 text-sm">
+          <div className="flex justify-between text-gray-600"><span>Subtotal</span><span>{money(totals.subtotal)}</span></div>
+          <div className="flex justify-between text-gray-600"><span>Tax</span><span>{money(totals.tax)}</span></div>
+          <div className="flex justify-between text-lg font-bold text-gray-900"><span>Total</span><span>{money(totals.total)}</span></div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {TENDERS.map((t) => (
+            <button
+              key={t.value}
+              disabled={t.disabled}
+              onClick={() => setTender(t.value)}
+              className={
+                `px-2 py-2 rounded-md text-sm font-medium border transition-colors ` +
+                (t.disabled
+                  ? 'bg-gray-50 text-gray-300 border-gray-200 cursor-not-allowed'
+                  : tender === t.value
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50')
+              }
+              title={t.note}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          disabled={!tender || cart.length === 0 || processing}
+          onClick={completeSale}
+          className="w-full px-4 py-3 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+        >
+          {processing ? 'Processing…' : `Complete Sale · ${money(totals.total)}`}
+        </button>
+      </div>
+
+      {showScanner && <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />}
+    </div>
+  );
+}

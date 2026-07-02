@@ -136,6 +136,31 @@ export interface LookupCategory {
   created_at?: string;
 }
 
+export type TenderType = 'cash' | 'check' | 'venmo' | 'cashapp' | 'card' | 'other';
+
+export interface SalesTransaction {
+  id: string;
+  sale_id: string;
+  company_id?: string | null;
+  subtotal: number;
+  tax: number;
+  total: number;
+  tender_type: TenderType;
+  status: 'completed' | 'voided';
+  buyer_name?: string | null;
+  note?: string | null;
+  created_at?: string;
+}
+
+export interface SalesTransactionItem {
+  id: string;
+  transaction_id: string;
+  lot_id?: string | null;
+  description?: string | null;
+  price: number;
+  created_at?: string;
+}
+
 export interface UserCompany {
   user_id: string;
   company_id: string;
