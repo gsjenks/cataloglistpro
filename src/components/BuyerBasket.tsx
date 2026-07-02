@@ -89,8 +89,8 @@ export default function BuyerBasket({ items, total, onRemove }: Props) {
                 <span>Total</span><span>{money(total)}</span>
               </div>
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-md text-xs text-amber-800">
-                Items in your basket are held for 30 minutes. If they aren't paid for,
-                the hold is released and they become available to other shoppers.
+                Your items stay held while you're shopping. If you leave without paying,
+                the holds release about 30 minutes later and the items return to the sale.
               </div>
               <button
                 disabled

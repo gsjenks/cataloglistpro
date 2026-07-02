@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { createClient } from "@supabase/supabase-js";
 import { ArrowLeft, ShoppingBasket } from "lucide-react";
@@ -101,6 +101,35 @@ export default function PublicLotDetail() {
   useEffect(() => {
     loadLotData();
   }, [loadLotData]);
+
+  // Renew all basket holds while the buyer is actively shopping (a lot page is
+  // open), so items added earlier don't expire mid-shop. The hold_lot RPC
+  // refreshes a hold the same basket already owns. Items lost to another buyer
+  // (or sold) are dropped from the basket.
+  const basketItemsRef = useRef(basket.items);
+  basketItemsRef.current = basket.items;
+  useEffect(() => {
+    if (saleType !== "estate_sale") return;
+    let cancelled = false;
+    const renew = async () => {
+      for (const item of basketItemsRef.current) {
+        const res = await holdLot(supabasePublic, item.lotId, basket.basketId);
+        if (cancelled) return;
+        if (res.success && res.heldUntil) {
+          basket.updateHeldUntil(item.lotId, res.heldUntil);
+        } else if (res.error === "sold" || res.error === "held_by_other") {
+          basket.removeItem(item.lotId);
+        }
+      }
+    };
+    renew(); // refresh on every page open (i.e. as the buyer scans new items)
+    const t = setInterval(renew, 10 * 60 * 1000); // and every 10 minutes
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saleType, basket.basketId]);
 
   // Keep the lot (esp. its status) live so a buyer sees it sell in real time.
   useEffect(() => {
@@ -352,8 +381,8 @@ export default function PublicLotDetail() {
                     {adding ? "Adding…" : "Add to Basket"}
                   </button>
                   <p className="mt-2 text-center text-xs text-gray-500">
-                    Adds a {HOLD_MINUTES}-minute hold. If not paid within {HOLD_MINUTES} minutes,
-                    the hold is released and the item returns to the sale.
+                    Held while you keep shopping. If you leave without paying, the hold
+                    is released about {HOLD_MINUTES} minutes later and the item returns to the sale.
                   </p>
                   {addError && (
                     <p className="mt-2 text-center text-sm text-red-600">{addError}</p>

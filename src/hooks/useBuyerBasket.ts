@@ -77,9 +77,22 @@ export function useBuyerBasket(saleId: string | undefined) {
     [items, persist],
   );
 
+  // Extend an item's hold (called by the page's renewal loop while shopping).
+  const updateHeldUntil = useCallback(
+    (lotId: string, heldUntil: string) => {
+      if (!saleId) return;
+      setItems((prev) => {
+        const next = prev.map((i) => (i.lotId === lotId ? { ...i, heldUntil } : i));
+        localStorage.setItem(itemsKey(saleId), JSON.stringify(next));
+        return next;
+      });
+    },
+    [saleId],
+  );
+
   const has = useCallback((lotId: string) => items.some((i) => i.lotId === lotId), [items]);
 
   const total = items.reduce((sum, i) => sum + (Number(i.price) || 0), 0);
 
-  return { basketId, items, addItem, removeItem, has, total };
+  return { basketId, items, addItem, removeItem, updateHeldUntil, has, total };
 }
