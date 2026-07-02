@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { ShoppingBasket, Bookmark } from 'lucide-react';
+import { ShoppingBasket, Share2, Copy, Check } from 'lucide-react';
 import { supabasePublic } from '../lib/publicClient';
 import { useBuyerBasket } from '../hooks/useBuyerBasket';
 import { useHoldRenewal } from '../hooks/useHoldRenewal';
@@ -15,6 +15,32 @@ export default function PublicBasket() {
   const { saleId } = useParams<{ saleId: string }>();
   const basket = useBuyerBasket(saleId);
   const [saleName, setSaleName] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked — the URL bar still has the link */
+    }
+  };
+
+  const handleShare = async () => {
+    if (canShare) {
+      try {
+        await navigator.share({ title: saleName ? `My basket — ${saleName}` : 'My basket', url: shareUrl });
+      } catch {
+        /* user dismissed the share sheet */
+      }
+    } else {
+      handleCopy();
+    }
+  };
 
   // Keep holds alive while this page is open.
   useHoldRenewal(supabasePublic, !!saleId, basket);
@@ -44,9 +70,31 @@ export default function PublicBasket() {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6">
-        <div className="mb-4 p-3 bg-indigo-50 border border-indigo-200 rounded-md text-sm text-indigo-800 flex items-center justify-center gap-2 text-center">
-          <Bookmark className="w-4 h-4 flex-shrink-0" />
-          Bookmark this page to return to your basket anytime.
+        <div className="mb-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+          <p className="text-sm text-indigo-900 font-medium text-center mb-3">
+            Save your basket so you can come back to it.
+          </p>
+          <div className="flex gap-2 justify-center">
+            {canShare && (
+              <button
+                onClick={handleShare}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
+              >
+                <Share2 className="w-4 h-4" />
+                Share / Save Link
+              </button>
+            )}
+            <button
+              onClick={handleCopy}
+              className="inline-flex items-center gap-2 px-4 py-2 border border-indigo-300 text-indigo-700 bg-white rounded-md text-sm font-medium hover:bg-indigo-50"
+            >
+              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copied ? 'Copied!' : 'Copy Link'}
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-indigo-700 text-center">
+            Text or email the link to yourself — tapping it reopens your basket.
+          </p>
         </div>
 
         {saleName && <p className="text-sm text-gray-500 mb-4">{saleName}</p>}
