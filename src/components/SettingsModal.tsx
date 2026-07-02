@@ -1,7 +1,7 @@
 // src/components/SettingsModal.tsx
 // MOBILE-FIRST: Settings modal with comprehensive data refresh feature and progress indicator
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { X, RefreshCw, Wifi, WifiOff, Edit2, Upload, Building2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { supabase } from '../lib/supabase';
@@ -44,6 +44,24 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     units: 'imperial',
     logo_url: ''
   });
+  const [invites, setInvites] = useState<{ id: string; email: string; role: string; status: string }[]>([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('member');
+  const [sendingInvite, setSendingInvite] = useState(false);
+
+  const loadInvites = useCallback(async () => {
+    if (!currentCompany) return;
+    const { data } = await supabase
+      .from('company_invites')
+      .select('id, email, role, status')
+      .eq('company_id', currentCompany.id)
+      .order('created_at', { ascending: true });
+    setInvites(data || []);
+  }, [currentCompany]);
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'team' && currentCompany) loadInvites();
+  }, [isOpen, activeTab, currentCompany, loadInvites]);
 
   if (!isOpen) return null;
 
@@ -200,6 +218,44 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       alert('Failed to update profile: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  const handleSendInvite = async () => {
+    if (!currentCompany || !user) return;
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      alert('Enter a valid email address');
+      return;
+    }
+    setSendingInvite(true);
+    try {
+      const { error } = await supabase.from('company_invites').insert([{
+        company_id: currentCompany.id,
+        email,
+        role: inviteRole,
+        invited_by: user.id,
+      }]);
+      if (error) throw error;
+      setInviteEmail('');
+      setInviteRole('member');
+      await loadInvites();
+    } catch (error: unknown) {
+      console.error('Error sending invite:', error);
+      alert('Failed to send invite: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setSendingInvite(false);
+    }
+  };
+
+  const handleCancelInvite = async (id: string) => {
+    try {
+      const { error } = await supabase.from('company_invites').delete().eq('id', id);
+      if (error) throw error;
+      await loadInvites();
+    } catch (error: unknown) {
+      console.error('Error removing invite:', error);
+      alert('Failed to remove: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 
@@ -637,11 +693,72 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           )}
 
           {activeTab === 'team' && (
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Team Management</h3>
-              <p className="text-sm text-gray-600">
-                Team management features coming soon. Add team members, assign roles, and manage permissions.
+            <div className="max-w-lg">
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">Team Management</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Invite people by email. They'll be added to <strong>{currentCompany?.name}</strong> the
+                next time they sign in with that email.
               </p>
+
+              {/* Invite form */}
+              <div className="flex gap-2 mb-5">
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="teammate@example.com"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button
+                  onClick={handleSendInvite}
+                  disabled={sendingInvite}
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-400"
+                >
+                  {sendingInvite ? '…' : 'Invite'}
+                </button>
+              </div>
+
+              {/* Members & invites */}
+              {invites.length === 0 ? (
+                <p className="text-sm text-gray-400">No team members invited yet.</p>
+              ) : (
+                <ul className="divide-y divide-gray-100 border border-gray-200 rounded-md">
+                  {invites.map((inv) => (
+                    <li key={inv.id} className="flex items-center justify-between px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm text-gray-800 truncate">{inv.email}</p>
+                        <p className="text-xs text-gray-500 capitalize">{inv.role}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            inv.status === 'accepted'
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {inv.status === 'accepted' ? 'Joined' : 'Pending'}
+                        </span>
+                        <button
+                          onClick={() => handleCancelInvite(inv.id)}
+                          className="text-xs text-gray-400 hover:text-red-600"
+                          title={inv.status === 'accepted' ? 'Remove invite record' : 'Cancel invite'}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 

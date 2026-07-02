@@ -67,7 +67,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.log('[OK] Companies already loaded, skipping reload');
         return;
       }
-      
+
+      // Claim any pending team invites for this user's email before loading, so
+      // a newly-invited teammate is added to the company on login. Non-fatal.
+      try {
+        await supabase.rpc('claim_company_invites');
+      } catch (e) {
+        console.warn('claim_company_invites failed (non-fatal):', e);
+      }
+
       const [ownedResult, linkedResult] = await Promise.allSettled([
         withTimeout(
           (async () => {
