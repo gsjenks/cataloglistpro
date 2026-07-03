@@ -125,7 +125,7 @@ export default function SalesList({ sales, onRefresh }: SalesListProps) {
                 >
                   {sale.status.charAt(0).toUpperCase() + sale.status.slice(1)}
                 </span>
-                {sale.status === "active" && (
+                {sale.status === "active" && sale.sale_type !== "estate_sale" && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
