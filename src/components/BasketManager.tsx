@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { X, Search, Trash2, Plus, User, ScanLine } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { parseBasketUrl } from '../services/ScannerService';
+import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
 import QRScanner from './QRScanner';
 
 interface Props {
@@ -23,6 +23,7 @@ interface LotRow {
   id: string;
   lot_number: number | string | null;
   name: string;
+  description: string | null;
   starting_bid: number | null;
   inventory_status: string | null;
   held_by: string | null;
@@ -50,11 +51,13 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [busy, setBusy] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [showItemScanner, setShowItemScanner] = useState(false);
+  const [scannedLot, setScannedLot] = useState<LotRow | null>(null);
 
   const load = useCallback(async () => {
     const { data } = await supabase
       .from('lots')
-      .select('id, lot_number, name, starting_bid, inventory_status, held_by, held_until')
+      .select('id, lot_number, name, description, starting_bid, inventory_status, held_by, held_until')
       .eq('sale_id', saleId)
       .order('lot_number', { ascending: true });
     const rows = (data as LotRow[] | null) || [];
@@ -106,6 +109,14 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     return true;
   };
 
+  // Scan an item's QR (lot tag) → show who currently holds it.
+  const handleScanItem = (scanned: ScannedLot) => {
+    setShowItemScanner(false);
+    const lot = lots.find((l) => l.id === scanned.lotId) || null;
+    setScannedLot(lot);
+    if (lot) setItemSearch(String(lot.lot_number ?? ''));
+  };
+
   const now = Date.now();
   const isHeld = (l: LotRow) =>
     l.inventory_status === 'held' && !!l.held_until && new Date(l.held_until).getTime() > now;
@@ -122,14 +133,25 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     const q = addSearch.trim().toLowerCase();
     return lots
       .filter((l) => (l.inventory_status ?? 'available') !== 'sold' && l.held_by !== selected?.id)
-      .filter((l) => !q || l.name?.toLowerCase().includes(q) || String(l.lot_number ?? '').includes(q))
+      .filter(
+        (l) =>
+          !q ||
+          l.name?.toLowerCase().includes(q) ||
+          l.description?.toLowerCase().includes(q) ||
+          String(l.lot_number ?? '').includes(q),
+      )
       .slice(0, 40);
   }, [lots, addSearch, selected]);
 
   const filteredHeld = useMemo(() => {
     const q = itemSearch.trim().toLowerCase();
     if (!q) return heldItems;
-    return heldItems.filter((l) => l.name?.toLowerCase().includes(q) || String(l.lot_number ?? '').includes(q));
+    return heldItems.filter(
+      (l) =>
+        l.name?.toLowerCase().includes(q) ||
+        l.description?.toLowerCase().includes(q) ||
+        String(l.lot_number ?? '').includes(q),
+    );
   }, [heldItems, itemSearch]);
 
   const staffHold = async (lotId: string, shopperId: string) => {
@@ -294,15 +316,44 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
           </div>
         ) : (
           <div className="max-w-2xl mx-auto">
-            <div className="relative mb-3">
-              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                value={itemSearch}
-                onChange={(e) => setItemSearch(e.target.value)}
-                placeholder="Search held items (e.g. sofa, dining table)…"
-                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-              />
+            <div className="flex gap-2 mb-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  value={itemSearch}
+                  onChange={(e) => setItemSearch(e.target.value)}
+                  placeholder="Lot #, title, or description (e.g. sofa)…"
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                />
+              </div>
+              <button
+                onClick={() => { setScannedLot(null); setShowItemScanner(true); }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <ScanLine className="w-4 h-4" /> Scan
+              </button>
             </div>
+
+            {scannedLot && (
+              <div className="mb-3 p-3 rounded-md border border-indigo-200 bg-indigo-50">
+                <p className="text-sm font-medium text-gray-800">
+                  #{scannedLot.lot_number ?? '—'} {scannedLot.name}
+                </p>
+                <p className="text-xs text-gray-600 mt-0.5">
+                  {isHeld(scannedLot)
+                    ? `Held by ${holderLabel(scannedLot)}`
+                    : scannedLot.inventory_status === 'sold'
+                      ? 'Sold'
+                      : 'Available — not in anyone’s basket'}
+                </p>
+                <button
+                  onClick={() => { setScannedLot(null); setItemSearch(''); }}
+                  className="text-xs text-indigo-600 mt-1 hover:underline"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
             {filteredHeld.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-6">No items are currently held.</p>
             ) : (
@@ -329,6 +380,14 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
           onRawScan={handleScanBasket}
           hintText="Scan the customer's basket QR code."
           onClose={() => setShowScanner(false)}
+        />
+      )}
+
+      {showItemScanner && (
+        <QRScanner
+          onScan={handleScanItem}
+          hintText="Scan the item's QR tag."
+          onClose={() => setShowItemScanner(false)}
         />
       )}
     </div>
