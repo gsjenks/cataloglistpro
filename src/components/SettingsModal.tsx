@@ -237,6 +237,19 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         invited_by: user.id,
       }]);
       if (error) throw error;
+      // Email the invitation (non-fatal — the invite is recorded regardless).
+      try {
+        await supabase.functions.invoke('send-invite', {
+          body: {
+            email,
+            companyName: currentCompany.name,
+            role: inviteRole,
+            appUrl: window.location.origin,
+          },
+        });
+      } catch {
+        /* email optional; the person can still join by signing in with this email */
+      }
       setInviteEmail('');
       setInviteRole('member');
       await loadInvites();
@@ -696,8 +709,8 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <div className="max-w-lg">
               <h3 className="text-lg font-semibold text-gray-900 mb-1">Team Management</h3>
               <p className="text-sm text-gray-600 mb-4">
-                Invite people by email. They'll be added to <strong>{currentCompany?.name}</strong> the
-                next time they sign in with that email.
+                Invite people by email. We'll email them an invitation, and they're added to{' '}
+                <strong>{currentCompany?.name}</strong> the first time they sign in with that email.
               </p>
 
               {/* Invite form */}
