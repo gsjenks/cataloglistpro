@@ -7,8 +7,10 @@
 // the buyer self-checkout gate.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { X, Search, Trash2, Plus, User } from 'lucide-react';
+import { X, Search, Trash2, Plus, User, ScanLine } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { parseBasketUrl } from '../services/ScannerService';
+import QRScanner from './QRScanner';
 
 interface Props {
   saleId: string;
@@ -46,6 +48,8 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [addSearch, setAddSearch] = useState('');
   const [itemSearch, setItemSearch] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -77,6 +81,29 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     query = query.or(`name.ilike.${term},email.ilike.${term},phone.ilike.${term}`);
     const { data } = await query.limit(20);
     setShopperResults((data as Shopper[] | null) || []);
+  };
+
+  // Scan a customer's basket QR → look them up by the shopper id it encodes.
+  const handleScanBasket = (raw: string): boolean => {
+    const parsed = parseBasketUrl(raw);
+    if (!parsed) return false;
+    setShowScanner(false);
+    setScanError(null);
+    supabase
+      .from('shoppers')
+      .select('id, name, email, phone')
+      .eq('id', parsed.basketId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setSelected(data as Shopper);
+          setShopperResults([]);
+          setShopperQuery('');
+        } else {
+          setScanError('That basket QR isn’t linked to a registered shopper.');
+        }
+      });
+    return true;
   };
 
   const now = Date.now();
@@ -156,15 +183,26 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
           <div className="max-w-lg mx-auto">
             {!selected ? (
               <>
-                <div className="relative mb-3">
-                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    value={shopperQuery}
-                    onChange={(e) => searchShoppers(e.target.value)}
-                    placeholder="Search shoppers by name, phone, or email…"
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-                  />
+                <div className="flex gap-2 mb-3">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      value={shopperQuery}
+                      onChange={(e) => searchShoppers(e.target.value)}
+                      placeholder="Name, email, or last 4 of phone…"
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                    />
+                  </div>
+                  <button
+                    onClick={() => { setScanError(null); setShowScanner(true); }}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <ScanLine className="w-4 h-4" /> Scan
+                  </button>
                 </div>
+                {scanError && (
+                  <p className="mb-3 text-sm text-red-600">{scanError}</p>
+                )}
                 {shopperResults.map((s) => (
                   <button
                     key={s.id}
@@ -285,6 +323,14 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
           </div>
         )}
       </div>
+
+      {showScanner && (
+        <QRScanner
+          onRawScan={handleScanBasket}
+          hintText="Scan the customer's basket QR code."
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </div>
   );
 }
