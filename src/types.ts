@@ -142,6 +142,8 @@ export interface LookupCategory {
 
 export type TenderType = 'cash' | 'check' | 'venmo' | 'cashapp' | 'card' | 'other';
 
+export type Fulfillment = 'carry' | 'delivery';
+
 export interface SalesTransaction {
   id: string;
   sale_id: string;
@@ -153,6 +155,12 @@ export interface SalesTransaction {
   status: 'completed' | 'voided';
   buyer_name?: string | null;
   note?: string | null;
+  delivery_address?: string | null;
+  delivery_date?: string | null;
+  delivery_estimate?: string | null;
+  delivery_company?: string | null;
+  delivery_company_phone?: string | null;
+  delivery_company_email?: string | null;
   created_at?: string;
 }
 
@@ -162,6 +170,7 @@ export interface SalesTransactionItem {
   lot_id?: string | null;
   description?: string | null;
   price: number;
+  fulfillment?: Fulfillment;
   created_at?: string;
 }
 

@@ -65,6 +65,9 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [buyerBasketId, setBuyerBasketId] = useState<string | null>(null);
   const [scanMode, setScanMode] = useState<'item' | 'basket'>('item');
+  const [delivery, setDelivery] = useState({
+    address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '',
+  });
 
   useEffect(() => {
     localStorage.setItem(`pos_taxrate_${saleId}`, String(taxRate));
@@ -99,6 +102,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         lotId: lot.id,
         description: `#${lot.lot_number ?? '—'} ${lot.name}`,
         price: defaultPrice(lot),
+        fulfillment: 'carry',
       },
     ]);
     setError(null);
@@ -151,6 +155,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           lotId: l.id,
           description: `#${l.lot_number ?? '—'} ${l.name}`,
           price: defaultPrice(l),
+          fulfillment: 'carry' as const,
         }));
       return [...prev, ...additions];
     });
@@ -171,6 +176,12 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setCart((prev) => prev.map((it, i) => (i === index ? { ...it, price: isNaN(price) ? 0 : price } : it)));
   };
 
+  const setItemFulfillment = (index: number, f: 'carry' | 'delivery') => {
+    setCart((prev) => prev.map((it, i) => (i === index ? { ...it, fulfillment: f } : it)));
+  };
+
+  const hasDelivery = cart.some((i) => i.fulfillment === 'delivery');
+
   const removeItem = async (index: number) => {
     const item = cart[index];
     setCart((prev) => prev.filter((_, i) => i !== index));
@@ -186,6 +197,10 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
 
   const completeSale = async () => {
     if (!tender || !cart.length || processing) return;
+    if (!buyerName.trim()) {
+      setError("Please enter the buyer's name.");
+      return;
+    }
     setProcessing(true);
     setError(null);
     const result = await createTransaction({
@@ -194,8 +209,18 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       items: cart,
       taxRate,
       tenderType: tender,
-      buyerName: buyerName.trim() || undefined,
+      buyerName: buyerName.trim(),
       note: buyerBasketId ? `basket ${buyerBasketId.slice(0, 8)}` : undefined,
+      delivery: hasDelivery
+        ? {
+            address: delivery.address,
+            date: delivery.date,
+            estimate: delivery.estimate,
+            company: delivery.company,
+            companyPhone: delivery.companyPhone,
+            companyEmail: delivery.companyEmail,
+          }
+        : undefined,
     });
     setProcessing(false);
     if (!result.success || !result.transactionId || !result.totals) {
@@ -222,6 +247,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setError(null);
     setBuyerBasketId(null);
     setScanMode('item');
+    setDelivery({ address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '' });
   };
 
   // ---- Receipt view -------------------------------------------------------
@@ -243,7 +269,12 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             <div className="divide-y divide-gray-100">
               {receipt.items.map((it, i) => (
                 <div key={i} className="flex justify-between py-2 text-sm">
-                  <span className="text-gray-700 pr-2">{it.description}</span>
+                  <span className="text-gray-700 pr-2">
+                    {it.description}
+                    {it.fulfillment === 'delivery' && (
+                      <span className="ml-1 text-xs text-amber-700">· delivery</span>
+                    )}
+                  </span>
                   <span className="text-gray-900 font-medium whitespace-nowrap">{money(it.price)}</span>
                 </div>
               ))}
@@ -374,21 +405,41 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         ) : (
           <div className="space-y-2">
             {cart.map((item, i) => (
-              <div key={item.lotId ?? i} className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 p-3">
-                <span className="flex-1 text-sm text-gray-800 truncate">{item.description}</span>
-                <div className="relative">
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={item.price}
-                    onChange={(e) => updatePrice(i, e.target.value)}
-                    className="w-24 pl-5 pr-2 py-1.5 text-sm text-right border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-                  />
+              <div key={item.lotId ?? i} className="bg-white rounded-lg border border-gray-200 p-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 text-sm text-gray-800 truncate">{item.description}</span>
+                  <div className="relative">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={item.price}
+                      onChange={(e) => updatePrice(i, e.target.value)}
+                      className="w-24 pl-5 pr-2 py-1.5 text-sm text-right border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                    />
+                  </div>
+                  <button onClick={() => removeItem(i)} className="p-1.5 text-gray-400 hover:text-red-600" aria-label="Remove item">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-                <button onClick={() => removeItem(i)} className="p-1.5 text-gray-400 hover:text-red-600" aria-label="Remove item">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <div className="mt-2 inline-flex rounded-md border border-gray-200 overflow-hidden">
+                  {(['carry', 'delivery'] as const).map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setItemFulfillment(i, f)}
+                      className={
+                        `px-3 py-1 text-xs font-medium ` +
+                        (item.fulfillment === f
+                          ? f === 'delivery'
+                            ? 'bg-amber-500 text-white'
+                            : 'bg-green-600 text-white'
+                          : 'bg-white text-gray-600')
+                      }
+                    >
+                      {f === 'carry' ? 'Carry out' : 'Delivery'}
+                    </button>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -405,8 +456,11 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           <input
             value={buyerName}
             onChange={(e) => setBuyerName(e.target.value)}
-            placeholder="Buyer name (optional)"
-            className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+            placeholder="Buyer name (required)"
+            className={
+              `flex-1 px-3 py-2 text-sm border rounded-md focus:outline-none focus:border-indigo-600 ` +
+              (buyerName.trim() ? 'border-gray-300' : 'border-amber-300')
+            }
           />
           <label className="flex items-center gap-1.5 text-sm text-gray-600 whitespace-nowrap">
             Tax %
@@ -419,6 +473,53 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             />
           </label>
         </div>
+
+        {/* Delivery details — shown when any item is marked Delivery */}
+        {hasDelivery && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-md space-y-2">
+            <p className="text-xs font-semibold text-amber-900">Delivery details</p>
+            <input
+              placeholder="Delivery address"
+              value={delivery.address}
+              onChange={(e) => setDelivery({ ...delivery, address: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+            />
+            <div className="flex gap-2">
+              <input
+                placeholder="Delivery date"
+                value={delivery.date}
+                onChange={(e) => setDelivery({ ...delivery, date: e.target.value })}
+                className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+              />
+              <input
+                placeholder="Estimate"
+                value={delivery.estimate}
+                onChange={(e) => setDelivery({ ...delivery, estimate: e.target.value })}
+                className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+              />
+            </div>
+            <input
+              placeholder="Delivery company"
+              value={delivery.company}
+              onChange={(e) => setDelivery({ ...delivery, company: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+            />
+            <div className="flex gap-2">
+              <input
+                placeholder="Company phone"
+                value={delivery.companyPhone}
+                onChange={(e) => setDelivery({ ...delivery, companyPhone: e.target.value })}
+                className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+              />
+              <input
+                placeholder="Company email"
+                value={delivery.companyEmail}
+                onChange={(e) => setDelivery({ ...delivery, companyEmail: e.target.value })}
+                className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+              />
+            </div>
+          </div>
+        )}
 
         <div className="space-y-1 text-sm">
           <div className="flex justify-between text-gray-600"><span>Subtotal</span><span>{money(totals.subtotal)}</span></div>
@@ -448,7 +549,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         </div>
 
         <button
-          disabled={!tender || cart.length === 0 || processing}
+          disabled={!tender || cart.length === 0 || processing || !buyerName.trim()}
           onClick={completeSale}
           className="w-full px-4 py-3 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
         >

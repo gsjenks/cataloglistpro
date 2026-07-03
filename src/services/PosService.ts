@@ -4,12 +4,22 @@
 // (Square) wires in real payment processing.
 
 import { supabase } from '../lib/supabase';
-import type { TenderType } from '../types';
+import type { TenderType, Fulfillment } from '../types';
 
 export interface PosLineItem {
   lotId: string | null;
   description: string;
   price: number;
+  fulfillment: Fulfillment;
+}
+
+export interface DeliveryInfo {
+  address?: string;
+  date?: string;
+  estimate?: string;
+  company?: string;
+  companyPhone?: string;
+  companyEmail?: string;
 }
 
 export interface CreateTransactionInput {
@@ -20,6 +30,7 @@ export interface CreateTransactionInput {
   tenderType: TenderType;
   buyerName?: string;
   note?: string;
+  delivery?: DeliveryInfo;
 }
 
 export interface TransactionTotals {
@@ -51,9 +62,10 @@ export interface CreateTransactionResult {
 export async function createTransaction(
   input: CreateTransactionInput,
 ): Promise<CreateTransactionResult> {
-  const { saleId, companyId, items, taxRate, tenderType, buyerName, note } = input;
+  const { saleId, companyId, items, taxRate, tenderType, buyerName, note, delivery } = input;
 
   if (!items.length) return { success: false, error: 'Cart is empty' };
+  if (!buyerName || !buyerName.trim()) return { success: false, error: "Buyer's name is required" };
 
   const totals = computeTotals(items, taxRate);
 
@@ -68,8 +80,14 @@ export async function createTransaction(
       total: totals.total,
       tender_type: tenderType,
       status: 'completed',
-      buyer_name: buyerName || null,
+      buyer_name: buyerName.trim(),
       note: note || null,
+      delivery_address: delivery?.address || null,
+      delivery_date: delivery?.date || null,
+      delivery_estimate: delivery?.estimate || null,
+      delivery_company: delivery?.company || null,
+      delivery_company_phone: delivery?.companyPhone || null,
+      delivery_company_email: delivery?.companyEmail || null,
     })
     .select('id')
     .single();
@@ -85,6 +103,7 @@ export async function createTransaction(
       lot_id: i.lotId,
       description: i.description,
       price: round2(Number(i.price) || 0),
+      fulfillment: i.fulfillment,
     })),
   );
 

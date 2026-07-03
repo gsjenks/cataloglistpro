@@ -62,6 +62,11 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [selectedLot, setSelectedLot] = useState<LotRow | null>(null);
   const [lotPhotoUrl, setLotPhotoUrl] = useState<string | null>(null);
   const [lotBuyer, setLotBuyer] = useState<string | null>(null);
+  const [lotFulfillment, setLotFulfillment] = useState<string | null>(null);
+  const [lotDelivery, setLotDelivery] = useState<{
+    address?: string | null; date?: string | null; estimate?: string | null;
+    company?: string | null; phone?: string | null; email?: string | null;
+  } | null>(null);
 
   const load = useCallback(async () => {
     const { data } = await supabase
@@ -123,6 +128,8 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     setSelectedLot(lot);
     setLotPhotoUrl(null);
     setLotBuyer(null);
+    setLotFulfillment(null);
+    setLotDelivery(null);
 
     const { data: photos } = await supabase
       .from('photos')
@@ -136,17 +143,27 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     if (lot.inventory_status === 'sold') {
       const { data: items } = await supabase
         .from('sales_transaction_items')
-        .select('transaction_id')
+        .select('transaction_id, fulfillment')
         .eq('lot_id', lot.id)
         .limit(1);
-      const txnId = (items as { transaction_id: string }[] | null)?.[0]?.transaction_id;
-      if (txnId) {
+      const item = (items as { transaction_id: string; fulfillment?: string }[] | null)?.[0];
+      setLotFulfillment(item?.fulfillment ?? null);
+      if (item?.transaction_id) {
         const { data: txn } = await supabase
           .from('sales_transactions')
-          .select('buyer_name')
-          .eq('id', txnId)
+          .select('buyer_name, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+          .eq('id', item.transaction_id)
           .maybeSingle();
-        setLotBuyer((txn as { buyer_name?: string } | null)?.buyer_name || 'Buyer (name not recorded)');
+        const t = txn as {
+          buyer_name?: string; delivery_address?: string; delivery_date?: string;
+          delivery_estimate?: string; delivery_company?: string;
+          delivery_company_phone?: string; delivery_company_email?: string;
+        } | null;
+        setLotBuyer(t?.buyer_name || 'Buyer (name not recorded)');
+        setLotDelivery({
+          address: t?.delivery_address, date: t?.delivery_date, estimate: t?.delivery_estimate,
+          company: t?.delivery_company, phone: t?.delivery_company_phone, email: t?.delivery_company_email,
+        });
       }
     }
   };
@@ -394,9 +411,34 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                       </div>
                     )}
                     {statusOf(selectedLot) === 'sold' && (
-                      <div className="p-2.5 bg-gray-100 border border-gray-200 rounded-md text-sm text-gray-800">
-                        <span className="font-medium">Bought by:</span> {lotBuyer ?? '…'}
-                      </div>
+                      <>
+                        <div className="p-2.5 bg-gray-100 border border-gray-200 rounded-md text-sm text-gray-800">
+                          <span className="font-medium">Bought by:</span> {lotBuyer ?? '…'}
+                          {lotFulfillment && (
+                            <span
+                              className={`ml-2 text-xs px-2 py-0.5 rounded-full font-medium ${
+                                lotFulfillment === 'delivery' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'
+                              }`}
+                            >
+                              {lotFulfillment === 'delivery' ? 'Delivery / pickup' : 'Carried out'}
+                            </span>
+                          )}
+                        </div>
+                        {lotFulfillment === 'delivery' && lotDelivery && (
+                          <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-900 space-y-0.5">
+                            <p className="font-medium">Delivery details</p>
+                            {lotDelivery.address && <p>Address: {lotDelivery.address}</p>}
+                            {lotDelivery.date && <p>Date: {lotDelivery.date}</p>}
+                            {lotDelivery.estimate && <p>Estimate: {lotDelivery.estimate}</p>}
+                            {lotDelivery.company && <p>Company: {lotDelivery.company}</p>}
+                            {lotDelivery.phone && <p>Phone: {lotDelivery.phone}</p>}
+                            {lotDelivery.email && <p>Email: {lotDelivery.email}</p>}
+                            {!lotDelivery.address && !lotDelivery.company && (
+                              <p className="text-blue-700">No delivery details recorded.</p>
+                            )}
+                          </div>
+                        )}
+                      </>
                     )}
 
                     <div className="grid grid-cols-2 gap-3 text-sm">
