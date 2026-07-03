@@ -65,6 +65,22 @@ export function useServerBasket(saleId?: string, basketId?: string) {
     };
   }, [saleId, basketId, load]);
 
+  // Mobile browsers suspend background tabs and drop the realtime socket, so a
+  // change made on another device can be missed. Reload whenever this page
+  // regains focus/visibility so the basket is fresh when the shopper returns.
+  useEffect(() => {
+    if (!saleId || !basketId) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', load);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', load);
+    };
+  }, [saleId, basketId, load]);
+
   // Renew holds while a page using this basket is open (every 10 min).
   const itemsRef = useRef(items);
   itemsRef.current = items;
