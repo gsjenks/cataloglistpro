@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document } from '../types';
@@ -10,6 +10,7 @@ import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
 import QRScanner from './QRScanner';
 import PointOfSale from './PointOfSale';
+import BasketManager from './BasketManager';
 import ContactsList from './ContactsList';
 import DocumentsList from './DocumentsList';
 import ExportService from '../services/ExportService';
@@ -27,6 +28,7 @@ export default function SaleDetail() {
   const [loading, setLoading] = useState(true);
   const [showScanner, setShowScanner] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
+  const [showBaskets, setShowBaskets] = useState(false);
   
   // Export state
   const [exporting, setExporting] = useState(false);
@@ -114,6 +116,13 @@ export default function SaleDetail() {
                   label: 'Scan',
                   icon: <ScanLine className="w-4 h-4" />,
                   onClick: () => setShowScanner(true),
+                  variant: 'secondary' as const,
+                },
+                {
+                  id: 'baskets',
+                  label: 'Baskets',
+                  icon: <ShoppingBag className="w-4 h-4" />,
+                  onClick: () => setShowBaskets(true),
                   variant: 'secondary' as const,
                 },
               ]
@@ -766,6 +775,15 @@ export default function SaleDetail() {
           lots={lots}
           onClose={() => setShowRegister(false)}
           onCompleted={loadLots}
+        />
+      )}
+
+      {showBaskets && (
+        <BasketManager
+          saleId={saleId!}
+          companyId={sale?.company_id ?? null}
+          onClose={() => setShowBaskets(false)}
+          onChanged={loadLots}
         />
       )}
     </div>
