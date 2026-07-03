@@ -8,7 +8,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Package } from 'lucide-react';
 import { supabasePublic } from '../lib/publicClient';
 import { effectiveStatus } from '../lib/holds';
+import { useShopper } from '../hooks/useShopper';
+import { useServerBasket } from '../hooks/useServerBasket';
 import LotQRCode from '../components/LotQRCode';
+import BasketIcon from '../components/BasketIcon';
 
 interface CatalogLot {
   id: string;
@@ -36,19 +39,24 @@ export default function PublicSale() {
   const navigate = useNavigate();
   const [lots, setLots] = useState<CatalogLot[]>([]);
   const [saleName, setSaleName] = useState('');
+  const [saleType, setSaleType] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const { shopperId } = useShopper();
+  const basket = useServerBasket(saleId, shopperId ?? undefined);
 
   const load = useCallback(async () => {
     if (!saleId) return;
     const [{ data: sale }, { data: lotRows }] = await Promise.all([
-      supabasePublic.from('sales').select('name').eq('id', saleId).single(),
+      supabasePublic.from('sales').select('name, sale_type').eq('id', saleId).single(),
       supabasePublic
         .from('lots')
         .select('id, lot_number, name, starting_bid, inventory_status, held_until')
         .eq('sale_id', saleId)
         .order('lot_number', { ascending: true }),
     ]);
-    setSaleName((sale as { name?: string } | null)?.name ?? '');
+    const saleRow = sale as { name?: string; sale_type?: string } | null;
+    setSaleName(saleRow?.name ?? '');
+    setSaleType(saleRow?.sale_type ?? null);
     const rows = (lotRows as CatalogLot[] | null) || [];
 
     // Fetch primary photos for all lots in one query, map lot_id -> public URL.
@@ -97,9 +105,14 @@ export default function PublicSale() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-4 py-4">
-          <h1 className="text-lg font-bold text-gray-900">{saleName || 'Sale'}</h1>
-          <p className="text-sm text-gray-500">{lots.length} items</p>
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-bold text-gray-900">{saleName || 'Sale'}</h1>
+            <p className="text-sm text-gray-500">{lots.length} items</p>
+          </div>
+          {saleType === 'estate_sale' && (
+            <BasketIcon saleId={saleId!} basketId={basket.basketId} count={basket.items.length} />
+          )}
         </div>
       </div>
 

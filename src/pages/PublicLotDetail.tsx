@@ -5,6 +5,7 @@ import type { Lot } from "../types/auction";
 import { supabasePublic } from "../lib/publicClient";
 import LotQRCode from "../components/LotQRCode";
 import BuyerBasket from "../components/BuyerBasket";
+import BasketIcon from "../components/BasketIcon";
 import SaveBasketButtons from "../components/SaveBasketButtons";
 import { useServerBasket } from "../hooks/useServerBasket";
 import { useShopper } from "../hooks/useShopper";
@@ -265,7 +266,11 @@ export default function PublicLotDetail() {
             Back to Sale
           </button>
           <h1 className="text-lg font-bold text-gray-900">Item Details</h1>
-          <div className="w-12" />
+          {isEstate ? (
+            <BasketIcon saleId={saleId!} basketId={basket.basketId} count={basket.items.length} />
+          ) : (
+            <div className="w-12" />
+          )}
         </div>
       </div>
 
