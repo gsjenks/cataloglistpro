@@ -24,7 +24,14 @@ interface LotRow {
   lot_number: number | string | null;
   name: string;
   description: string | null;
+  category: string | null;
+  condition: string | null;
+  height: number | null;
+  width: number | null;
+  depth: number | null;
+  dimension_unit: string | null;
   starting_bid: number | null;
+  sold_price: number | null;
   inventory_status: string | null;
   held_by: string | null;
   held_until: string | null;
@@ -52,12 +59,14 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [showScanner, setShowScanner] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [showItemScanner, setShowItemScanner] = useState(false);
-  const [scannedLot, setScannedLot] = useState<LotRow | null>(null);
+  const [selectedLot, setSelectedLot] = useState<LotRow | null>(null);
+  const [lotPhotoUrl, setLotPhotoUrl] = useState<string | null>(null);
+  const [lotBuyer, setLotBuyer] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const { data } = await supabase
       .from('lots')
-      .select('id, lot_number, name, description, starting_bid, inventory_status, held_by, held_until')
+      .select('id, lot_number, name, description, category, condition, height, width, depth, dimension_unit, starting_bid, sold_price, inventory_status, held_by, held_until')
       .eq('sale_id', saleId)
       .order('lot_number', { ascending: true });
     const rows = (data as LotRow[] | null) || [];
@@ -109,12 +118,44 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     return true;
   };
 
-  // Scan an item's QR (lot tag) → show who currently holds it.
+  // Open the full detail card for a lot: photo + data + status + customer.
+  const openDetail = async (lot: LotRow) => {
+    setSelectedLot(lot);
+    setLotPhotoUrl(null);
+    setLotBuyer(null);
+
+    const { data: photos } = await supabase
+      .from('photos')
+      .select('file_path, is_primary')
+      .eq('lot_id', lot.id)
+      .order('is_primary', { ascending: false })
+      .limit(1);
+    const fp = (photos as { file_path: string }[] | null)?.[0]?.file_path;
+    if (fp) setLotPhotoUrl(supabase.storage.from('photos').getPublicUrl(fp).data.publicUrl);
+
+    if (lot.inventory_status === 'sold') {
+      const { data: items } = await supabase
+        .from('sales_transaction_items')
+        .select('transaction_id')
+        .eq('lot_id', lot.id)
+        .limit(1);
+      const txnId = (items as { transaction_id: string }[] | null)?.[0]?.transaction_id;
+      if (txnId) {
+        const { data: txn } = await supabase
+          .from('sales_transactions')
+          .select('buyer_name')
+          .eq('id', txnId)
+          .maybeSingle();
+        setLotBuyer((txn as { buyer_name?: string } | null)?.buyer_name || 'Buyer (name not recorded)');
+      }
+    }
+  };
+
+  // Scan an item's QR (lot tag) → open its detail card.
   const handleScanItem = (scanned: ScannedLot) => {
     setShowItemScanner(false);
-    const lot = lots.find((l) => l.id === scanned.lotId) || null;
-    setScannedLot(lot);
-    if (lot) setItemSearch(String(lot.lot_number ?? ''));
+    const lot = lots.find((l) => l.id === scanned.lotId);
+    if (lot) openDetail(lot);
   };
 
   const now = Date.now();
@@ -143,16 +184,29 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
       .slice(0, 40);
   }, [lots, addSearch, selected]);
 
-  const filteredHeld = useMemo(() => {
+  // Item lookup: with a query, search ALL lots (any status); with no query,
+  // default to an overview of what's currently held.
+  const itemResults = useMemo(() => {
     const q = itemSearch.trim().toLowerCase();
     if (!q) return heldItems;
-    return heldItems.filter(
+    return lots.filter(
       (l) =>
         l.name?.toLowerCase().includes(q) ||
         l.description?.toLowerCase().includes(q) ||
         String(l.lot_number ?? '').includes(q),
     );
-  }, [heldItems, itemSearch]);
+  }, [lots, heldItems, itemSearch]);
+
+  const dimensions = (l: LotRow) => {
+    const parts = [l.height, l.width, l.depth].filter((d) => d != null).map(String);
+    return parts.length ? `${parts.join(' × ')}${l.dimension_unit ? ` ${l.dimension_unit}` : ''}` : null;
+  };
+  const statusOf = (l: LotRow) => (isHeld(l) ? 'held' : l.inventory_status === 'sold' ? 'sold' : 'available');
+  const STATUS_BADGE: Record<string, string> = {
+    available: 'bg-green-100 text-green-800',
+    held: 'bg-amber-100 text-amber-800',
+    sold: 'bg-gray-200 text-gray-700',
+  };
 
   const staffHold = async (lotId: string, shopperId: string) => {
     setBusy(true);
@@ -195,7 +249,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
               tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-600'
             }`}
           >
-            {t === 'shoppers' ? 'Shopper Baskets' : "Who's Holding What"}
+            {t === 'shoppers' ? 'Shopper Baskets' : 'Item Lookup'}
           </button>
         ))}
       </div>
@@ -316,60 +370,116 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
           </div>
         ) : (
           <div className="max-w-2xl mx-auto">
-            <div className="flex gap-2 mb-3">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  value={itemSearch}
-                  onChange={(e) => setItemSearch(e.target.value)}
-                  placeholder="Lot #, title, or description (e.g. sofa)…"
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-                />
-              </div>
-              <button
-                onClick={() => { setScannedLot(null); setShowItemScanner(true); }}
-                className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                <ScanLine className="w-4 h-4" /> Scan
-              </button>
-            </div>
-
-            {scannedLot && (
-              <div className="mb-3 p-3 rounded-md border border-indigo-200 bg-indigo-50">
-                <p className="text-sm font-medium text-gray-800">
-                  #{scannedLot.lot_number ?? '—'} {scannedLot.name}
-                </p>
-                <p className="text-xs text-gray-600 mt-0.5">
-                  {isHeld(scannedLot)
-                    ? `Held by ${holderLabel(scannedLot)}`
-                    : scannedLot.inventory_status === 'sold'
-                      ? 'Sold'
-                      : 'Available — not in anyone’s basket'}
-                </p>
-                <button
-                  onClick={() => { setScannedLot(null); setItemSearch(''); }}
-                  className="text-xs text-indigo-600 mt-1 hover:underline"
-                >
-                  Clear
+            {selectedLot ? (
+              <div>
+                <button onClick={() => setSelectedLot(null)} className="text-sm text-indigo-600 hover:underline mb-3">
+                  ← Back to results
                 </button>
-              </div>
-            )}
-            {filteredHeld.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No items are currently held.</p>
-            ) : (
-              <ul className="divide-y divide-gray-100 border border-gray-200 rounded-md bg-white">
-                {filteredHeld.map((l) => (
-                  <li key={l.id} className="flex items-center justify-between px-3 py-2.5">
-                    <div className="min-w-0">
-                      <p className="text-sm text-gray-800 truncate">#{l.lot_number ?? '—'} {l.name}</p>
-                      <p className="text-xs text-gray-500 truncate">Held by {holderLabel(l)}</p>
+                <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                  {lotPhotoUrl && (
+                    <img src={lotPhotoUrl} alt={selectedLot.name} className="w-full max-h-72 object-cover" />
+                  )}
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-indigo-700">#{selectedLot.lot_number ?? '—'}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[statusOf(selectedLot)]}`}>
+                        {statusOf(selectedLot) === 'held' ? 'Held' : statusOf(selectedLot) === 'sold' ? 'Sold' : 'Available'}
+                      </span>
                     </div>
-                    <button onClick={() => staffRelease(l.id)} disabled={busy} className="text-xs text-gray-400 hover:text-red-600 whitespace-nowrap">
-                      Release
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                    <h3 className="text-lg font-bold text-gray-900">{selectedLot.name}</h3>
+
+                    {statusOf(selectedLot) === 'held' && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-900">
+                        <span className="font-medium">Held by:</span> {holderLabel(selectedLot)}
+                      </div>
+                    )}
+                    {statusOf(selectedLot) === 'sold' && (
+                      <div className="p-2.5 bg-gray-100 border border-gray-200 rounded-md text-sm text-gray-800">
+                        <span className="font-medium">Bought by:</span> {lotBuyer ?? '…'}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-gray-500">Price</p>
+                        <p className="text-gray-900">{money(selectedLot.sold_price ?? selectedLot.starting_bid)}</p>
+                      </div>
+                      {selectedLot.category && (
+                        <div><p className="text-xs text-gray-500">Category</p><p className="text-gray-900">{selectedLot.category}</p></div>
+                      )}
+                      {selectedLot.condition && (
+                        <div><p className="text-xs text-gray-500">Condition</p><p className="text-gray-900">{selectedLot.condition}</p></div>
+                      )}
+                      {dimensions(selectedLot) && (
+                        <div><p className="text-xs text-gray-500">Dimensions</p><p className="text-gray-900">{dimensions(selectedLot)}</p></div>
+                      )}
+                    </div>
+
+                    {selectedLot.description && (
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Description</p>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedLot.description}</p>
+                      </div>
+                    )}
+
+                    {statusOf(selectedLot) === 'held' && (
+                      <button
+                        onClick={() => { staffRelease(selectedLot.id); setSelectedLot(null); }}
+                        disabled={busy}
+                        className="text-xs text-gray-400 hover:text-red-600"
+                      >
+                        Release hold
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-2 mb-3">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      value={itemSearch}
+                      onChange={(e) => setItemSearch(e.target.value)}
+                      placeholder="Lot #, title, or description (e.g. sofa)…"
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setShowItemScanner(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <ScanLine className="w-4 h-4" /> Scan
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 mb-2">
+                  {itemSearch
+                    ? 'Tap an item for full details.'
+                    : 'Showing items currently held. Search or scan any item for full details.'}
+                </p>
+                {itemResults.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-6">
+                    {itemSearch ? 'No items match.' : 'No items are currently held.'}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-gray-100 border border-gray-200 rounded-md bg-white">
+                    {itemResults.map((l) => (
+                      <li key={l.id}>
+                        <button onClick={() => openDetail(l)} className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50">
+                          <div className="min-w-0">
+                            <p className="text-sm text-gray-800 truncate">#{l.lot_number ?? '—'} {l.name}</p>
+                            {isHeld(l) && <p className="text-xs text-gray-500 truncate">Held by {holderLabel(l)}</p>}
+                          </div>
+                          <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[statusOf(l)]}`}>
+                            {statusOf(l) === 'held' ? 'Held' : statusOf(l) === 'sold' ? 'Sold' : 'Available'}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
           </div>
         )}
