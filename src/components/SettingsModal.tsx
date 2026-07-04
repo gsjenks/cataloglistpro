@@ -50,6 +50,23 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
   const [sendingInvite, setSendingInvite] = useState(false);
+  const [myRole, setMyRole] = useState<string | null>(null);
+
+  // Determine the current user's role in the current company (for gating admin
+  // actions like invites, edit, and delete).
+  useEffect(() => {
+    if (!isOpen || !currentCompany || !user) {
+      setMyRole(null);
+      return;
+    }
+    supabase
+      .from('user_companies')
+      .select('role')
+      .eq('company_id', currentCompany.id)
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => setMyRole((data as { role?: string } | null)?.role ?? null));
+  }, [isOpen, currentCompany, user]);
 
   const loadInvites = useCallback(async () => {
     if (!currentCompany) return;
@@ -66,6 +83,10 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   }, [isOpen, activeTab, currentCompany, loadInvites]);
 
   if (!isOpen) return null;
+
+  // Role-based permissions for the current company.
+  const isOwner = currentCompany?.user_id === user?.id || myRole === 'owner';
+  const isAdmin = isOwner || myRole === 'admin';
 
   const handleRefresh = async () => {
     if (!currentCompany) {
@@ -597,20 +618,22 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       <span className="px-2 py-1 text-xs font-medium text-indigo-700 bg-indigo-100 rounded">
                         Active
                       </span>
-                      <button
-                        onClick={handleEditClick}
-                        className="p-2 text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors"
-                        title="Edit company"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
+                      {isAdmin && (
+                        <button
+                          onClick={handleEditClick}
+                          className="p-2 text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors"
+                          title="Edit company"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Danger zone — delete the whole business */}
-              {currentCompany && !isEditing && !isCreating && (
+              {/* Danger zone — delete the whole business (owner only) */}
+              {currentCompany && !isEditing && !isCreating && isOwner && (
                 <div className="mt-4 border border-red-200 rounded-lg p-4 bg-red-50">
                   <h4 className="text-sm font-semibold text-red-800 mb-1">Danger zone</h4>
                   <p className="text-xs text-red-700 mb-3">
@@ -791,35 +814,38 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <div className="max-w-lg">
               <h3 className="text-lg font-semibold text-gray-900 mb-1">Team Management</h3>
               <p className="text-sm text-gray-600 mb-4">
-                Invite people by email. We'll email them an invitation, and they're added to{' '}
-                <strong>{currentCompany?.name}</strong> the first time they sign in with that email.
+                {isAdmin
+                  ? <>Invite people by email. We'll email them an invitation, and they're added to <strong>{currentCompany?.name}</strong> the first time they sign in with that email.</>
+                  : 'Your team. Only owners and admins can invite or manage members.'}
               </p>
 
-              {/* Invite form */}
-              <div className="flex gap-2 mb-5">
-                <input
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="teammate@example.com"
-                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <select
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <button
-                  onClick={handleSendInvite}
-                  disabled={sendingInvite}
-                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-400"
-                >
-                  {sendingInvite ? '…' : 'Invite'}
-                </button>
-              </div>
+              {/* Invite form (owner/admin only) */}
+              {isAdmin && (
+                <div className="flex gap-2 mb-5">
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="teammate@example.com"
+                    className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <button
+                    onClick={handleSendInvite}
+                    disabled={sendingInvite}
+                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-400"
+                  >
+                    {sendingInvite ? '…' : 'Invite'}
+                  </button>
+                </div>
+              )}
 
               {/* Members & invites */}
               {invites.length === 0 ? (
@@ -842,7 +868,7 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         >
                           {inv.status === 'accepted' ? 'Joined' : 'Pending'}
                         </span>
-                        {inv.status === 'accepted' && (
+                        {isAdmin && inv.status === 'accepted' && (
                           <button
                             onClick={() => handleResetPassword(inv.email)}
                             className="text-xs text-indigo-600 hover:underline whitespace-nowrap"
@@ -851,13 +877,15 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                             Reset password
                           </button>
                         )}
-                        <button
-                          onClick={() => handleCancelInvite(inv)}
-                          className="text-xs text-gray-400 hover:text-red-600"
-                          title={inv.status === 'accepted' ? 'Remove member & revoke access' : 'Cancel invite'}
-                        >
-                          Remove
-                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleCancelInvite(inv)}
+                            className="text-xs text-gray-400 hover:text-red-600"
+                            title={inv.status === 'accepted' ? 'Remove member & revoke access' : 'Cancel invite'}
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
                     </li>
                   ))}
