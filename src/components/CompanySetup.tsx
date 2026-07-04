@@ -7,7 +7,7 @@ import { useApp } from '../context/AppContext';
 import { Building2, ArrowRight } from 'lucide-react';
 
 export default function CompanySetup() {
-  const { user, refreshCompanies } = useApp();
+  const { user, refreshCompanies, signOut } = useApp();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -241,7 +241,15 @@ export default function CompanySetup() {
           </form>
 
           <p className="text-center text-xs text-gray-500 mt-6">
-            Signed in as: <strong>{user?.email}</strong>
+            Signed in as <strong>{user?.email}</strong>
+            {' · '}
+            <button
+              type="button"
+              onClick={() => signOut()}
+              className="text-indigo-600 font-medium hover:underline"
+            >
+              Sign out
+            </button>
           </p>
         </div>
       </div>
