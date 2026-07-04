@@ -56,6 +56,11 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [addSearch, setAddSearch] = useState('');
   const [itemSearch, setItemSearch] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showNewShopper, setShowNewShopper] = useState(false);
+  const [newShopper, setNewShopper] = useState({ name: '', phone: '', email: '' });
+  const [showNewItem, setShowNewItem] = useState(false);
+  const [newItem, setNewItem] = useState({ name: '', price: '' });
+  const [newItemPhoto, setNewItemPhoto] = useState<File | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [showItemScanner, setShowItemScanner] = useState(false);
@@ -241,6 +246,84 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     await load(); setBusy(false); onChanged?.();
   };
 
+  const inputCls =
+    'w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600';
+
+  // Quick-register a walk-up shopper (no verification) so staff can start a
+  // hold-table basket for them.
+  const createShopper = async () => {
+    const name = newShopper.name.trim();
+    const email = newShopper.email.trim();
+    const phone = newShopper.phone.trim();
+    if (!name) return alert('Enter a name.');
+    if (!email && !phone) return alert('Enter a phone or email.');
+    setBusy(true);
+    const { data, error } = await supabase
+      .from('shoppers')
+      .insert({ company_id: companyId, name, email: email || null, phone: phone || null })
+      .select('id, name, email, phone')
+      .single();
+    setBusy(false);
+    if (error || !data) return alert('Failed to create shopper: ' + (error?.message ?? ''));
+    setSelected(data as Shopper);
+    setShowNewShopper(false);
+    setNewShopper({ name: '', phone: '', email: '' });
+    setShopperResults([]);
+    setShopperQuery('');
+  };
+
+  // Quick-add an item (name + price, optional photo) → creates the lot and holds
+  // it to the selected shopper's basket. For unpriced / uncatalogued small items.
+  const createItem = async () => {
+    if (!selected) return;
+    const name = newItem.name.trim();
+    if (!name) return alert('Enter an item name.');
+    const price = Number(newItem.price);
+    setBusy(true);
+    const { data: lot, error } = await supabase
+      .from('lots')
+      .insert({
+        sale_id: saleId,
+        name,
+        starting_bid: isNaN(price) ? 0 : price,
+        inventory_status: 'held',
+        held_by: selected.id,
+        held_until: new Date(Date.now() + HOLD_MS).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+    if (error || !lot) {
+      setBusy(false);
+      return alert('Failed to add item: ' + (error?.message ?? ''));
+    }
+    if (newItemPhoto) {
+      try {
+        const ext = (newItemPhoto.name.split('.').pop() || 'jpg').toLowerCase();
+        const pid =
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now());
+        const path = `${lot.id}/${pid}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from('photos')
+          .upload(path, newItemPhoto, { upsert: true, contentType: newItemPhoto.type });
+        if (!upErr) {
+          await supabase.from('photos').insert({
+            lot_id: lot.id, file_path: path, file_name: newItemPhoto.name, is_primary: true,
+            created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+          });
+        }
+      } catch {
+        /* photo is optional */
+      }
+    }
+    setBusy(false);
+    setNewItem({ name: '', price: '' });
+    setNewItemPhoto(null);
+    setShowNewItem(false);
+    await load();
+    onChanged?.();
+  };
+
   const holderLabel = (l: LotRow) => {
     const s = l.held_by ? shopperMap[l.held_by] : undefined;
     if (!s) return 'Unknown';
@@ -312,6 +395,32 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                 {shopperQuery && shopperResults.length === 0 && (
                   <p className="text-sm text-gray-400 text-center py-4">No shoppers match.</p>
                 )}
+
+                <div className="mt-4 border-t border-gray-100 pt-3">
+                  {!showNewShopper ? (
+                    <button onClick={() => setShowNewShopper(true)} className="text-sm text-indigo-600 hover:underline">
+                      + New shopper (walk-up / hold table)
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-gray-700">New shopper</p>
+                      <input value={newShopper.name} onChange={(e) => setNewShopper({ ...newShopper, name: e.target.value })} placeholder="Name" className={inputCls} />
+                      <div className="flex gap-2">
+                        <input value={newShopper.phone} onChange={(e) => setNewShopper({ ...newShopper, phone: e.target.value })} placeholder="Phone" className={inputCls} />
+                        <input value={newShopper.email} onChange={(e) => setNewShopper({ ...newShopper, email: e.target.value })} placeholder="Email" className={inputCls} />
+                      </div>
+                      <p className="text-xs text-gray-400">Name required; phone or email required.</p>
+                      <div className="flex gap-2">
+                        <button onClick={createShopper} disabled={busy} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300">
+                          Create &amp; open basket
+                        </button>
+                        <button onClick={() => setShowNewShopper(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
               <>
@@ -382,6 +491,32 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                     {addable.length === 0 && <li className="px-3 py-2 text-sm text-gray-400">No matching items.</li>}
                   </ul>
                 )}
+
+                <div className="mt-3 border-t border-gray-100 pt-3">
+                  {!showNewItem ? (
+                    <button onClick={() => setShowNewItem(true)} className="text-sm text-indigo-600 hover:underline">
+                      + New item (unpriced / miscellaneous)
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-gray-700">New item — priced on the spot</p>
+                      <input value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} placeholder="Item name (e.g. box of glasses)" className={inputCls} />
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                        <input value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} type="number" inputMode="decimal" placeholder="Price" className="w-full pl-6 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600" />
+                      </div>
+                      <input type="file" accept="image/*" onChange={(e) => setNewItemPhoto(e.target.files?.[0] ?? null)} className="text-sm text-gray-600" />
+                      <div className="flex gap-2">
+                        <button onClick={createItem} disabled={busy} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300">
+                          Add to basket
+                        </button>
+                        <button onClick={() => { setShowNewItem(false); setNewItemPhoto(null); }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
