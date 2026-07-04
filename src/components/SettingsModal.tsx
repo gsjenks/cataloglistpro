@@ -44,7 +44,9 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     units: 'imperial',
     logo_url: ''
   });
-  const [invites, setInvites] = useState<{ id: string; email: string; role: string; status: string }[]>([]);
+  const [invites, setInvites] = useState<
+    { id: string; email: string; role: string; status: string; accepted_by: string | null }[]
+  >([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
   const [sendingInvite, setSendingInvite] = useState(false);
@@ -53,7 +55,7 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     if (!currentCompany) return;
     const { data } = await supabase
       .from('company_invites')
-      .select('id, email, role, status')
+      .select('id, email, role, status, accepted_by')
       .eq('company_id', currentCompany.id)
       .order('created_at', { ascending: true });
     setInvites(data || []);
@@ -261,13 +263,26 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   };
 
-  const handleCancelInvite = async (id: string) => {
+  const handleCancelInvite = async (inv: { id: string; status: string; accepted_by: string | null }) => {
+    if (!currentCompany) return;
+    if (inv.status === 'accepted' && !window.confirm('Remove this member and revoke their access to this company?')) {
+      return;
+    }
     try {
-      const { error } = await supabase.from('company_invites').delete().eq('id', id);
+      // Joined member → revoke their company membership (SECURITY DEFINER RPC).
+      if (inv.status === 'accepted' && inv.accepted_by) {
+        const { error: rmError } = await supabase.rpc('remove_company_member', {
+          p_company_id: currentCompany.id,
+          p_user_id: inv.accepted_by,
+        });
+        if (rmError) throw rmError;
+      }
+      // Remove the invite record.
+      const { error } = await supabase.from('company_invites').delete().eq('id', inv.id);
       if (error) throw error;
       await loadInvites();
     } catch (error: unknown) {
-      console.error('Error removing invite:', error);
+      console.error('Error removing member:', error);
       alert('Failed to remove: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
@@ -761,9 +776,9 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           {inv.status === 'accepted' ? 'Joined' : 'Pending'}
                         </span>
                         <button
-                          onClick={() => handleCancelInvite(inv.id)}
+                          onClick={() => handleCancelInvite(inv)}
                           className="text-xs text-gray-400 hover:text-red-600"
-                          title={inv.status === 'accepted' ? 'Remove invite record' : 'Cancel invite'}
+                          title={inv.status === 'accepted' ? 'Remove member & revoke access' : 'Cancel invite'}
                         >
                           Remove
                         </button>
