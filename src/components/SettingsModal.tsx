@@ -263,6 +263,20 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   };
 
+  const handleResetPassword = async (email: string) => {
+    if (!window.confirm(`Send a password reset email to ${email}?`)) return;
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      alert(`Password reset email sent to ${email}.`);
+    } catch (error: unknown) {
+      console.error('Error sending reset email:', error);
+      alert('Failed to send reset email: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
+  };
+
   const handleCancelInvite = async (inv: { id: string; status: string; accepted_by: string | null }) => {
     if (!currentCompany) return;
     if (inv.status === 'accepted' && !window.confirm('Remove this member and revoke their access to this company?')) {
@@ -828,6 +842,15 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         >
                           {inv.status === 'accepted' ? 'Joined' : 'Pending'}
                         </span>
+                        {inv.status === 'accepted' && (
+                          <button
+                            onClick={() => handleResetPassword(inv.email)}
+                            className="text-xs text-indigo-600 hover:underline whitespace-nowrap"
+                            title="Send this member a password reset email"
+                          >
+                            Reset password
+                          </button>
+                        )}
                         <button
                           onClick={() => handleCancelInvite(inv)}
                           className="text-xs text-gray-400 hover:text-red-600"
