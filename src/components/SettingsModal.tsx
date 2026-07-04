@@ -310,6 +310,10 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       const { error } = await supabase.rpc('delete_company', { p_company_id: currentCompany.id });
       if (error) throw error;
       alert(`"${name}" was deleted.`);
+      // Clear the deleted company's saved id + stale cache so the reload picks a
+      // remaining company (instead of getting stranded on "create a company").
+      localStorage.removeItem('currentCompanyId');
+      localStorage.removeItem('cachedCompanies');
       window.location.reload();
     } catch (error: unknown) {
       console.error('Error deleting company:', error);
