@@ -287,6 +287,37 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
   };
 
+  const handleDeleteCompany = async () => {
+    if (!currentCompany) return;
+    const name = currentCompany.name;
+    // First confirmation — clear warning that it's irreversible.
+    if (
+      !window.confirm(
+        `⚠️ Permanently delete "${name}"?\n\nThis deletes ALL of its sales, items, photos, contacts, and documents.\n\nThis CANNOT be undone.`,
+      )
+    ) {
+      return;
+    }
+    // Second confirmation — type the exact business name.
+    const typed = window.prompt(`To confirm, type the business name exactly:\n\n${name}`);
+    if (typed === null) return;
+    if (typed.trim() !== name) {
+      alert('The name did not match — deletion cancelled.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const { error } = await supabase.rpc('delete_company', { p_company_id: currentCompany.id });
+      if (error) throw error;
+      alert(`"${name}" was deleted.`);
+      window.location.reload();
+    } catch (error: unknown) {
+      console.error('Error deleting company:', error);
+      alert('Failed to delete business: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      setIsSaving(false);
+    }
+  };
+
   const handleStartCreate = () => {
     setFormData({ name: '', address: '', phone: '', currency: 'USD', units: 'imperial', logo_url: '' });
     setIsEditing(false);
@@ -557,6 +588,24 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       </button>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Danger zone — delete the whole business */}
+              {currentCompany && !isEditing && !isCreating && (
+                <div className="mt-4 border border-red-200 rounded-lg p-4 bg-red-50">
+                  <h4 className="text-sm font-semibold text-red-800 mb-1">Danger zone</h4>
+                  <p className="text-xs text-red-700 mb-3">
+                    Permanently delete this business and <strong>all</strong> of its sales, items, photos,
+                    contacts, and documents. This cannot be undone.
+                  </p>
+                  <button
+                    onClick={handleDeleteCompany}
+                    disabled={isSaving}
+                    className="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 disabled:bg-gray-300"
+                  >
+                    Delete Business
+                  </button>
                 </div>
               )}
 
