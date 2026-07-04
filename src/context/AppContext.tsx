@@ -487,30 +487,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     console.log('[AUTH] Signing out...');
-    
+
+    // Try a local-scope sign out, but never let a stuck auth lock / slow network
+    // block the logout — guard it with a timeout.
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
-      setUser(null);
-      setCurrentCompanyState(null);
-      setCompanies([]);
-      setIsPasswordRecovery(false);
-      companiesLoadedRef.current = false;
-      localStorage.removeItem('currentCompanyId');
-      localStorage.removeItem('cachedCompanies');
-      console.log('[OK] Signed out successfully');
+      await withTimeout(
+        supabase.auth.signOut({ scope: 'local' }),
+        3000,
+        'signOut timeout',
+      );
     } catch (error) {
-      console.error('❌ Failed to sign out:', error);
-      setUser(null);
-      setCurrentCompanyState(null);
-      setCompanies([]);
-      setIsPasswordRecovery(false);
-      companiesLoadedRef.current = false;
-      localStorage.removeItem('currentCompanyId');
-      localStorage.removeItem('cachedCompanies');
-      throw error;
+      console.warn('signOut() slow/failed — forcing local logout:', error);
     }
+
+    // Force logout regardless: drop the persisted auth token so the session
+    // can't come back on reload, then clear app state.
+    try {
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith('sb-') && k.includes('auth-token')) localStorage.removeItem(k);
+      });
+    } catch {
+      /* ignore storage errors */
+    }
+    setUser(null);
+    setCurrentCompanyState(null);
+    setCompanies([]);
+    setIsPasswordRecovery(false);
+    companiesLoadedRef.current = false;
+    localStorage.removeItem('currentCompanyId');
+    localStorage.removeItem('cachedCompanies');
+    console.log('[OK] Signed out');
   };
 
   useEffect(() => {
