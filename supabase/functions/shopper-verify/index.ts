@@ -19,6 +19,13 @@ const RESEND_FROM = Deno.env.get("RESEND_FROM") ?? "onboarding@resend.dev";
 const TWILIO_SID = Deno.env.get("TWILIO_ACCOUNT_SID") ?? "";
 const TWILIO_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN") ?? "";
 const TWILIO_FROM = Deno.env.get("TWILIO_FROM") ?? "";
+// Twilio Verify service (VAxxxx…). When set, SMS codes go through Verify, which
+// runs on Twilio's own registered senders — no A2P 10DLC registration needed.
+const TWILIO_VERIFY_SID = Deno.env.get("TWILIO_VERIFY_SERVICE_SID") ?? "";
+
+// Marker stored in shopper_verifications.code_hash for Verify-managed rows —
+// Twilio owns the code, so we don't hash/store one ourselves.
+const VERIFY_MARKER = "twilio-verify";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -126,6 +133,53 @@ async function sendSms(to: string, code: string): Promise<SendResult> {
   return { ok: true, detail: `twilio sid=${sid} status=${status}` };
 }
 
+// Twilio Verify: start a verification (Twilio generates + sends the code).
+async function verifyStart(to: string): Promise<SendResult> {
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_VERIFY_SID) {
+    return { ok: false, detail: "twilio verify not configured" };
+  }
+  const res = await fetch(
+    `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/Verifications`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ To: to, Channel: "sms" }).toString(),
+    },
+  );
+  const text = await res.text().catch(() => "");
+  if (!res.ok) return { ok: false, detail: `verify start ${res.status}: ${text.slice(0, 300)}` };
+  let status = "";
+  try {
+    status = JSON.parse(text).status ?? "";
+  } catch { /* ignore */ }
+  return { ok: true, detail: `verify status=${status}` };
+}
+
+// Twilio Verify: check a code the shopper entered. Returns true iff approved.
+async function verifyCheck(to: string, code: string): Promise<boolean> {
+  if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_VERIFY_SID) return false;
+  const res = await fetch(
+    `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/VerificationCheck`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ To: to, Code: code }).toString(),
+    },
+  );
+  if (!res.ok) return false;
+  try {
+    return (await res.json()).status === "approved";
+  } catch {
+    return false;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   try {
@@ -174,23 +228,34 @@ serve(async (req) => {
         shopperId = created.id;
       }
 
-      const code = genCode();
+      // SMS via Twilio Verify (Twilio generates + owns the code) when a Verify
+      // service is configured — this bypasses A2P 10DLC registration. Email (and
+      // SMS fallback if Verify isn't set up) uses our own generated code.
+      const useVerify = channel === "sms" && !!TWILIO_VERIFY_SID;
+
+      const code = useVerify ? "" : genCode();
       await supabase.from("shopper_verifications").insert({
         shopper_id: shopperId,
         channel,
         destination,
-        code_hash: await sha256(code),
+        code_hash: useVerify ? VERIFY_MARKER : await sha256(code),
         expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       });
 
-      const result = channel === "sms" ? await sendSms(destination, code) : await sendEmail(destination, code);
-      // Test mode: return the code (and the provider error) when sending fails.
+      const result = useVerify
+        ? await verifyStart(destination)
+        : channel === "sms"
+          ? await sendSms(destination, code)
+          : await sendEmail(destination, code);
+
+      // Test mode: return our code as a fallback when a self-managed send fails.
+      // (Verify owns its code, so there is nothing to fall back to for Verify.)
       // Always return `debug` (provider SID/status) so delivery can be traced.
       return json({
         shopperId,
         channel,
         sent: result.ok,
-        testCode: result.ok ? undefined : code,
+        testCode: result.ok || useVerify ? undefined : code,
         debug: result.detail,
       });
     }
@@ -209,7 +274,15 @@ serve(async (req) => {
       if (!v) return json({ success: false, error: "no_code" });
       if (new Date(v.expires_at).getTime() < Date.now()) return json({ success: false, error: "expired" });
       if (v.attempts >= 5) return json({ success: false, error: "too_many_attempts" });
-      if ((await sha256(String(code))) !== v.code_hash) {
+
+      // Verify-managed (SMS) rows are checked against Twilio; everyone else is
+      // checked against our stored hash.
+      if (v.code_hash === VERIFY_MARKER) {
+        if (!(await verifyCheck(v.destination, String(code)))) {
+          await supabase.from("shopper_verifications").update({ attempts: v.attempts + 1 }).eq("id", v.id);
+          return json({ success: false, error: "invalid_code" });
+        }
+      } else if ((await sha256(String(code))) !== v.code_hash) {
         await supabase.from("shopper_verifications").update({ attempts: v.attempts + 1 }).eq("id", v.id);
         return json({ success: false, error: "invalid_code" });
       }

@@ -20,7 +20,7 @@ export default function ShopperRegistration({ saleId, onVerified, onClose }: Pro
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [channel, setChannel] = useState<Channel>('email');
+  const [channel, setChannel] = useState<Channel>('sms');
   const [shopperId, setShopperId] = useState('');
   const [code, setCode] = useState('');
   const [testCode, setTestCode] = useState<string | null>(null);
