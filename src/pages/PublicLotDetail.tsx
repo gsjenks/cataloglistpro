@@ -232,8 +232,8 @@ export default function PublicLotDetail() {
     }
   };
 
-  const handleVerified = async (id: string, nm: string) => {
-    register(id, nm);
+  const handleVerified = async (id: string, nm: string, em?: string, ph?: string) => {
+    register(id, nm, em, ph);
     setShowReg(false);
     const toAdd = pendingAddLotId;
     setPendingAddLotId(null);

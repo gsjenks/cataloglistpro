@@ -17,8 +17,11 @@ export default function PublicBasket() {
   const { saleId } = useParams<{ saleId: string }>();
   const [searchParams] = useSearchParams();
   const bParam = searchParams.get('b') || undefined;
-  const { shopperId } = useShopper();
+  const { shopperId, name, email, phone } = useShopper();
   const basketId = bParam ?? shopperId ?? undefined;
+  // We only hold this shopper's own contact info (in localStorage), so only show
+  // the name/phone/email header when viewing your own basket — not a shared ?b= link.
+  const isOwnBasket = !!shopperId && (!bParam || bParam === shopperId);
   const basket = useServerBasket(saleId, basketId);
   const [saleName, setSaleName] = useState('');
 
@@ -42,9 +45,18 @@ export default function PublicBasket() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-2">
-          <ShoppingBasket className="w-5 h-5 text-indigo-600" />
-          <h1 className="text-lg font-bold text-gray-900">Your Basket</h1>
+        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
+          <ShoppingBasket className="w-5 h-5 text-indigo-600 shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold text-gray-900 leading-tight">
+              {isOwnBasket && name ? `${name}'s Basket` : 'Your Basket'}
+            </h1>
+            {isOwnBasket && (phone || email) && (
+              <p className="text-xs text-gray-500 truncate">
+                {[phone, email].filter(Boolean).join(' · ')}
+              </p>
+            )}
+          </div>
         </div>
       </div>
 

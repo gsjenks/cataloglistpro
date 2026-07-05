@@ -9,7 +9,7 @@ import { supabasePublic } from '../lib/publicClient';
 
 interface Props {
   saleId: string;
-  onVerified: (shopperId: string, name: string) => void;
+  onVerified: (shopperId: string, name: string, email?: string, phone?: string) => void;
   onClose: () => void;
 }
 
@@ -75,7 +75,12 @@ export default function ShopperRegistration({ saleId, onVerified, onClose }: Pro
       );
       return;
     }
-    onVerified(shopperId, data.shopper?.name ?? name.trim());
+    onVerified(
+      shopperId,
+      data.shopper?.name ?? name.trim(),
+      hasEmail ? email.trim() : undefined,
+      hasPhone ? phone.trim() : undefined,
+    );
   };
 
   const inputCls =
