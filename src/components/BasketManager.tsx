@@ -425,11 +425,23 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
             ) : (
               <>
                 <div className="flex items-center justify-between mb-3">
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-semibold text-gray-900">{selected.name}</p>
-                    <p className="text-xs text-gray-500">{selected.phone || selected.email}</p>
+                    {selected.phone && (
+                      <p className="text-xs text-gray-500 truncate">
+                        <a href={`tel:${selected.phone}`} className="hover:underline">{selected.phone}</a>
+                      </p>
+                    )}
+                    {selected.email && (
+                      <p className="text-xs text-gray-500 truncate">
+                        <a href={`mailto:${selected.email}`} className="hover:underline">{selected.email}</a>
+                      </p>
+                    )}
+                    {!selected.phone && !selected.email && (
+                      <p className="text-xs text-gray-400">No contact info</p>
+                    )}
                   </div>
-                  <button onClick={() => setSelected(null)} className="text-sm text-indigo-600 hover:underline">
+                  <button onClick={() => setSelected(null)} className="text-sm text-indigo-600 hover:underline shrink-0 ml-2">
                     Change
                   </button>
                 </div>
