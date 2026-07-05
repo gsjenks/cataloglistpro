@@ -105,7 +105,17 @@ export function useServerBasket(saleId?: string, basketId?: string) {
     async (lotId: string): Promise<HoldResult> => {
       if (!basketId) return { success: false, error: 'unknown' };
       const res = await holdLot(supabasePublic, lotId, basketId);
-      if (res.success) await load();
+      if (res.success) {
+        // Adding an item is proof the shopper is still shopping, so reset the
+        // hold timer on everything already in the basket too — otherwise an
+        // item added earlier could quietly expire while they keep browsing.
+        await Promise.all(
+          itemsRef.current
+            .filter((it) => it.lotId !== lotId)
+            .map((it) => holdLot(supabasePublic, it.lotId, basketId)),
+        );
+        await load();
+      }
       return res;
     },
     [basketId, load],
