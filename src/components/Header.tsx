@@ -2,6 +2,7 @@
 // MOBILE-FIRST: Header component with StatusBar safe zone and Settings modal trigger
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Settings, LogOut } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import SettingsModal from './SettingsModal';
@@ -27,7 +28,13 @@ function Header() {
         <div className="flex items-center justify-between">
           {/* Logo/Brand */}
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-indigo-600">CatalogListPro</h1>
+            <Link
+              to="/"
+              className="text-xl font-bold text-indigo-600 hover:text-indigo-700 transition-colors"
+              title="Go to home"
+            >
+              CatalogListPro
+            </Link>
             
             {/* Company Selector */}
             {currentCompany && companies.length > 0 && (
