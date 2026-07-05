@@ -81,9 +81,49 @@ async function sendSms(to: string, code: string): Promise<SendResult> {
     },
     body: body.toString(),
   });
-  if (res.ok) return { ok: true };
-  const detail = await res.text().catch(() => "");
-  return { ok: false, detail: `twilio ${res.status}: ${detail.slice(0, 300)}` };
+  const text = await res.text().catch(() => "");
+  if (!res.ok) return { ok: false, detail: `twilio ${res.status}: ${text.slice(0, 300)}` };
+
+  // Twilio accepted the request (HTTP 201) — but that does NOT mean it was
+  // delivered. Parse the message SID/status and poll once for the real outcome,
+  // so a downstream failure (e.g. 30032 unverified toll-free, 30007 carrier
+  // filtered) is surfaced instead of a false "sent".
+  let sid = "";
+  let status = "";
+  try {
+    const created = JSON.parse(text);
+    sid = created.sid ?? "";
+    status = created.status ?? "";
+    if (created.error_code) {
+      return { ok: false, detail: `twilio created status=${status} error_code=${created.error_code} ${created.error_message ?? ""}`.trim() };
+    }
+  } catch {
+    /* fall through — treat as accepted */
+  }
+
+  if (sid) {
+    // Give Twilio a moment, then read the message's final-ish status.
+    await new Promise((r) => setTimeout(r, 1500));
+    try {
+      const poll = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages/${sid}.json`,
+        { headers: { Authorization: "Basic " + btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`) } },
+      );
+      if (poll.ok) {
+        const m = await poll.json();
+        status = m.status ?? status;
+        if (m.error_code || status === "failed" || status === "undelivered") {
+          return {
+            ok: false,
+            detail: `twilio status=${status} error_code=${m.error_code ?? "?"} ${m.error_message ?? ""}`.trim(),
+          };
+        }
+      }
+    } catch {
+      /* polling is best-effort */
+    }
+  }
+  return { ok: true, detail: `twilio sid=${sid} status=${status}` };
 }
 
 serve(async (req) => {
@@ -145,12 +185,13 @@ serve(async (req) => {
 
       const result = channel === "sms" ? await sendSms(destination, code) : await sendEmail(destination, code);
       // Test mode: return the code (and the provider error) when sending fails.
+      // Always return `debug` (provider SID/status) so delivery can be traced.
       return json({
         shopperId,
         channel,
         sent: result.ok,
         testCode: result.ok ? undefined : code,
-        debug: result.ok ? undefined : result.detail,
+        debug: result.detail,
       });
     }
 
