@@ -18,6 +18,12 @@ interface LotRow {
   held_until: string | null;
 }
 
+// Renewing on every page view/focus would be wasteful, so throttle activity-
+// driven renewals to at most once per basket per window (module-level so it
+// survives page navigation, which remounts the hook).
+const RENEW_THROTTLE_MS = 2 * 60 * 1000;
+const lastRenewAt = new Map<string, number>();
+
 export function useServerBasket(saleId?: string, basketId?: string) {
   const [items, setItems] = useState<BasketItem[]>([]);
 
@@ -45,9 +51,38 @@ export function useServerBasket(saleId?: string, basketId?: string) {
     setItems(mapped);
   }, [saleId, basketId]);
 
+  // Any shopper activity (viewing a lot, opening the basket, returning to the
+  // app) means they're still shopping, so push every live hold back to a fresh
+  // 30 minutes. Fetches its own list so it works right after mount (before
+  // `items` state has settled) and never resurrects an already-expired hold.
+  const renewAll = useCallback(
+    async (force = false) => {
+      if (!saleId || !basketId) return;
+      const now = Date.now();
+      if (!force && now - (lastRenewAt.get(basketId) ?? 0) < RENEW_THROTTLE_MS) return;
+      lastRenewAt.set(basketId, now);
+      const { data } = await supabasePublic
+        .from('lots')
+        .select('id, held_until, inventory_status, held_by')
+        .eq('sale_id', saleId)
+        .eq('held_by', basketId)
+        .eq('inventory_status', 'held');
+      const live = ((data as { id: string; held_until: string | null }[] | null) || []).filter(
+        (l) => l.held_until && new Date(l.held_until).getTime() > Date.now(),
+      );
+      if (live.length) {
+        await Promise.all(live.map((l) => holdLot(supabasePublic, l.id, basketId)));
+        await load();
+      }
+    },
+    [saleId, basketId, load],
+  );
+
+  // On mount / when the basket becomes known: load, then renew (still shopping).
   useEffect(() => {
     load();
-  }, [load]);
+    renewAll();
+  }, [load, renewAll]);
 
   // Live: any lot change in this sale may affect this basket → reload.
   useEffect(() => {
@@ -71,35 +106,25 @@ export function useServerBasket(saleId?: string, basketId?: string) {
   useEffect(() => {
     if (!saleId || !basketId) return;
     const onVisible = () => {
-      if (document.visibilityState === 'visible') load();
+      if (document.visibilityState === 'visible') renewAll();
     };
+    const onFocus = () => renewAll();
     document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', load);
+    window.addEventListener('focus', onFocus);
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', load);
+      window.removeEventListener('focus', onFocus);
     };
-  }, [saleId, basketId, load]);
+  }, [saleId, basketId, renewAll]);
 
-  // Renew holds while a page using this basket is open (every 10 min).
+  // Keep holds alive while a page using this basket stays open (every 10 min).
   const itemsRef = useRef(items);
   itemsRef.current = items;
   useEffect(() => {
     if (!saleId || !basketId) return;
-    let cancelled = false;
-    const renew = async () => {
-      for (const it of itemsRef.current) {
-        await holdLot(supabasePublic, it.lotId, basketId);
-        if (cancelled) return;
-      }
-      if (!cancelled) load();
-    };
-    const t = setInterval(renew, 10 * 60 * 1000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, [saleId, basketId, load]);
+    const t = setInterval(() => renewAll(true), 10 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [saleId, basketId, renewAll]);
 
   const add = useCallback(
     async (lotId: string): Promise<HoldResult> => {
