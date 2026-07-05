@@ -36,6 +36,11 @@ function AppContent() {
   const isPasswordRecovery =
     "isPasswordRecovery" in context ? context.isPasswordRecovery : false;
 
+  // Whether the company load failed (vs. a genuinely empty account).
+  const loadError = "loadError" in context ? context.loadError : false;
+  const refreshCompanies =
+    "refreshCompanies" in context ? context.refreshCompanies : undefined;
+
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState({
     stage: "",
@@ -199,6 +204,29 @@ function AppContent() {
   // Show Auth component if no user OR in password recovery mode
   if (!user || isPasswordRecovery) {
     return <Auth />;
+  }
+
+  // A failed company load must not masquerade as an empty account — show a
+  // retry screen (with auto-retry running in the background) instead of the
+  // "create your first company" setup, which would be wrong for existing users.
+  if (!currentCompany && loadError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+        <div className="text-center max-w-sm">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Loading your companies…</h2>
+          <p className="text-sm text-gray-500 mb-5">
+            This is taking longer than usual. We're retrying automatically.
+          </p>
+          <button
+            onClick={() => refreshCompanies?.()}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
+          >
+            Retry now
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!currentCompany) {

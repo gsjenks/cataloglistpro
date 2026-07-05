@@ -17,6 +17,7 @@ interface RefreshProgress {
 interface AppContextType {
   user: User | null;
   loading: boolean;
+  loadError: boolean;
   currentCompany: Company | null;
   companies: Company[];
   setCurrentCompany: (company: Company) => void;
@@ -45,6 +46,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: st
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [currentCompany, setCurrentCompanyState] = useState<Company | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [companySwitched, setCompanySwitched] = useState(false);
@@ -58,6 +60,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   
   const loadingTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const companiesLoadedRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+  // A company load that fails (queries time out / error) must not look like an
+  // empty account — otherwise a valid user gets dumped to "create a company".
+  // Mark the failure, keep any current company, and retry with backoff.
+  const scheduleCompanyRetry = (userId: string) => {
+    setLoadError(true);
+    companiesLoadedRef.current = false;
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    if (retryCountRef.current >= 4) {
+      console.warn('[WARN] Company load still failing after retries — showing manual retry');
+      return;
+    }
+    const attempt = retryCountRef.current + 1;
+    retryCountRef.current = attempt;
+    const delay = Math.min(2000 * attempt, 8000);
+    console.log(`[RETRY] Retrying company load in ${delay}ms (attempt ${attempt})`);
+    retryTimeoutRef.current = setTimeout(() => {
+      loadCompanies(userId, true);
+    }, delay);
+  };
 
   const loadCompanies = async (userId: string, isInitialLoad: boolean = false) => {
     try {
@@ -85,7 +109,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               .eq('user_id', userId)
               .order('created_at', { ascending: false });
           })(),
-          5000,
+          12000,
           'Owned companies query timeout'
         ),
         
@@ -96,18 +120,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               .select('company_id, role, companies(*)')
               .eq('user_id', userId);
           })(),
-          5000,
+          12000,
           'User companies query timeout'
         )
       ]);
+
+      // Track whether each query actually completed (vs timed out / errored).
+      // A query that REST-succeeds with zero rows is a real "empty" answer; a
+      // query that failed is not — we must not treat failure as "no companies".
+      let ownedOk = false;
+      let linkedOk = false;
 
       let ownedCompanies: Company[] = [];
       if (ownedResult.status === 'fulfilled') {
         const { data, error } = ownedResult.value;
         if (error) {
           console.error('❌ Error loading owned companies:', error);
-        } else if (data) {
-          ownedCompanies = data;
+        } else {
+          ownedOk = true;
+          ownedCompanies = data ?? [];
           console.log('[OK] Owned companies:', ownedCompanies.length);
         }
       } else {
@@ -119,8 +150,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { data, error } = linkedResult.value;
         if (error) {
           console.error('❌ Error loading user_companies:', error);
-        } else if (data) {
-          data.forEach((uc: { companies?: Company | Company[] }) => {
+        } else {
+          linkedOk = true;
+          (data ?? []).forEach((uc: { companies?: Company | Company[] }) => {
             if (uc.companies && typeof uc.companies === 'object' && !Array.isArray(uc.companies)) {
               linkedCompanies.push(uc.companies as Company);
             }
@@ -132,8 +164,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (ownedCompanies.length === 0 && linkedCompanies.length === 0) {
-        console.warn('[WARN] Both queries failed or returned no data - checking cache');
-        
+        console.warn('[WARN] No companies returned - checking cache / query health');
+
         const cachedCompanies = localStorage.getItem('cachedCompanies');
         if (cachedCompanies) {
           try {
@@ -166,10 +198,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
         
-        console.error('❌ No companies loaded and no cache available');
-        setCompanies([]);
-        setCurrentCompanyState(null);
-        localStorage.removeItem('currentCompanyId');
+        // No cache. Decide: genuinely-empty account vs failed load.
+        if (ownedOk && linkedOk) {
+          // Both queries succeeded and returned zero → this account really has
+          // no companies. Show the setup screen.
+          console.log('[OK] Confirmed no companies for this account — showing setup');
+          setLoadError(false);
+          retryCountRef.current = 0;
+          setCompanies([]);
+          setCurrentCompanyState(null);
+          localStorage.removeItem('currentCompanyId');
+          companiesLoadedRef.current = true;
+        } else {
+          // A query failed (timeout/error) and we have no cache. Do NOT drop the
+          // user to "create a company" — keep state and retry.
+          console.error('❌ Company load failed (query error) and no cache — retrying, not showing setup');
+          scheduleCompanyRetry(userId);
+        }
         return;
       }
 
@@ -192,6 +237,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       
       setCompanies(companiesData);
       companiesLoadedRef.current = true;
+      setLoadError(false);
+      retryCountRef.current = 0;
 
       try {
         localStorage.setItem('cachedCompanies', JSON.stringify(companiesData));
@@ -252,10 +299,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.error('❌ Failed to use cached companies:', e);
         }
       }
-      
-      setCompanies([]);
-      setCurrentCompanyState(null);
-      localStorage.removeItem('currentCompanyId');
+
+      // Unexpected error and no cache to fall back on — this is a load failure,
+      // not an empty account. Keep any current company and retry.
+      console.error('❌ Company load threw and no cache — retrying, not showing setup');
+      scheduleCompanyRetry(userId);
     }
   };
 
@@ -269,6 +317,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const refreshCompanies = async () => {
     if (user) {
       console.log('[SYNC] Refreshing companies...');
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+      retryCountRef.current = 0;
+      setLoadError(false);
       companiesLoadedRef.current = false;
       await loadCompanies(user.id, true);
     }
@@ -637,9 +688,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       subscription.unsubscribe();
-      
+
       if (loadingTimeoutRef.current) {
         clearTimeout(loadingTimeoutRef.current);
+      }
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
       }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -659,6 +713,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         loading,
+        loadError,
         currentCompany,
         companies,
         setCurrentCompany,
