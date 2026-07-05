@@ -18,6 +18,7 @@ interface AppContextType {
   user: User | null;
   loading: boolean;
   loadError: boolean;
+  companiesResolved: boolean;
   currentCompany: Company | null;
   companies: Company[];
   setCurrentCompany: (company: Company) => void;
@@ -47,6 +48,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  // True once a company load has DEFINITIVELY resolved (found companies or
+  // confirmed the account is empty). Until then we must not show CompanySetup,
+  // because the load may still be in flight even though the global `loading`
+  // spinner (driven by the separate session check) has already turned off.
+  const [companiesResolved, setCompaniesResolved] = useState(false);
   const [currentCompany, setCurrentCompanyState] = useState<Company | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [companySwitched, setCompanySwitched] = useState(false);
@@ -93,9 +99,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Claim any pending team invites for this user's email before loading, so
-      // a newly-invited teammate is added to the company on login. Non-fatal.
+      // a newly-invited teammate is added to the company on login. Non-fatal,
+      // and time-boxed so a hung RPC can't stall the whole company load.
       try {
-        await supabase.rpc('claim_company_invites');
+        await withTimeout(
+          Promise.resolve(supabase.rpc('claim_company_invites')),
+          6000,
+          'claim_company_invites timeout',
+        );
       } catch (e) {
         console.warn('claim_company_invites failed (non-fatal):', e);
       }
@@ -304,6 +315,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // not an empty account. Keep any current company and retry.
       console.error('❌ Company load threw and no cache — retrying, not showing setup');
       scheduleCompanyRetry(userId);
+    } finally {
+      // Every definitive outcome (companies found, confirmed-empty, cache hit)
+      // sets companiesLoadedRef; only the retry paths leave it false. Mirror it
+      // into state so App can gate CompanySetup on a resolved load.
+      if (companiesLoadedRef.current) setCompaniesResolved(true);
     }
   };
 
@@ -656,6 +672,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setCompanies([]);
         setIsPasswordRecovery(false);
         companiesLoadedRef.current = false;
+        setCompaniesResolved(false);
+        setLoadError(false);
         localStorage.removeItem('currentCompanyId');
         localStorage.removeItem('cachedCompanies');
       } else if (event === 'TOKEN_REFRESHED') {
@@ -714,6 +732,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         user,
         loading,
         loadError,
+        companiesResolved,
         currentCompany,
         companies,
         setCurrentCompany,

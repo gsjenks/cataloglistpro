@@ -38,6 +38,10 @@ function AppContent() {
 
   // Whether the company load failed (vs. a genuinely empty account).
   const loadError = "loadError" in context ? context.loadError : false;
+  // Whether a company load has definitively resolved yet. Older bundles may not
+  // provide it — default to true so we don't regress into an infinite spinner.
+  const companiesResolved =
+    "companiesResolved" in context ? context.companiesResolved : true;
   const refreshCompanies =
     "refreshCompanies" in context ? context.refreshCompanies : undefined;
 
@@ -206,17 +210,20 @@ function AppContent() {
     return <Auth />;
   }
 
-  // A failed company load must not masquerade as an empty account — show a
-  // retry screen (with auto-retry running in the background) instead of the
-  // "create your first company" setup, which would be wrong for existing users.
-  if (!currentCompany && loadError) {
+  // Don't show "create your first company" until the company load has actually
+  // resolved. While it's still in flight (or failed and retrying), show a
+  // loading/retry screen — otherwise an existing user gets wrongly dropped onto
+  // setup the instant the global spinner turns off, before companies arrive.
+  if (!currentCompany && (!companiesResolved || loadError)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
         <div className="text-center max-w-sm">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 mx-auto mb-4"></div>
           <h2 className="text-lg font-semibold text-gray-900 mb-1">Loading your companies…</h2>
           <p className="text-sm text-gray-500 mb-5">
-            This is taking longer than usual. We're retrying automatically.
+            {loadError
+              ? "This is taking longer than usual. We're retrying automatically."
+              : 'Just a moment while we fetch your account.'}
           </p>
           <button
             onClick={() => refreshCompanies?.()}
