@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document } from '../types';
 import { useLotInventoryRealtime } from '../hooks/useLotInventoryRealtime';
+import { reclaimExpiredHolds } from '../lib/holds';
 import type { ScannedLot } from '../services/ScannerService';
 import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
@@ -224,6 +225,9 @@ export default function SaleDetail() {
     if (!saleId) return;
 
     try {
+      // Free any timed-out holds before reading, so expired items show as
+      // available (and leave shoppers' baskets) instead of staying "held".
+      await reclaimExpiredHolds(supabase, saleId);
       const { data, error } = await supabase
         .from('lots')
         .select('*')
@@ -253,11 +257,16 @@ export default function SaleDetail() {
   const handleInventoryChange = useCallback(
     async (lotId: string, status: NonNullable<Lot['inventory_status']>) => {
       setLots((prev) =>
-        prev.map((l) => (l.id === lotId ? { ...l, inventory_status: status } : l)),
+        prev.map((l) =>
+          l.id === lotId ? { ...l, inventory_status: status, held_by: null, held_until: null } : l,
+        ),
       );
+      // Clearing held_by/held_until makes a manual "Held" an indefinite staff
+      // hold (no timer, so the expired-hold reclaim leaves it alone), and
+      // Available/Sold properly release any buyer hold.
       const { error } = await supabase
         .from('lots')
-        .update({ inventory_status: status, updated_at: new Date().toISOString() })
+        .update({ inventory_status: status, held_by: null, held_until: null, updated_at: new Date().toISOString() })
         .eq('id', lotId);
       if (error) {
         console.error('Failed to update inventory status:', error);

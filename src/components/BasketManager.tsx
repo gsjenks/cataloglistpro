@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { X, Search, Trash2, Plus, User, ScanLine } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
+import { reclaimExpiredHolds } from '../lib/holds';
 import QRScanner from './QRScanner';
 
 interface Props {
@@ -74,6 +75,9 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   } | null>(null);
 
   const load = useCallback(async () => {
+    // Return any timed-out holds to available first, so expired items leave
+    // baskets instead of lingering as "held" forever.
+    await reclaimExpiredHolds(supabase, saleId);
     const { data } = await supabase
       .from('lots')
       .select('id, lot_number, name, description, category, condition, height, width, depth, dimension_unit, starting_bid, sold_price, inventory_status, held_by, held_until')

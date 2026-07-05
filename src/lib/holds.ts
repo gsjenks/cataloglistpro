@@ -44,6 +44,37 @@ export async function releaseLot(
 }
 
 /**
+ * Reclaim expired buyer holds in a sale: any lot still marked `held` whose
+ * `held_until` is in the past is returned to `available` and its hold cleared.
+ * Requires a client with write access to lots (i.e. the authenticated staff
+ * client) — RLS blocks the anonymous buyer client from updating lots.
+ * Staff/indefinite holds (held_until IS NULL) are left untouched.
+ * Returns the number of lots reclaimed (best-effort; 0 on error).
+ */
+export async function reclaimExpiredHolds(
+  client: SupabaseClient,
+  saleId: string,
+): Promise<number> {
+  const { data, error } = await client
+    .from('lots')
+    .update({
+      inventory_status: 'available',
+      held_by: null,
+      held_until: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('sale_id', saleId)
+    .eq('inventory_status', 'held')
+    .lt('held_until', new Date().toISOString())
+    .select('id');
+  if (error) {
+    console.warn('reclaimExpiredHolds failed (non-fatal):', error.message);
+    return 0;
+  }
+  return data?.length ?? 0;
+}
+
+/**
  * Effective availability for display: an expired hold counts as available.
  */
 export function effectiveStatus(
