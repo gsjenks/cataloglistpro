@@ -64,6 +64,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [buyerBasketId, setBuyerBasketId] = useState<string | null>(null);
+  const [buyerContact, setBuyerContact] = useState<{ name?: string; phone?: string; email?: string } | null>(null);
   const [scanMode, setScanMode] = useState<'item' | 'basket'>('item');
   const [delivery, setDelivery] = useState({
     address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '',
@@ -161,6 +162,19 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     });
     setBuyerBasketId(bId);
     setError(null);
+
+    // Pull the shopper's contact info (staff can read the shoppers table) so
+    // the register shows who this basket belongs to and can reach them.
+    const { data: shopper } = await supabase
+      .from('shoppers')
+      .select('name, email, phone')
+      .eq('id', bId)
+      .maybeSingle();
+    if (shopper) {
+      setBuyerContact(shopper as { name?: string; phone?: string; email?: string });
+      // Prefill the required buyer name if the clerk hasn't typed one.
+      setBuyerName((prev) => prev.trim() || (shopper as { name?: string }).name || '');
+    }
   };
 
   const handleBasketRaw = (raw: string): boolean => {
@@ -246,6 +260,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setBuyerName('');
     setError(null);
     setBuyerBasketId(null);
+    setBuyerContact(null);
     setScanMode('item');
     setDelivery({ address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '' });
   };
@@ -355,11 +370,30 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
 
       {/* Loaded buyer basket indicator */}
       {buyerBasketId && (
-        <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-200 flex items-center justify-between">
-          <span className="text-xs text-indigo-800">
-            Ringing up a shopper's basket · items you add sync to their phone
-          </span>
-          <button onClick={() => setBuyerBasketId(null)} className="text-xs text-indigo-600 underline">
+        <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-200 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            {buyerContact?.name && (
+              <p className="text-sm font-semibold text-indigo-900 truncate">{buyerContact.name}</p>
+            )}
+            {(buyerContact?.phone || buyerContact?.email) && (
+              <p className="text-xs text-indigo-800 truncate">
+                {buyerContact?.phone && (
+                  <a href={`tel:${buyerContact.phone}`} className="hover:underline">{buyerContact.phone}</a>
+                )}
+                {buyerContact?.phone && buyerContact?.email && ' · '}
+                {buyerContact?.email && (
+                  <a href={`mailto:${buyerContact.email}`} className="hover:underline">{buyerContact.email}</a>
+                )}
+              </p>
+            )}
+            <p className="text-xs text-indigo-700">
+              Ringing up a shopper's basket · items you add sync to their phone
+            </p>
+          </div>
+          <button
+            onClick={() => { setBuyerBasketId(null); setBuyerContact(null); }}
+            className="text-xs text-indigo-600 underline shrink-0"
+          >
             Unlink
           </button>
         </div>
