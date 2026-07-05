@@ -20,7 +20,7 @@ export default function ShopperRegistration({ saleId, onVerified, onClose }: Pro
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [channel, setChannel] = useState<Channel>('sms');
+  const [channel, setChannel] = useState<Channel>('email');
   const [shopperId, setShopperId] = useState('');
   const [code, setCode] = useState('');
   const [testCode, setTestCode] = useState<string | null>(null);
@@ -149,7 +149,8 @@ export default function ShopperRegistration({ saleId, onVerified, onClose }: Pro
             </p>
             {testCode && (
               <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
-                Test mode (no email/SMS provider configured yet): your code is <strong>{testCode}</strong>
+                We couldn't deliver your code by {channel === 'sms' ? 'text' : 'email'} automatically. Your code is{' '}
+                <strong>{testCode}</strong>
               </div>
             )}
             <input
