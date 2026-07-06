@@ -632,6 +632,11 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         </button>
       </div>
 
+      {/* Two-pane on laptop (cart | checkout rail); stacked on mobile. */}
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+      {/* Left column: customer, picker, cart — this is what scrolls. */}
+      <div className="flex-1 min-h-0 flex flex-col">
+
       {/* Customer / buyer — the single place to identify who is buying. Search
           saved shoppers; if none match, the typed name/phone/email becomes the
           buyer for an unregistered walk-up sale. */}
@@ -800,7 +805,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       )}
 
       {/* Cart */}
-      <div className="flex-1 overflow-auto px-4 py-3">
+      <div className="flex-1 min-h-0 overflow-auto px-4 py-3">
         {cart.length === 0 ? (
           <div className="text-center text-gray-400 py-12">
             <p className="text-sm">Cart is empty — scan a tag or add an item.</p>
@@ -846,9 +851,12 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           </div>
         )}
       </div>
+      {/* /left column */}
+      </div>
 
-      {/* Footer: totals + tender + complete */}
-      <div className="bg-white border-t border-gray-200 px-4 py-3 space-y-3 max-h-[70vh] overflow-y-auto">
+      {/* Checkout: right rail on laptop, sticky bottom bar on mobile.
+          totals + tender + complete */}
+      <div className="bg-white border-t border-gray-200 lg:border-t-0 lg:border-l lg:w-96 shrink-0 px-4 py-3 space-y-3 max-h-[70vh] lg:max-h-none overflow-y-auto">
         {error && (
           <div className="p-2.5 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">{error}</div>
         )}
@@ -957,7 +965,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           <div className="flex justify-between text-lg font-bold text-gray-900"><span>Total</span><span>{money(totals.total)}</span></div>
         </div>
 
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {TENDERS.map((t) => (
             <button
               key={t.value}
@@ -996,6 +1004,8 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         >
           {processing ? 'Processing…' : `Complete Sale · ${money(totals.total)}`}
         </button>
+      </div>
+      {/* /two-pane */}
       </div>
 
       {showScanner &&
