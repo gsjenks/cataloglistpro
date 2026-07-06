@@ -9,6 +9,12 @@ import type { Lot, TenderType } from '../types';
 import { supabase } from '../lib/supabase';
 import { createTransaction, computeTotals, type PosLineItem } from '../services/PosService';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
+import {
+  deliveryFromShopper,
+  saveShopperDelivery,
+  deliveryMissing,
+  SHOPPER_DELIVERY_COLS,
+} from '../lib/delivery';
 import QRScanner from './QRScanner';
 
 const STAFF_HOLD_MS = 30 * 60 * 1000;
@@ -181,6 +187,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         inventory_status: buyerBasketId ? 'held' : 'available',
         held_by: buyerBasketId || null,
         held_until: buyerBasketId ? new Date(Date.now() + STAFF_HOLD_MS).toISOString() : null,
+        for_delivery: forDelivery,
         updated_at: new Date().toISOString(),
       })
       .select('id, lot_number, name')
@@ -225,12 +232,12 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const loadBuyerBasket = async (bId: string) => {
     const { data } = await supabase
       .from('lots')
-      .select('id, lot_number, name, starting_bid, held_until, inventory_status, held_by')
+      .select('id, lot_number, name, starting_bid, held_until, inventory_status, held_by, for_delivery')
       .eq('sale_id', saleId)
       .eq('held_by', bId)
       .eq('inventory_status', 'held');
     const now = Date.now();
-    const held = ((data as Lot[] | null) || []).filter(
+    const held = ((data as (Lot & { for_delivery?: boolean })[] | null) || []).filter(
       (l) => l.held_until && new Date(l.held_until).getTime() > now,
     );
     setCart((prev) => {
@@ -241,25 +248,27 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           lotId: l.id,
           description: `#${l.lot_number ?? '—'} ${l.name}`,
           price: defaultPrice(l),
-          fulfillment: 'carry' as const,
+          // Carry over the floor's delivery tag on each item.
+          fulfillment: (l.for_delivery ? 'delivery' : 'carry') as 'carry' | 'delivery',
         }));
       return [...prev, ...additions];
     });
     setBuyerBasketId(bId);
     setError(null);
 
-    // Pull the shopper's contact info (staff can read the shoppers table) so
-    // the register shows who this basket belongs to and can reach them.
+    // Pull the shopper's contact + delivery details (staff can read shoppers) so
+    // the register shows who this basket belongs to and pre-fills the mover info
+    // the floor already collected. Staff still confirm it before completing.
     const { data: shopper } = await supabase
       .from('shoppers')
-      .select('name, email, phone')
+      .select(`name, email, phone, ${SHOPPER_DELIVERY_COLS}`)
       .eq('id', bId)
       .maybeSingle();
     if (shopper) {
       setBuyerContact(shopper as { name?: string; phone?: string; email?: string });
-      // The buyer is this looked-up customer — use their name (overriding any
-      // text typed into the search box).
       setBuyerName((shopper as { name?: string }).name || '');
+      setDelivery(deliveryFromShopper(shopper as Record<string, unknown>));
+      setDeliveryConfirmed(false);
     }
   };
 
@@ -405,6 +414,12 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
 
   const setItemFulfillment = (index: number, f: 'carry' | 'delivery') => {
     setCart((prev) => prev.map((it, i) => (i === index ? { ...it, fulfillment: f } : it)));
+    // Persist the tag on the lot so it stays with the item (floor ↔ register).
+    const lotId = cart[index]?.lotId;
+    if (lotId) {
+      supabase.from('lots').update({ for_delivery: f === 'delivery', updated_at: new Date().toISOString() }).eq('id', lotId);
+    }
+    if (f === 'delivery') setDeliveryConfirmed(false);
   };
 
   // Editing any mover/delivery field invalidates a prior confirmation, forcing
@@ -412,6 +427,20 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const updateDelivery = (patch: Partial<typeof delivery>) => {
     setDelivery((prev) => ({ ...prev, ...patch }));
     setDeliveryConfirmed(false);
+  };
+
+  // Save/validate the mover details: require a date + a contact, persist them to
+  // the customer's record (so the floor and any later sale see them), and mark
+  // them confirmed so the sale can complete.
+  const saveDeliveryDetails = async () => {
+    const missing = deliveryMissing(delivery);
+    if (missing) {
+      setError(missing);
+      return;
+    }
+    setError(null);
+    if (buyerBasketId) await saveShopperDelivery(supabase, buyerBasketId, delivery);
+    setDeliveryConfirmed(true);
   };
 
   const hasDelivery = cart.some((i) => i.fulfillment === 'delivery');
@@ -875,7 +904,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
               </div>
             ) : (
               <button
-                onClick={() => setDeliveryConfirmed(true)}
+                onClick={saveDeliveryDetails}
                 className="w-full mt-1 px-3 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700"
               >
                 Save delivery details

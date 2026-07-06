@@ -11,6 +11,13 @@ import { X, Search, Trash2, Plus, User, ScanLine } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
 import { reclaimExpiredHolds } from '../lib/holds';
+import {
+  type DeliveryDetails,
+  emptyDelivery,
+  deliveryFromShopper,
+  saveShopperDelivery,
+  SHOPPER_DELIVERY_COLS,
+} from '../lib/delivery';
 import QRScanner from './QRScanner';
 
 interface Props {
@@ -36,6 +43,7 @@ interface LotRow {
   inventory_status: string | null;
   held_by: string | null;
   held_until: string | null;
+  for_delivery: boolean | null;
 }
 interface Shopper {
   id: string;
@@ -65,6 +73,9 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [showScanner, setShowScanner] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [showItemScanner, setShowItemScanner] = useState(false);
+  const [deliveryInfo, setDeliveryInfo] = useState<DeliveryDetails>(emptyDelivery);
+  const [savingDelivery, setSavingDelivery] = useState(false);
+  const [deliverySaved, setDeliverySaved] = useState(false);
   const [selectedLot, setSelectedLot] = useState<LotRow | null>(null);
   const [lotPhotoUrl, setLotPhotoUrl] = useState<string | null>(null);
   const [lotBuyer, setLotBuyer] = useState<string | null>(null);
@@ -80,7 +91,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     await reclaimExpiredHolds(supabase, saleId);
     const { data } = await supabase
       .from('lots')
-      .select('id, lot_number, name, description, category, condition, height, width, depth, dimension_unit, starting_bid, sold_price, inventory_status, held_by, held_until')
+      .select('id, lot_number, name, description, category, condition, height, width, depth, dimension_unit, starting_bid, sold_price, inventory_status, held_by, held_until, for_delivery')
       .eq('sale_id', saleId)
       .order('lot_number', { ascending: true });
     const rows = (data as LotRow[] | null) || [];
@@ -97,6 +108,28 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   }, [saleId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // When a customer is selected, load their saved delivery/mover details so the
+  // floor can view/update them.
+  useEffect(() => {
+    let cancelled = false;
+    if (!selected) {
+      setDeliveryInfo(emptyDelivery);
+      setDeliverySaved(false);
+      return;
+    }
+    supabase
+      .from('shoppers')
+      .select(SHOPPER_DELIVERY_COLS)
+      .eq('id', selected.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        setDeliveryInfo(deliveryFromShopper(data as Record<string, unknown> | null));
+        setDeliverySaved(false);
+      });
+    return () => { cancelled = true; };
+  }, [selected]);
 
   const searchShoppers = async (q: string) => {
     setShopperQuery(q);
@@ -248,6 +281,29 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
       inventory_status: 'available', held_by: null, held_until: null, updated_at: new Date().toISOString(),
     }).eq('id', lotId);
     await load(); setBusy(false); onChanged?.();
+  };
+
+  // Floor: tag / untag a held item for delivery. Persists on the lot so the
+  // register (and the customer's basket) sees it.
+  const toggleItemDelivery = async (lotId: string, value: boolean) => {
+    setBusy(true);
+    await supabase.from('lots').update({ for_delivery: value, updated_at: new Date().toISOString() }).eq('id', lotId);
+    await load(); setBusy(false); onChanged?.();
+  };
+
+  const updateDeliveryInfo = (patch: Partial<DeliveryDetails>) => {
+    setDeliveryInfo((prev) => ({ ...prev, ...patch }));
+    setDeliverySaved(false);
+  };
+
+  // Floor: save the customer's mover/delivery details to their record.
+  const saveFloorDelivery = async () => {
+    if (!selected) return;
+    setSavingDelivery(true);
+    const { error } = await saveShopperDelivery(supabase, selected.id, deliveryInfo);
+    setSavingDelivery(false);
+    if (error) return alert('Could not save delivery details.');
+    setDeliverySaved(true);
   };
 
   const inputCls =
@@ -456,21 +512,64 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                 ) : (
                   <ul className="divide-y divide-gray-100 border border-gray-200 rounded-md mb-2 bg-white">
                     {basketItems.map((l) => (
-                      <li key={l.id} className="flex items-center justify-between px-3 py-2.5">
-                        <span className="text-sm text-gray-800 truncate pr-2">
-                          #{l.lot_number ?? '—'} {l.name}
-                        </span>
-                        <span className="flex items-center gap-3 whitespace-nowrap">
-                          <span className="text-sm text-gray-600">{money(l.starting_bid)}</span>
-                          <button onClick={() => staffRelease(l.id)} disabled={busy} className="text-gray-400 hover:text-red-600">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </span>
+                      <li key={l.id} className="px-3 py-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-800 truncate pr-2">
+                            #{l.lot_number ?? '—'} {l.name}
+                          </span>
+                          <span className="flex items-center gap-3 whitespace-nowrap">
+                            <span className="text-sm text-gray-600">{money(l.starting_bid)}</span>
+                            <button onClick={() => staffRelease(l.id)} disabled={busy} className="text-gray-400 hover:text-red-600">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </span>
+                        </div>
+                        <label className="mt-1 inline-flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={!!l.for_delivery}
+                            disabled={busy}
+                            onChange={(e) => toggleItemDelivery(l.id, e.target.checked)}
+                            className="w-4 h-4 accent-amber-500"
+                          />
+                          <span className={`text-xs font-medium ${l.for_delivery ? 'text-amber-700' : 'text-gray-500'}`}>
+                            {l.for_delivery ? 'For delivery' : 'Carry out'}
+                          </span>
+                        </label>
                       </li>
                     ))}
                   </ul>
                 )}
                 <p className="text-right text-sm font-semibold text-gray-900 mb-4">Total: {money(basketTotal)}</p>
+
+                {/* Delivery / mover details — shown when any item is for delivery */}
+                {basketItems.some((l) => l.for_delivery) && (
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md space-y-2">
+                    <p className="text-xs font-semibold text-amber-900">
+                      Delivery &amp; mover details ({basketItems.filter((l) => l.for_delivery).length} for delivery)
+                    </p>
+                    <input value={deliveryInfo.address} onChange={(e) => updateDeliveryInfo({ address: e.target.value })} placeholder="Delivery address" className={inputCls} />
+                    <div className="flex gap-2">
+                      <input value={deliveryInfo.date} onChange={(e) => updateDeliveryInfo({ date: e.target.value })} placeholder="Delivery date" className={inputCls} />
+                      <input value={deliveryInfo.estimate} onChange={(e) => updateDeliveryInfo({ estimate: e.target.value })} placeholder="Estimate" className={inputCls} />
+                    </div>
+                    <input value={deliveryInfo.company} onChange={(e) => updateDeliveryInfo({ company: e.target.value })} placeholder="Mover / delivery company" className={inputCls} />
+                    <div className="flex gap-2">
+                      <input value={deliveryInfo.companyPhone} onChange={(e) => updateDeliveryInfo({ companyPhone: e.target.value })} placeholder="Mover phone" className={inputCls} />
+                      <input value={deliveryInfo.companyEmail} onChange={(e) => updateDeliveryInfo({ companyEmail: e.target.value })} placeholder="Mover email" className={inputCls} />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={saveFloorDelivery}
+                        disabled={savingDelivery}
+                        className="px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700 disabled:bg-gray-300"
+                      >
+                        {savingDelivery ? 'Saving…' : 'Save delivery details'}
+                      </button>
+                      {deliverySaved && <span className="text-xs font-medium text-green-700">Saved ✓</span>}
+                    </div>
+                  </div>
+                )}
 
                 {/* Add / hold items */}
                 <div className="relative mb-2">
