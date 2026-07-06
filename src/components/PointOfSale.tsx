@@ -191,21 +191,40 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   };
 
   // Find a customer by any part of their name, email, or phone, then load their
-  // basket into the register.
+  // basket. Matching is done client-side on normalized values so it's tolerant
+  // of phone formatting (e.g. "+15615551234" matches "561-555" and "5551234").
   const searchCustomers = async (q: string) => {
     setCustomerSearch(q);
-    if (q.trim().length < 1) {
+    const term = q.trim().toLowerCase();
+    if (!term) {
       setCustomerResults([]);
       return;
     }
-    let query = supabase.from('shoppers').select('id, name, email, phone');
+    let query = supabase.from('shoppers').select('id, name, email, phone').order('name');
     if (companyId) query = query.eq('company_id', companyId);
-    const term = `%${q.trim()}%`;
-    query = query.or(`name.ilike.${term},email.ilike.${term},phone.ilike.${term}`);
-    const { data } = await query.limit(20);
-    setCustomerResults(
-      (data as { id: string; name: string; email: string | null; phone: string | null }[] | null) || [],
-    );
+    const { data, error } = await query.limit(500);
+    if (error) {
+      console.error('Customer search failed:', error);
+      setError('Customer search failed: ' + error.message);
+      setCustomerResults([]);
+      return;
+    }
+    const digits = term.replace(/\D/g, '');
+    const rows =
+      (data as { id: string; name: string; email: string | null; phone: string | null }[] | null) || [];
+    const matched = rows
+      .filter((c) => {
+        const name = (c.name || '').toLowerCase();
+        const email = (c.email || '').toLowerCase();
+        const phoneDigits = (c.phone || '').replace(/\D/g, '');
+        return (
+          name.includes(term) ||
+          email.includes(term) ||
+          (digits.length >= 2 && phoneDigits.includes(digits))
+        );
+      })
+      .slice(0, 20);
+    setCustomerResults(matched);
   };
 
   const pickCustomer = (id: string) => {
