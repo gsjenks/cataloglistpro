@@ -159,10 +159,11 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       },
     ]);
     setError(null);
-    // When ringing up a shared basket, hold the item under it so it also shows
-    // on the buyer's phone. Staff update lots directly (bypasses the buyer gate).
+    // When a customer is loaded, hold the item under them (30-min timer) so it
+    // persists in their basket and shows on their phone. Verify the write so a
+    // silent failure surfaces instead of the item quietly not being held.
     if (buyerBasketId) {
-      await supabase
+      const { data, error } = await supabase
         .from('lots')
         .update({
           inventory_status: 'held',
@@ -170,7 +171,11 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           held_until: new Date(Date.now() + STAFF_HOLD_MS).toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq('id', lot.id);
+        .eq('id', lot.id)
+        .select('id');
+      if (error || !data?.length) {
+        setError(`Couldn't hold "${lot.name}" to the customer — try again.`);
+      }
     }
   };
 
@@ -233,6 +238,22 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
 
   // Staff: load a buyer's basket (held items) into the cart by scanning its QR.
   const loadBuyerBasket = async (bId: string) => {
+    // Attach anything already in the cart (items added before the customer was
+    // identified) to this customer with a hold, so they get a timer and persist
+    // in the basket instead of being lost when the register is cleared.
+    const preexisting = cart.map((i) => i.lotId).filter((id): id is string => !!id);
+    if (preexisting.length) {
+      await supabase
+        .from('lots')
+        .update({
+          inventory_status: 'held',
+          held_by: bId,
+          held_until: new Date(Date.now() + STAFF_HOLD_MS).toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .in('id', preexisting);
+    }
+
     const { data } = await supabase
       .from('lots')
       .select('id, lot_number, name, starting_bid, held_until, inventory_status, held_by, for_delivery')
