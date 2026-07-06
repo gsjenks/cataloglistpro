@@ -689,7 +689,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           onClick={() => { setScanMode('item'); setShowScanner(true); }}
           className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
         >
-          <ScanLine className="w-4 h-4" /> Scan
+          <ScanLine className="w-4 h-4" /> Scan Tag
         </button>
         <button
           onClick={() => setShowPicker((s) => !s)}
@@ -697,12 +697,15 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         >
           <Plus className="w-4 h-4" /> Add Item
         </button>
-        <button
-          onClick={() => { setScanMode('basket'); setShowScanner(true); }}
-          className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 border border-indigo-300 text-indigo-700 rounded-md text-sm font-medium hover:bg-indigo-50"
-        >
-          <ShoppingBasket className="w-4 h-4" /> Basket
-        </button>
+        {/* Scanning a basket QR only loads a customer — hide it once one is loaded. */}
+        {!buyerBasketId && (
+          <button
+            onClick={() => { setScanMode('basket'); setShowScanner(true); }}
+            className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 border border-indigo-300 text-indigo-700 rounded-md text-sm font-medium hover:bg-indigo-50"
+          >
+            <ShoppingBasket className="w-4 h-4" /> Scan Basket
+          </button>
+        )}
       </div>
 
       {/* Picker */}
@@ -843,8 +846,24 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           </label>
         </div>
 
-        {/* Delivery / mover details — shown when any item is checked for delivery */}
-        {hasDelivery && (
+        {/* Delivery / mover details — shown when any item is checked for delivery.
+            Collapses to a one-line summary once saved so the cart is visible. */}
+        {hasDelivery && deliveryConfirmed && (
+          <div className="p-3 bg-green-50 border border-green-200 rounded-md flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="inline-flex items-center gap-1 text-xs font-semibold text-green-800">
+                <CheckCircle2 className="w-4 h-4" /> Delivery saved
+              </p>
+              <p className="text-xs text-green-700 truncate">
+                {[delivery.company, delivery.date, delivery.address].filter(Boolean).join(' · ') || 'Details on file'}
+              </p>
+            </div>
+            <button onClick={() => setDeliveryConfirmed(false)} className="text-xs text-green-800 underline shrink-0">
+              Edit
+            </button>
+          </div>
+        )}
+        {hasDelivery && !deliveryConfirmed && (
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-md space-y-2">
             <p className="text-xs font-semibold text-amber-900">
               Delivery &amp; mover details ({cart.filter((i) => i.fulfillment === 'delivery').length} item
@@ -890,26 +909,12 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
                 className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
               />
             </div>
-            {deliveryConfirmed ? (
-              <div className="flex items-center justify-between pt-1">
-                <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700">
-                  <CheckCircle2 className="w-4 h-4" /> Delivery details saved
-                </span>
-                <button
-                  onClick={() => setDeliveryConfirmed(false)}
-                  className="text-xs text-amber-800 underline"
-                >
-                  Edit
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={saveDeliveryDetails}
-                className="w-full mt-1 px-3 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700"
-              >
-                Save delivery details
-              </button>
-            )}
+            <button
+              onClick={saveDeliveryDetails}
+              className="w-full mt-1 px-3 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700"
+            >
+              Save delivery details
+            </button>
           </div>
         )}
 
