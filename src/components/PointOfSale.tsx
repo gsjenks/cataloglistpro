@@ -66,8 +66,6 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [buyerBasketId, setBuyerBasketId] = useState<string | null>(null);
   const [buyerContact, setBuyerContact] = useState<{ name?: string; phone?: string; email?: string } | null>(null);
   const [scanMode, setScanMode] = useState<'item' | 'basket'>('item');
-  const [showCustomer, setShowCustomer] = useState(false);
-  const [customerSearch, setCustomerSearch] = useState('');
   const [customerResults, setCustomerResults] = useState<
     { id: string; name: string; email: string | null; phone: string | null }[]
   >([]);
@@ -177,8 +175,9 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       .maybeSingle();
     if (shopper) {
       setBuyerContact(shopper as { name?: string; phone?: string; email?: string });
-      // Prefill the required buyer name if the clerk hasn't typed one.
-      setBuyerName((prev) => prev.trim() || (shopper as { name?: string }).name || '');
+      // The buyer is this looked-up customer — use their name (overriding any
+      // text typed into the search box).
+      setBuyerName((shopper as { name?: string }).name || '');
     }
   };
 
@@ -194,7 +193,6 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   // basket. Matching is done client-side on normalized values so it's tolerant
   // of phone formatting (e.g. "+15615551234" matches "561-555" and "5551234").
   const searchCustomers = async (q: string) => {
-    setCustomerSearch(q);
     const term = q.trim().toLowerCase();
     if (!term) {
       setCustomerResults([]);
@@ -228,8 +226,6 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   };
 
   const pickCustomer = (id: string) => {
-    setShowCustomer(false);
-    setCustomerSearch('');
     setCustomerResults([]);
     loadBuyerBasket(id);
   };
@@ -311,8 +307,6 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setBuyerBasketId(null);
     setBuyerContact(null);
     setScanMode('item');
-    setShowCustomer(false);
-    setCustomerSearch('');
     setCustomerResults([]);
     setDelivery({ address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '' });
   };
@@ -398,6 +392,77 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         </button>
       </div>
 
+      {/* Customer / buyer — the single place to identify who is buying. Search
+          saved shoppers; if none match, the typed name/phone/email becomes the
+          buyer for an unregistered walk-up sale. */}
+      <div className="px-4 py-3 bg-white border-b border-gray-200">
+        {buyerBasketId ? (
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-indigo-700">Customer basket loaded</p>
+              <p className="text-sm font-semibold text-gray-900 truncate">{buyerName || buyerContact?.name}</p>
+              {(buyerContact?.phone || buyerContact?.email) && (
+                <p className="text-xs text-gray-500 truncate">
+                  {buyerContact?.phone && (
+                    <a href={`tel:${buyerContact.phone}`} className="hover:underline">{buyerContact.phone}</a>
+                  )}
+                  {buyerContact?.phone && buyerContact?.email && ' · '}
+                  {buyerContact?.email && (
+                    <a href={`mailto:${buyerContact.email}`} className="hover:underline">{buyerContact.email}</a>
+                  )}
+                </p>
+              )}
+              <p className="text-xs text-gray-400 mt-0.5">Items you add sync to their basket.</p>
+            </div>
+            <button
+              onClick={() => { setBuyerBasketId(null); setBuyerContact(null); setBuyerName(''); setCustomerResults([]); }}
+              className="text-xs text-indigo-600 underline shrink-0"
+            >
+              Change
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="relative">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                value={buyerName}
+                onChange={(e) => { setBuyerName(e.target.value); searchCustomers(e.target.value); }}
+                placeholder="Customer name, phone, or email…"
+                className={
+                  `w-full pl-9 pr-3 py-2 text-sm border rounded-md focus:outline-none focus:border-indigo-600 ` +
+                  (buyerName.trim() ? 'border-gray-300' : 'border-amber-300')
+                }
+              />
+            </div>
+            {customerResults.length > 0 && (
+              <div className="mt-1 border border-gray-200 rounded-md divide-y divide-gray-100 max-h-56 overflow-auto">
+                {customerResults.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => pickCustomer(c.id)}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
+                  >
+                    <User className="w-4 h-4 text-gray-400 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-gray-800 truncate">{c.name}</span>
+                      <span className="block text-xs text-gray-500 truncate">
+                        {[c.phone, c.email].filter(Boolean).join(' · ') || 'No contact info'}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {buyerName.trim() && customerResults.length === 0 && (
+              <p className="mt-1.5 text-xs text-gray-500">
+                No saved customer matches — this sale will use “{buyerName.trim()}” as an unregistered customer.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Add buttons */}
       <div className="px-4 py-3 flex gap-2 bg-white border-b border-gray-100">
         <button
@@ -418,79 +483,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         >
           <ShoppingBasket className="w-4 h-4" /> Basket
         </button>
-        <button
-          onClick={() => setShowCustomer((s) => !s)}
-          className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 border border-indigo-300 text-indigo-700 rounded-md text-sm font-medium hover:bg-indigo-50"
-        >
-          <User className="w-4 h-4" /> Customer
-        </button>
       </div>
-
-      {/* Customer lookup — find a shopper's basket by name / email / phone */}
-      {showCustomer && (
-        <div className="px-4 py-3 bg-white border-b border-gray-200 max-h-64 overflow-auto">
-          <div className="relative mb-2">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              autoFocus
-              value={customerSearch}
-              onChange={(e) => searchCustomers(e.target.value)}
-              placeholder="Search customer by name, email, or phone…"
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-            />
-          </div>
-          {customerSearch.trim() && customerResults.length === 0 ? (
-            <p className="text-sm text-gray-400 py-2 text-center">No customers match.</p>
-          ) : (
-            customerResults.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => pickCustomer(c.id)}
-                className="w-full flex items-center gap-3 px-2 py-2 text-left hover:bg-gray-50 rounded"
-              >
-                <User className="w-4 h-4 text-gray-400 shrink-0" />
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-gray-800 truncate">{c.name}</span>
-                  <span className="block text-xs text-gray-500 truncate">
-                    {[c.phone, c.email].filter(Boolean).join(' · ') || 'No contact info'}
-                  </span>
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-
-      {/* Loaded buyer basket indicator */}
-      {buyerBasketId && (
-        <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-200 flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            {buyerContact?.name && (
-              <p className="text-sm font-semibold text-indigo-900 truncate">{buyerContact.name}</p>
-            )}
-            {(buyerContact?.phone || buyerContact?.email) && (
-              <p className="text-xs text-indigo-800 truncate">
-                {buyerContact?.phone && (
-                  <a href={`tel:${buyerContact.phone}`} className="hover:underline">{buyerContact.phone}</a>
-                )}
-                {buyerContact?.phone && buyerContact?.email && ' · '}
-                {buyerContact?.email && (
-                  <a href={`mailto:${buyerContact.email}`} className="hover:underline">{buyerContact.email}</a>
-                )}
-              </p>
-            )}
-            <p className="text-xs text-indigo-700">
-              Ringing up a shopper's basket · items you add sync to their phone
-            </p>
-          </div>
-          <button
-            onClick={() => { setBuyerBasketId(null); setBuyerContact(null); setBuyerName(''); }}
-            className="text-xs text-indigo-600 underline shrink-0"
-          >
-            Unlink
-          </button>
-        </div>
-      )}
 
       {/* Picker */}
       {showPicker && (
@@ -579,28 +572,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           <div className="p-2.5 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">{error}</div>
         )}
 
-        <div className="flex items-center gap-3">
-          {buyerBasketId ? (
-            // Customer loaded from a basket lookup/scan — name is auto-filled and
-            // read-only. Use "Change" / "Unlink" in the basket banner above to
-            // switch customers or ring up a walk-up instead.
-            <input
-              value={buyerName}
-              readOnly
-              title="Buyer from the looked-up customer"
-              className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-700 cursor-default"
-            />
-          ) : (
-            <input
-              value={buyerName}
-              onChange={(e) => setBuyerName(e.target.value)}
-              placeholder="Buyer name (required)"
-              className={
-                `flex-1 px-3 py-2 text-sm border rounded-md focus:outline-none focus:border-indigo-600 ` +
-                (buyerName.trim() ? 'border-gray-300' : 'border-amber-300')
-              }
-            />
-          )}
+        <div className="flex items-center justify-end gap-3">
           <label className="flex items-center gap-1.5 text-sm text-gray-600 whitespace-nowrap">
             Tax %
             <input
