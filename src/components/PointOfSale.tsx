@@ -3,7 +3,7 @@
 // available lots, set tax, choose a tender, and complete the sale — which marks
 // each lot sold and shows a printable receipt. Card tender arrives in Phase 4.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2, ShoppingBasket, User, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Lot, TenderType } from '../types';
 import { supabase } from '../lib/supabase';
@@ -105,6 +105,9 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [buyerBasketId, setBuyerBasketId] = useState<string | null>(null);
+  // Mirrors buyerBasketId synchronously so rapid item-adds don't each create a
+  // new customer before React re-renders.
+  const buyerBasketIdRef = useRef<string | null>(null);
   const [buyerContact, setBuyerContact] = useState<{ name?: string; phone?: string; email?: string } | null>(null);
   const [scanMode, setScanMode] = useState<'item' | 'basket'>('item');
   type CustomerRow = { id: string; name: string; email: string | null; phone: string | null };
@@ -147,6 +150,31 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     );
   }, [availableLots, pickerSearch]);
 
+  // Make sure there's a customer/basket to save items into. If a customer is
+  // already loaded, use them; otherwise, if staff typed a name, create a basket
+  // for that name on the spot so added items are held to them. Returns the
+  // basket (shopper) id, or null if there's no name to attach to.
+  const ensureCustomer = async (): Promise<string | null> => {
+    if (buyerBasketIdRef.current) return buyerBasketIdRef.current;
+    const name = buyerName.trim();
+    if (!name) return null;
+    const { data, error } = await supabase
+      .from('shoppers')
+      .insert({ company_id: companyId, name })
+      .select('id, name, email, phone')
+      .single();
+    if (error || !data) {
+      setError('Could not start a basket for this customer.');
+      return null;
+    }
+    buyerBasketIdRef.current = data.id;
+    setBuyerBasketId(data.id);
+    setBuyerContact({ name: data.name, phone: data.phone, email: data.email });
+    setBuyerName(data.name);
+    setCustomerResults([]);
+    return data.id;
+  };
+
   const addLot = async (lot: Lot) => {
     if (cartLotIds.has(lot.id)) return;
     setCart((prev) => [
@@ -159,15 +187,16 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       },
     ]);
     setError(null);
-    // When a customer is loaded, hold the item under them (30-min timer) so it
-    // persists in their basket and shows on their phone. Verify the write so a
-    // silent failure surfaces instead of the item quietly not being held.
-    if (buyerBasketId) {
+    // Hold the item under the customer (30-min timer) so it persists in their
+    // basket and shows on their phone — creating the basket from the typed name
+    // if needed. Verify the write so a silent failure surfaces.
+    const cid = await ensureCustomer();
+    if (cid) {
       const { data, error } = await supabase
         .from('lots')
         .update({
           inventory_status: 'held',
-          held_by: buyerBasketId,
+          held_by: cid,
           held_until: new Date(Date.now() + STAFF_HOLD_MS).toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -186,15 +215,16 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     if (!nm) return;
     const price = Number(priceStr);
     setCreatingItem(true);
+    const cid = await ensureCustomer();
     const { data: lot, error } = await supabase
       .from('lots')
       .insert({
         sale_id: saleId,
         name: nm,
         starting_bid: isNaN(price) ? 0 : price,
-        inventory_status: buyerBasketId ? 'held' : 'available',
-        held_by: buyerBasketId || null,
-        held_until: buyerBasketId ? new Date(Date.now() + STAFF_HOLD_MS).toISOString() : null,
+        inventory_status: cid ? 'held' : 'available',
+        held_by: cid || null,
+        held_until: cid ? new Date(Date.now() + STAFF_HOLD_MS).toISOString() : null,
         for_delivery: forDelivery,
         updated_at: new Date().toISOString(),
       })
@@ -277,6 +307,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         }));
       return [...prev, ...additions];
     });
+    buyerBasketIdRef.current = bId;
     setBuyerBasketId(bId);
     setError(null);
 
@@ -350,6 +381,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   // look up the next person. The previous customer's held items stay held to
   // them in the database, so their basket is intact when they return.
   const changeCustomer = () => {
+    buyerBasketIdRef.current = null;
     setBuyerBasketId(null);
     setBuyerContact(null);
     setBuyerName('');
@@ -548,6 +580,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setTender(null);
     setBuyerName('');
     setError(null);
+    buyerBasketIdRef.current = null;
     setBuyerBasketId(null);
     setBuyerContact(null);
     setScanMode('item');
@@ -743,7 +776,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             {buyerName.trim() && customerResults.length === 0 && (
               <div className="mt-1.5 flex items-center justify-between gap-2">
                 <p className="text-xs text-gray-500 min-w-0">
-                  No saved customer matches. Selling to “{buyerName.trim()}” as an unregistered customer, or:
+                  No saved match — items you add start a basket for “{buyerName.trim()}”. Add contact info?
                 </p>
                 <button
                   onClick={openNewCustomer}
