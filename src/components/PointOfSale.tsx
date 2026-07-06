@@ -91,6 +91,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [showPicker, setShowPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const [newLotPrice, setNewLotPrice] = useState('');
+  const [newLotDelivery, setNewLotDelivery] = useState(false);
   const [creatingItem, setCreatingItem] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -166,7 +167,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
 
   // Create a lot that isn't in the sale yet (uncatalogued / missing item) and
   // add it to the cart. If a customer basket is loaded, hold it under them too.
-  const createAndAddItem = async (name: string, priceStr: string) => {
+  const createAndAddItem = async (name: string, priceStr: string, forDelivery: boolean) => {
     const nm = name.trim();
     if (!nm) return;
     const price = Number(priceStr);
@@ -195,12 +196,15 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         lotId: lot.id,
         description: `#${lot.lot_number ?? '—'} ${lot.name}`,
         price: isNaN(price) ? 0 : price,
-        fulfillment: 'carry',
+        fulfillment: forDelivery ? 'delivery' : 'carry',
       },
     ]);
+    // Marking a new item for delivery means the mover details need re-confirming.
+    if (forDelivery) setDeliveryConfirmed(false);
     setError(null);
     setPickerSearch('');
     setNewLotPrice('');
+    setNewLotDelivery(false);
   };
 
   const handleScan = (scanned: ScannedLot) => {
@@ -480,6 +484,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setScanMode('item');
     setPickerSearch('');
     setNewLotPrice('');
+    setNewLotDelivery(false);
     setCustomerResults([]);
     setShowNewCustomer(false);
     setNewCustomer({ name: '', phone: '', email: '' });
@@ -719,13 +724,24 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
                   />
                 </div>
                 <button
-                  onClick={() => createAndAddItem(pickerSearch, newLotPrice)}
+                  onClick={() => createAndAddItem(pickerSearch, newLotPrice, newLotDelivery)}
                   disabled={creatingItem}
                   className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300"
                 >
                   <Plus className="w-4 h-4" /> {creatingItem ? 'Adding…' : 'Add new item'}
                 </button>
               </div>
+              <label className="mt-1.5 inline-flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={newLotDelivery}
+                  onChange={(e) => setNewLotDelivery(e.target.checked)}
+                  className="w-4 h-4 accent-amber-500"
+                />
+                <span className={`text-xs font-medium ${newLotDelivery ? 'text-amber-700' : 'text-gray-500'}`}>
+                  For delivery
+                </span>
+              </label>
             </div>
           )}
         </div>
