@@ -90,6 +90,8 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [showScanner, setShowScanner] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
+  const [newLotPrice, setNewLotPrice] = useState('');
+  const [creatingItem, setCreatingItem] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -160,6 +162,45 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         })
         .eq('id', lot.id);
     }
+  };
+
+  // Create a lot that isn't in the sale yet (uncatalogued / missing item) and
+  // add it to the cart. If a customer basket is loaded, hold it under them too.
+  const createAndAddItem = async (name: string, priceStr: string) => {
+    const nm = name.trim();
+    if (!nm) return;
+    const price = Number(priceStr);
+    setCreatingItem(true);
+    const { data: lot, error } = await supabase
+      .from('lots')
+      .insert({
+        sale_id: saleId,
+        name: nm,
+        starting_bid: isNaN(price) ? 0 : price,
+        inventory_status: buyerBasketId ? 'held' : 'available',
+        held_by: buyerBasketId || null,
+        held_until: buyerBasketId ? new Date(Date.now() + STAFF_HOLD_MS).toISOString() : null,
+        updated_at: new Date().toISOString(),
+      })
+      .select('id, lot_number, name')
+      .single();
+    setCreatingItem(false);
+    if (error || !lot) {
+      setError('Could not create item: ' + (error?.message ?? ''));
+      return;
+    }
+    setCart((prev) => [
+      ...prev,
+      {
+        lotId: lot.id,
+        description: `#${lot.lot_number ?? '—'} ${lot.name}`,
+        price: isNaN(price) ? 0 : price,
+        fulfillment: 'carry',
+      },
+    ]);
+    setError(null);
+    setPickerSearch('');
+    setNewLotPrice('');
   };
 
   const handleScan = (scanned: ScannedLot) => {
@@ -437,6 +478,8 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setBuyerBasketId(null);
     setBuyerContact(null);
     setScanMode('item');
+    setPickerSearch('');
+    setNewLotPrice('');
     setCustomerResults([]);
     setShowNewCustomer(false);
     setNewCustomer({ name: '', phone: '', email: '' });
@@ -641,7 +684,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             />
           </div>
           {filteredPicker.length === 0 ? (
-            <p className="text-sm text-gray-400 py-2 text-center">No available items</p>
+            <p className="text-sm text-gray-400 py-2 text-center">No matching items in this sale.</p>
           ) : (
             filteredPicker.slice(0, 50).map((lot) => (
               <button
@@ -655,6 +698,35 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
                 <span className="text-gray-500 whitespace-nowrap">{money(defaultPrice(lot))}</span>
               </button>
             ))
+          )}
+
+          {/* Create a missing / uncatalogued item on the spot */}
+          {pickerSearch.trim() && (
+            <div className="mt-2 pt-2 border-t border-gray-100">
+              <p className="text-xs text-gray-500 mb-1.5">
+                Not in the sale? Add “{pickerSearch.trim()}” as a new item:
+              </p>
+              <div className="flex gap-2">
+                <div className="relative w-28 shrink-0">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={newLotPrice}
+                    onChange={(e) => setNewLotPrice(e.target.value)}
+                    placeholder="Price"
+                    className="w-full pl-5 pr-2 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                  />
+                </div>
+                <button
+                  onClick={() => createAndAddItem(pickerSearch, newLotPrice)}
+                  disabled={creatingItem}
+                  className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300"
+                >
+                  <Plus className="w-4 h-4" /> {creatingItem ? 'Adding…' : 'Add new item'}
+                </button>
+              </div>
+            </div>
           )}
         </div>
       )}
