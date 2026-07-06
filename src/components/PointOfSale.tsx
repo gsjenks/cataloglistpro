@@ -4,7 +4,7 @@
 // each lot sold and shows a printable receipt. Card tender arrives in Phase 4.
 
 import { useEffect, useMemo, useState } from 'react';
-import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2, ShoppingBasket, User } from 'lucide-react';
+import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2, ShoppingBasket, User, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Lot, TenderType } from '../types';
 import { supabase } from '../lib/supabase';
 import { createTransaction, computeTotals, type PosLineItem } from '../services/PosService';
@@ -115,6 +115,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [customerFormError, setCustomerFormError] = useState<string | null>(null);
   // Staff must confirm mover/delivery details before completing a delivery sale.
   const [deliveryConfirmed, setDeliveryConfirmed] = useState(false);
+  const [deliveryExpanded, setDeliveryExpanded] = useState(true);
   const [delivery, setDelivery] = useState({
     address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '',
   });
@@ -828,7 +829,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       </div>
 
       {/* Footer: totals + tender + complete */}
-      <div className="bg-white border-t border-gray-200 px-4 py-3 space-y-3">
+      <div className="bg-white border-t border-gray-200 px-4 py-3 space-y-3 max-h-[70vh] overflow-y-auto">
         {error && (
           <div className="p-2.5 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">{error}</div>
         )}
@@ -865,56 +866,69 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         )}
         {hasDelivery && !deliveryConfirmed && (
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-md space-y-2">
-            <p className="text-xs font-semibold text-amber-900">
-              Delivery &amp; mover details ({cart.filter((i) => i.fulfillment === 'delivery').length} item
-              {cart.filter((i) => i.fulfillment === 'delivery').length === 1 ? '' : 's'} for delivery)
-            </p>
-            <input
-              placeholder="Delivery address"
-              value={delivery.address}
-              onChange={(e) => updateDelivery({ address: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-            />
-            <div className="flex gap-2">
-              <input
-                placeholder="Delivery date"
-                value={delivery.date}
-                onChange={(e) => updateDelivery({ date: e.target.value })}
-                className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-              />
-              <input
-                placeholder="Estimate"
-                value={delivery.estimate}
-                onChange={(e) => updateDelivery({ estimate: e.target.value })}
-                className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-              />
-            </div>
-            <input
-              placeholder="Mover / delivery company"
-              value={delivery.company}
-              onChange={(e) => updateDelivery({ company: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-            />
-            <div className="flex gap-2">
-              <input
-                placeholder="Mover phone"
-                value={delivery.companyPhone}
-                onChange={(e) => updateDelivery({ companyPhone: e.target.value })}
-                className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-              />
-              <input
-                placeholder="Mover email"
-                value={delivery.companyEmail}
-                onChange={(e) => updateDelivery({ companyEmail: e.target.value })}
-                className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-              />
-            </div>
             <button
-              onClick={saveDeliveryDetails}
-              className="w-full mt-1 px-3 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700"
+              onClick={() => setDeliveryExpanded((s) => !s)}
+              className="w-full flex items-center justify-between gap-2 text-left"
             >
-              Save delivery details
+              <span className="text-xs font-semibold text-amber-900">
+                Delivery &amp; mover details ({cart.filter((i) => i.fulfillment === 'delivery').length} item
+                {cart.filter((i) => i.fulfillment === 'delivery').length === 1 ? '' : 's'} for delivery)
+              </span>
+              <span className="inline-flex items-center gap-1 text-xs text-amber-800 shrink-0">
+                {deliveryExpanded ? 'Hide' : 'Edit'}
+                {deliveryExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </span>
             </button>
+            {deliveryExpanded && (
+              <>
+                <input
+                  placeholder="Delivery address"
+                  value={delivery.address}
+                  onChange={(e) => updateDelivery({ address: e.target.value })}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                />
+                <div className="flex gap-2">
+                  <input
+                    placeholder="Delivery date"
+                    value={delivery.date}
+                    onChange={(e) => updateDelivery({ date: e.target.value })}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                  />
+                  <input
+                    placeholder="Estimate"
+                    value={delivery.estimate}
+                    onChange={(e) => updateDelivery({ estimate: e.target.value })}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                  />
+                </div>
+                <input
+                  placeholder="Mover / delivery company"
+                  value={delivery.company}
+                  onChange={(e) => updateDelivery({ company: e.target.value })}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                />
+                <div className="flex gap-2">
+                  <input
+                    placeholder="Mover phone"
+                    value={delivery.companyPhone}
+                    onChange={(e) => updateDelivery({ companyPhone: e.target.value })}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                  />
+                  <input
+                    placeholder="Mover email"
+                    value={delivery.companyEmail}
+                    onChange={(e) => updateDelivery({ companyEmail: e.target.value })}
+                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                  />
+                </div>
+                <button
+                  onClick={saveDeliveryDetails}
+                  className="w-full mt-1 px-3 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700"
+                >
+                  Save delivery details
+                </button>
+              </>
+            )}
           </div>
         )}
 
