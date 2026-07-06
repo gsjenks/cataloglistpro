@@ -13,6 +13,7 @@ import {
   deliveryFromShopper,
   saveShopperDelivery,
   deliveryMissing,
+  emptyDelivery,
   SHOPPER_DELIVERY_COLS,
 } from '../lib/delivery';
 import QRScanner from './QRScanner';
@@ -321,6 +322,22 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const pickCustomer = (id: string) => {
     setCustomerResults([]);
     loadBuyerBasket(id);
+  };
+
+  // Switch to a different customer (e.g. the current one stepped away). Clears
+  // the in-progress cart/tender/delivery and the loaded customer so staff can
+  // look up the next person. The previous customer's held items stay held to
+  // them in the database, so their basket is intact when they return.
+  const changeCustomer = () => {
+    setBuyerBasketId(null);
+    setBuyerContact(null);
+    setBuyerName('');
+    setCustomerResults([]);
+    setCart([]);
+    setTender(null);
+    setDelivery(emptyDelivery);
+    setDeliveryConfirmed(false);
+    setError(null);
   };
 
   // Open the "new customer" popup, prefilled with whatever was typed in search.
@@ -647,10 +664,10 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
               <p className="text-sm font-semibold text-gray-900 truncate">
                 {buyerName || buyerContact?.name}
                 <button
-                  onClick={() => { setBuyerBasketId(null); setBuyerContact(null); setBuyerName(''); setCustomerResults([]); }}
+                  onClick={changeCustomer}
                   className="ml-2 align-middle text-xs font-normal text-indigo-600 underline"
                 >
-                  Change
+                  Switch customer
                 </button>
               </p>
               <p className="text-xs text-gray-500 truncate">
