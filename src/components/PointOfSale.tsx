@@ -4,7 +4,7 @@
 // each lot sold and shows a printable receipt. Card tender arrives in Phase 4.
 
 import { useEffect, useMemo, useState } from 'react';
-import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2, ShoppingBasket } from 'lucide-react';
+import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2, ShoppingBasket, User } from 'lucide-react';
 import type { Lot, TenderType } from '../types';
 import { supabase } from '../lib/supabase';
 import { createTransaction, computeTotals, type PosLineItem } from '../services/PosService';
@@ -66,6 +66,11 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [buyerBasketId, setBuyerBasketId] = useState<string | null>(null);
   const [buyerContact, setBuyerContact] = useState<{ name?: string; phone?: string; email?: string } | null>(null);
   const [scanMode, setScanMode] = useState<'item' | 'basket'>('item');
+  const [showCustomer, setShowCustomer] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState<
+    { id: string; name: string; email: string | null; phone: string | null }[]
+  >([]);
   const [delivery, setDelivery] = useState({
     address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '',
   });
@@ -185,6 +190,31 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     return true;
   };
 
+  // Find a customer by any part of their name, email, or phone, then load their
+  // basket into the register.
+  const searchCustomers = async (q: string) => {
+    setCustomerSearch(q);
+    if (q.trim().length < 1) {
+      setCustomerResults([]);
+      return;
+    }
+    let query = supabase.from('shoppers').select('id, name, email, phone');
+    if (companyId) query = query.eq('company_id', companyId);
+    const term = `%${q.trim()}%`;
+    query = query.or(`name.ilike.${term},email.ilike.${term},phone.ilike.${term}`);
+    const { data } = await query.limit(20);
+    setCustomerResults(
+      (data as { id: string; name: string; email: string | null; phone: string | null }[] | null) || [],
+    );
+  };
+
+  const pickCustomer = (id: string) => {
+    setShowCustomer(false);
+    setCustomerSearch('');
+    setCustomerResults([]);
+    loadBuyerBasket(id);
+  };
+
   const updatePrice = (index: number, value: string) => {
     const price = Number(value);
     setCart((prev) => prev.map((it, i) => (i === index ? { ...it, price: isNaN(price) ? 0 : price } : it)));
@@ -262,6 +292,9 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setBuyerBasketId(null);
     setBuyerContact(null);
     setScanMode('item');
+    setShowCustomer(false);
+    setCustomerSearch('');
+    setCustomerResults([]);
     setDelivery({ address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '' });
   };
 
@@ -366,7 +399,48 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         >
           <ShoppingBasket className="w-4 h-4" /> Basket
         </button>
+        <button
+          onClick={() => setShowCustomer((s) => !s)}
+          className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 border border-indigo-300 text-indigo-700 rounded-md text-sm font-medium hover:bg-indigo-50"
+        >
+          <User className="w-4 h-4" /> Customer
+        </button>
       </div>
+
+      {/* Customer lookup — find a shopper's basket by name / email / phone */}
+      {showCustomer && (
+        <div className="px-4 py-3 bg-white border-b border-gray-200 max-h-64 overflow-auto">
+          <div className="relative mb-2">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              autoFocus
+              value={customerSearch}
+              onChange={(e) => searchCustomers(e.target.value)}
+              placeholder="Search customer by name, email, or phone…"
+              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+            />
+          </div>
+          {customerSearch.trim() && customerResults.length === 0 ? (
+            <p className="text-sm text-gray-400 py-2 text-center">No customers match.</p>
+          ) : (
+            customerResults.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => pickCustomer(c.id)}
+                className="w-full flex items-center gap-3 px-2 py-2 text-left hover:bg-gray-50 rounded"
+              >
+                <User className="w-4 h-4 text-gray-400 shrink-0" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-gray-800 truncate">{c.name}</span>
+                  <span className="block text-xs text-gray-500 truncate">
+                    {[c.phone, c.email].filter(Boolean).join(' · ') || 'No contact info'}
+                  </span>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Loaded buyer basket indicator */}
       {buyerBasketId && (
