@@ -861,17 +861,26 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
                 className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
               />
             </div>
-            <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={deliveryConfirmed}
-                onChange={(e) => setDeliveryConfirmed(e.target.checked)}
-                className="w-4 h-4 accent-amber-600"
-              />
-              <span className="text-xs font-medium text-amber-900">
-                Mover / delivery details validated
-              </span>
-            </label>
+            {deliveryConfirmed ? (
+              <div className="flex items-center justify-between pt-1">
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700">
+                  <CheckCircle2 className="w-4 h-4" /> Delivery details saved
+                </span>
+                <button
+                  onClick={() => setDeliveryConfirmed(false)}
+                  className="text-xs text-amber-800 underline"
+                >
+                  Edit
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setDeliveryConfirmed(true)}
+                className="w-full mt-1 px-3 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700"
+              >
+                Save delivery details
+              </button>
+            )}
           </div>
         )}
 
@@ -904,7 +913,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
 
         {hasDelivery && !deliveryConfirmed && (
           <p className="text-xs text-amber-700 text-center">
-            Validate the mover / delivery details above to complete this sale.
+            Save the delivery details above to complete this sale.
           </p>
         )}
         <button
