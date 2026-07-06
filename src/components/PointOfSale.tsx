@@ -95,6 +95,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [tender, setTender] = useState<TenderType | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [pickerExpanded, setPickerExpanded] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const [newLotPrice, setNewLotPrice] = useState('');
   const [newLotDelivery, setNewLotDelivery] = useState(false);
@@ -595,6 +596,32 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   }
 
   // ---- Register view ------------------------------------------------------
+  // Compact action buttons shown inline in the customer header to save space.
+  const actionButtons = (
+    <div className="flex gap-2 shrink-0">
+      <button
+        onClick={() => { setScanMode('item'); setShowScanner(true); }}
+        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
+      >
+        <ScanLine className="w-4 h-4" /> Scan Tag
+      </button>
+      <button
+        onClick={() => setShowPicker((s) => !s)}
+        className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+      >
+        <Plus className="w-4 h-4" /> Add Item
+      </button>
+      {!buyerBasketId && (
+        <button
+          onClick={() => { setScanMode('basket'); setShowScanner(true); }}
+          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 border border-indigo-300 text-indigo-700 rounded-md text-sm font-medium hover:bg-indigo-50"
+        >
+          <ShoppingBasket className="w-4 h-4" /> Scan Basket
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 z-50 bg-gray-50 flex flex-col">
       {/* Header */}
@@ -608,45 +635,48 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       {/* Customer / buyer — the single place to identify who is buying. Search
           saved shoppers; if none match, the typed name/phone/email becomes the
           buyer for an unregistered walk-up sale. */}
-      <div className="px-4 py-3 bg-white border-b border-gray-200">
+      <div className="px-4 py-2 bg-white border-b border-gray-200">
         {buyerBasketId ? (
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-indigo-700">Customer basket loaded</p>
-              <p className="text-sm font-semibold text-gray-900 truncate">{buyerName || buyerContact?.name}</p>
-              {(buyerContact?.phone || buyerContact?.email) && (
-                <p className="text-xs text-gray-500 truncate">
-                  {buyerContact?.phone && (
-                    <a href={`tel:${buyerContact.phone}`} className="hover:underline">{buyerContact.phone}</a>
-                  )}
-                  {buyerContact?.phone && buyerContact?.email && ' · '}
-                  {buyerContact?.email && (
-                    <a href={`mailto:${buyerContact.email}`} className="hover:underline">{buyerContact.email}</a>
-                  )}
-                </p>
-              )}
-              <p className="text-xs text-gray-400 mt-0.5">Items you add sync to their basket.</p>
+              <p className="text-sm font-semibold text-gray-900 truncate">
+                {buyerName || buyerContact?.name}
+                <button
+                  onClick={() => { setBuyerBasketId(null); setBuyerContact(null); setBuyerName(''); setCustomerResults([]); }}
+                  className="ml-2 align-middle text-xs font-normal text-indigo-600 underline"
+                >
+                  Change
+                </button>
+              </p>
+              <p className="text-xs text-gray-500 truncate">
+                {buyerContact?.phone && (
+                  <a href={`tel:${buyerContact.phone}`} className="hover:underline">{buyerContact.phone}</a>
+                )}
+                {buyerContact?.phone && buyerContact?.email && ' · '}
+                {buyerContact?.email && (
+                  <a href={`mailto:${buyerContact.email}`} className="hover:underline">{buyerContact.email}</a>
+                )}
+                {!buyerContact?.phone && !buyerContact?.email && 'Items you add sync to their basket'}
+              </p>
             </div>
-            <button
-              onClick={() => { setBuyerBasketId(null); setBuyerContact(null); setBuyerName(''); setCustomerResults([]); }}
-              className="text-xs text-indigo-600 underline shrink-0"
-            >
-              Change
-            </button>
+            {actionButtons}
           </div>
         ) : (
           <>
-            <div className="relative">
-              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                value={buyerName}
-                onChange={(e) => { setBuyerName(e.target.value); searchCustomers(e.target.value); }}
-                placeholder="Customer name, phone, or email…"
-                className={
-                  `w-full pl-9 pr-3 py-2 text-sm border rounded-md focus:outline-none focus:border-indigo-600 ` +
-                  (buyerName.trim() ? 'border-gray-300' : 'border-amber-300')
-                }
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 min-w-0">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  value={buyerName}
+                  onChange={(e) => { setBuyerName(e.target.value); searchCustomers(e.target.value); }}
+                  placeholder="Customer name, phone, or email…"
+                  className={
+                    `w-full pl-9 pr-3 py-2 text-sm border rounded-md focus:outline-none focus:border-indigo-600 ` +
+                    (buyerName.trim() ? 'border-gray-300' : 'border-amber-300')
+                  }
+                />
+              </div>
+              {actionButtons}
             </div>
             {customerResults.length > 0 && (
               <div className="mt-1 border border-gray-200 rounded-md divide-y divide-gray-100 max-h-56 overflow-auto">
@@ -684,34 +714,9 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         )}
       </div>
 
-      {/* Add buttons */}
-      <div className="px-4 py-3 flex gap-2 bg-white border-b border-gray-100">
-        <button
-          onClick={() => { setScanMode('item'); setShowScanner(true); }}
-          className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700"
-        >
-          <ScanLine className="w-4 h-4" /> Scan Tag
-        </button>
-        <button
-          onClick={() => setShowPicker((s) => !s)}
-          className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
-          <Plus className="w-4 h-4" /> Add Item
-        </button>
-        {/* Scanning a basket QR only loads a customer — hide it once one is loaded. */}
-        {!buyerBasketId && (
-          <button
-            onClick={() => { setScanMode('basket'); setShowScanner(true); }}
-            className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 border border-indigo-300 text-indigo-700 rounded-md text-sm font-medium hover:bg-indigo-50"
-          >
-            <ShoppingBasket className="w-4 h-4" /> Scan Basket
-          </button>
-        )}
-      </div>
-
       {/* Picker */}
       {showPicker && (
-        <div className="px-4 py-3 bg-white border-b border-gray-200 max-h-64 overflow-auto">
+        <div className={`px-4 py-3 bg-white border-b border-gray-200 ${pickerExpanded ? 'max-h-64 overflow-auto' : ''}`}>
           <div className="relative mb-2">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -724,18 +729,32 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           {filteredPicker.length === 0 ? (
             <p className="text-sm text-gray-400 py-2 text-center">No matching items in this sale.</p>
           ) : (
-            filteredPicker.slice(0, 50).map((lot) => (
-              <button
-                key={lot.id}
-                onClick={() => addLot(lot)}
-                className="w-full flex justify-between items-center px-2 py-2 text-sm text-left hover:bg-gray-50 rounded"
-              >
-                <span className="text-gray-700 truncate pr-2">
-                  #{lot.lot_number ?? '—'} {lot.name}
-                </span>
-                <span className="text-gray-500 whitespace-nowrap">{money(defaultPrice(lot))}</span>
-              </button>
-            ))
+            <>
+              {filteredPicker.slice(0, pickerExpanded ? 50 : 2).map((lot) => (
+                <button
+                  key={lot.id}
+                  onClick={() => addLot(lot)}
+                  className="w-full flex justify-between items-center px-2 py-2 text-sm text-left hover:bg-gray-50 rounded"
+                >
+                  <span className="text-gray-700 truncate pr-2">
+                    #{lot.lot_number ?? '—'} {lot.name}
+                  </span>
+                  <span className="text-gray-500 whitespace-nowrap">{money(defaultPrice(lot))}</span>
+                </button>
+              ))}
+              {filteredPicker.length > 2 && (
+                <button
+                  onClick={() => setPickerExpanded((s) => !s)}
+                  className="w-full mt-1 inline-flex items-center justify-center gap-1 text-xs font-medium text-indigo-600 hover:underline"
+                >
+                  {pickerExpanded ? (
+                    <>Show less <ChevronUp className="w-3.5 h-3.5" /></>
+                  ) : (
+                    <>Show all {filteredPicker.length} <ChevronDown className="w-3.5 h-3.5" /></>
+                  )}
+                </button>
+              )}
+            </>
           )}
 
           {/* Create a missing / uncatalogued item on the spot */}
@@ -938,7 +957,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           <div className="flex justify-between text-lg font-bold text-gray-900"><span>Total</span><span>{money(totals.total)}</span></div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
           {TENDERS.map((t) => (
             <button
               key={t.value}
