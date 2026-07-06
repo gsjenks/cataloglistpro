@@ -39,6 +39,36 @@ function defaultPrice(lot: Lot): number {
   return lot.starting_bid ?? 0;
 }
 
+// Levenshtein edit distance, for fuzzy "similar name" duplicate detection.
+function levenshtein(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  let prev = Array.from({ length: n + 1 }, (_, i) => i);
+  let curr = new Array(n + 1).fill(0);
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+// Two names are "similar" if, normalized, they're equal, one contains the
+// other, or their edit distance is within ~20% of the longer name.
+function nameSimilar(a: string, b: string): boolean {
+  const na = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const nb = b.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (na.length < 3 || nb.length < 3) return false;
+  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+  const maxLen = Math.max(na.length, nb.length);
+  return (maxLen - levenshtein(na, nb)) / maxLen >= 0.8;
+}
+
 interface Receipt {
   transactionId: string;
   items: PosLineItem[];
@@ -67,12 +97,15 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [buyerContact, setBuyerContact] = useState<{ name?: string; phone?: string; email?: string } | null>(null);
   const [scanMode, setScanMode] = useState<'item' | 'basket'>('item');
   type CustomerRow = { id: string; name: string; email: string | null; phone: string | null };
+  type MatchRow = CustomerRow & { reason: 'contact' | 'name' };
   const [customerResults, setCustomerResults] = useState<CustomerRow[]>([]);
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', email: '' });
-  const [dupMatches, setDupMatches] = useState<CustomerRow[]>([]);
+  const [dupMatches, setDupMatches] = useState<MatchRow[]>([]);
   const [savingCustomer, setSavingCustomer] = useState(false);
   const [customerFormError, setCustomerFormError] = useState<string | null>(null);
+  // Staff must confirm mover/delivery details before completing a delivery sale.
+  const [deliveryConfirmed, setDeliveryConfirmed] = useState(false);
   const [delivery, setDelivery] = useState({
     address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '',
   });
@@ -250,20 +283,33 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setShowNewCustomer(true);
   };
 
-  // Look for an existing customer with the same phone or email (normalized), so
-  // we don't create a duplicate record / a second cart for the same person.
-  const findExistingCustomers = async (phone: string, email: string): Promise<CustomerRow[]> => {
+  // Look for an existing customer that may be the same person: an exact
+  // phone/email match (normalized) OR a similar name (fuzzy). Returns each with
+  // the reason it matched, so we don't create a duplicate record / second cart.
+  const findExistingCustomers = async (
+    name: string,
+    phone: string,
+    email: string,
+  ): Promise<MatchRow[]> => {
     const phoneDigits = phone.replace(/\D/g, '');
     const em = email.trim().toLowerCase();
-    if (!phoneDigits && !em) return [];
+    const nm = name.trim();
+    if (!phoneDigits && !em && !nm) return [];
     let query = supabase.from('shoppers').select('id, name, email, phone');
     if (companyId) query = query.eq('company_id', companyId);
     const { data } = await query.limit(500);
-    return ((data as CustomerRow[] | null) || []).filter((c) => {
+    const matches: MatchRow[] = [];
+    for (const c of (data as CustomerRow[] | null) || []) {
       const cPhone = (c.phone || '').replace(/\D/g, '');
       const cEmail = (c.email || '').toLowerCase();
-      return (phoneDigits && cPhone && cPhone === phoneDigits) || (em && cEmail && cEmail === em);
-    });
+      if ((phoneDigits && cPhone === phoneDigits) || (em && cEmail === em)) {
+        matches.push({ ...c, reason: 'contact' });
+      } else if (nm && nameSimilar(nm, c.name || '')) {
+        matches.push({ ...c, reason: 'name' });
+      }
+    }
+    // Show exact contact matches first.
+    return matches.sort((a, b) => (a.reason === b.reason ? 0 : a.reason === 'contact' ? -1 : 1));
   };
 
   // Save a new customer. On the first attempt, if a matching record already
@@ -278,7 +324,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setCustomerFormError(null);
     setSavingCustomer(true);
     if (!force) {
-      const existing = await findExistingCustomers(phone, email);
+      const existing = await findExistingCustomers(name, phone, email);
       if (existing.length > 0) {
         setDupMatches(existing);
         setSavingCustomer(false);
@@ -314,6 +360,13 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
 
   const setItemFulfillment = (index: number, f: 'carry' | 'delivery') => {
     setCart((prev) => prev.map((it, i) => (i === index ? { ...it, fulfillment: f } : it)));
+  };
+
+  // Editing any mover/delivery field invalidates a prior confirmation, forcing
+  // staff to re-validate the updated details before completing the sale.
+  const updateDelivery = (patch: Partial<typeof delivery>) => {
+    setDelivery((prev) => ({ ...prev, ...patch }));
+    setDeliveryConfirmed(false);
   };
 
   const hasDelivery = cart.some((i) => i.fulfillment === 'delivery');
@@ -389,6 +442,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setNewCustomer({ name: '', phone: '', email: '' });
     setDupMatches([]);
     setCustomerFormError(null);
+    setDeliveryConfirmed(false);
     setDelivery({ address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '' });
   };
 
@@ -631,24 +685,22 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="mt-2 inline-flex rounded-md border border-gray-200 overflow-hidden">
-                  {(['carry', 'delivery'] as const).map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => setItemFulfillment(i, f)}
-                      className={
-                        `px-3 py-1 text-xs font-medium ` +
-                        (item.fulfillment === f
-                          ? f === 'delivery'
-                            ? 'bg-amber-500 text-white'
-                            : 'bg-green-600 text-white'
-                          : 'bg-white text-gray-600')
-                      }
-                    >
-                      {f === 'carry' ? 'Carry out' : 'Delivery'}
-                    </button>
-                  ))}
-                </div>
+                <label className="mt-2 inline-flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={item.fulfillment === 'delivery'}
+                    onChange={(e) => setItemFulfillment(i, e.target.checked ? 'delivery' : 'carry')}
+                    className="w-4 h-4 accent-amber-500"
+                  />
+                  <span
+                    className={
+                      `text-xs font-medium ` +
+                      (item.fulfillment === 'delivery' ? 'text-amber-700' : 'text-gray-500')
+                    }
+                  >
+                    {item.fulfillment === 'delivery' ? 'For delivery' : 'Carry out'}
+                  </span>
+                </label>
               </div>
             ))}
           </div>
@@ -674,50 +726,64 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           </label>
         </div>
 
-        {/* Delivery details — shown when any item is marked Delivery */}
+        {/* Delivery / mover details — shown when any item is checked for delivery */}
         {hasDelivery && (
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-md space-y-2">
-            <p className="text-xs font-semibold text-amber-900">Delivery details</p>
+            <p className="text-xs font-semibold text-amber-900">
+              Delivery &amp; mover details ({cart.filter((i) => i.fulfillment === 'delivery').length} item
+              {cart.filter((i) => i.fulfillment === 'delivery').length === 1 ? '' : 's'} for delivery)
+            </p>
             <input
               placeholder="Delivery address"
               value={delivery.address}
-              onChange={(e) => setDelivery({ ...delivery, address: e.target.value })}
+              onChange={(e) => updateDelivery({ address: e.target.value })}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
             />
             <div className="flex gap-2">
               <input
                 placeholder="Delivery date"
                 value={delivery.date}
-                onChange={(e) => setDelivery({ ...delivery, date: e.target.value })}
+                onChange={(e) => updateDelivery({ date: e.target.value })}
                 className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
               />
               <input
                 placeholder="Estimate"
                 value={delivery.estimate}
-                onChange={(e) => setDelivery({ ...delivery, estimate: e.target.value })}
+                onChange={(e) => updateDelivery({ estimate: e.target.value })}
                 className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
               />
             </div>
             <input
-              placeholder="Delivery company"
+              placeholder="Mover / delivery company"
               value={delivery.company}
-              onChange={(e) => setDelivery({ ...delivery, company: e.target.value })}
+              onChange={(e) => updateDelivery({ company: e.target.value })}
               className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
             />
             <div className="flex gap-2">
               <input
-                placeholder="Company phone"
+                placeholder="Mover phone"
                 value={delivery.companyPhone}
-                onChange={(e) => setDelivery({ ...delivery, companyPhone: e.target.value })}
+                onChange={(e) => updateDelivery({ companyPhone: e.target.value })}
                 className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
               />
               <input
-                placeholder="Company email"
+                placeholder="Mover email"
                 value={delivery.companyEmail}
-                onChange={(e) => setDelivery({ ...delivery, companyEmail: e.target.value })}
+                onChange={(e) => updateDelivery({ companyEmail: e.target.value })}
                 className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
               />
             </div>
+            <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={deliveryConfirmed}
+                onChange={(e) => setDeliveryConfirmed(e.target.checked)}
+                className="w-4 h-4 accent-amber-600"
+              />
+              <span className="text-xs font-medium text-amber-900">
+                Mover / delivery details validated
+              </span>
+            </label>
           </div>
         )}
 
@@ -748,8 +814,19 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           ))}
         </div>
 
+        {hasDelivery && !deliveryConfirmed && (
+          <p className="text-xs text-amber-700 text-center">
+            Validate the mover / delivery details above to complete this sale.
+          </p>
+        )}
         <button
-          disabled={!tender || cart.length === 0 || processing || !buyerName.trim()}
+          disabled={
+            !tender ||
+            cart.length === 0 ||
+            processing ||
+            !buyerName.trim() ||
+            (hasDelivery && !deliveryConfirmed)
+          }
           onClick={completeSale}
           className="w-full px-4 py-3 bg-green-600 text-white rounded-md font-semibold hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
         >
@@ -824,7 +901,19 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
                   {dupMatches.map((m) => (
                     <div key={m.id} className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">{m.name}</p>
+                        <p className="text-sm font-medium text-gray-800 truncate">
+                          {m.name}
+                          <span
+                            className={
+                              `ml-2 align-middle px-1.5 py-0.5 rounded text-[10px] font-medium ` +
+                              (m.reason === 'contact'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-amber-100 text-amber-800')
+                            }
+                          >
+                            {m.reason === 'contact' ? 'same phone/email' : 'similar name'}
+                          </span>
+                        </p>
                         <p className="text-xs text-gray-500 truncate">
                           {[m.phone, m.email].filter(Boolean).join(' · ') || 'No contact info'}
                         </p>
