@@ -484,7 +484,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             </p>
           </div>
           <button
-            onClick={() => { setBuyerBasketId(null); setBuyerContact(null); }}
+            onClick={() => { setBuyerBasketId(null); setBuyerContact(null); setBuyerName(''); }}
             className="text-xs text-indigo-600 underline shrink-0"
           >
             Unlink
@@ -580,15 +580,27 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         )}
 
         <div className="flex items-center gap-3">
-          <input
-            value={buyerName}
-            onChange={(e) => setBuyerName(e.target.value)}
-            placeholder="Buyer name (required)"
-            className={
-              `flex-1 px-3 py-2 text-sm border rounded-md focus:outline-none focus:border-indigo-600 ` +
-              (buyerName.trim() ? 'border-gray-300' : 'border-amber-300')
-            }
-          />
+          {buyerBasketId ? (
+            // Customer loaded from a basket lookup/scan — name is auto-filled and
+            // read-only. Use "Change" / "Unlink" in the basket banner above to
+            // switch customers or ring up a walk-up instead.
+            <input
+              value={buyerName}
+              readOnly
+              title="Buyer from the looked-up customer"
+              className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-md bg-gray-50 text-gray-700 cursor-default"
+            />
+          ) : (
+            <input
+              value={buyerName}
+              onChange={(e) => setBuyerName(e.target.value)}
+              placeholder="Buyer name (required)"
+              className={
+                `flex-1 px-3 py-2 text-sm border rounded-md focus:outline-none focus:border-indigo-600 ` +
+                (buyerName.trim() ? 'border-gray-300' : 'border-amber-300')
+              }
+            />
+          )}
           <label className="flex items-center gap-1.5 text-sm text-gray-600 whitespace-nowrap">
             Tax %
             <input
