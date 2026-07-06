@@ -66,9 +66,13 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [buyerBasketId, setBuyerBasketId] = useState<string | null>(null);
   const [buyerContact, setBuyerContact] = useState<{ name?: string; phone?: string; email?: string } | null>(null);
   const [scanMode, setScanMode] = useState<'item' | 'basket'>('item');
-  const [customerResults, setCustomerResults] = useState<
-    { id: string; name: string; email: string | null; phone: string | null }[]
-  >([]);
+  type CustomerRow = { id: string; name: string; email: string | null; phone: string | null };
+  const [customerResults, setCustomerResults] = useState<CustomerRow[]>([]);
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({ name: '', phone: '', email: '' });
+  const [dupMatches, setDupMatches] = useState<CustomerRow[]>([]);
+  const [savingCustomer, setSavingCustomer] = useState(false);
+  const [customerFormError, setCustomerFormError] = useState<string | null>(null);
   const [delivery, setDelivery] = useState({
     address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '',
   });
@@ -230,6 +234,79 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     loadBuyerBasket(id);
   };
 
+  // Open the "new customer" popup, prefilled with whatever was typed in search.
+  const openNewCustomer = () => {
+    const typed = buyerName.trim();
+    // If the typed text looks like an email or phone, seed the right field.
+    const isEmail = typed.includes('@');
+    const isPhone = /\d/.test(typed) && !isEmail && typed.replace(/\D/g, '').length >= 4;
+    setNewCustomer({
+      name: isEmail || isPhone ? '' : typed,
+      phone: isPhone ? typed : '',
+      email: isEmail ? typed : '',
+    });
+    setDupMatches([]);
+    setCustomerFormError(null);
+    setShowNewCustomer(true);
+  };
+
+  // Look for an existing customer with the same phone or email (normalized), so
+  // we don't create a duplicate record / a second cart for the same person.
+  const findExistingCustomers = async (phone: string, email: string): Promise<CustomerRow[]> => {
+    const phoneDigits = phone.replace(/\D/g, '');
+    const em = email.trim().toLowerCase();
+    if (!phoneDigits && !em) return [];
+    let query = supabase.from('shoppers').select('id, name, email, phone');
+    if (companyId) query = query.eq('company_id', companyId);
+    const { data } = await query.limit(500);
+    return ((data as CustomerRow[] | null) || []).filter((c) => {
+      const cPhone = (c.phone || '').replace(/\D/g, '');
+      const cEmail = (c.email || '').toLowerCase();
+      return (phoneDigits && cPhone && cPhone === phoneDigits) || (em && cEmail && cEmail === em);
+    });
+  };
+
+  // Save a new customer. On the first attempt, if a matching record already
+  // exists we surface it (so staff can load that existing cart instead of
+  // creating a duplicate). Passing force=true creates the record anyway.
+  const saveNewCustomer = async (force: boolean) => {
+    const name = newCustomer.name.trim();
+    const phone = newCustomer.phone.trim();
+    const email = newCustomer.email.trim();
+    if (!name) return setCustomerFormError('Enter the customer name.');
+    if (!phone && !email) return setCustomerFormError('Enter a phone or email so their cart can be found later.');
+    setCustomerFormError(null);
+    setSavingCustomer(true);
+    if (!force) {
+      const existing = await findExistingCustomers(phone, email);
+      if (existing.length > 0) {
+        setDupMatches(existing);
+        setSavingCustomer(false);
+        return;
+      }
+    }
+    const { data, error } = await supabase
+      .from('shoppers')
+      .insert({ company_id: companyId, name, email: email || null, phone: phone || null })
+      .select('id')
+      .single();
+    setSavingCustomer(false);
+    if (error || !data) {
+      setCustomerFormError('Could not save customer: ' + (error?.message ?? ''));
+      return;
+    }
+    setShowNewCustomer(false);
+    setCustomerResults([]);
+    loadBuyerBasket(data.id);
+  };
+
+  const useExistingCustomer = (id: string) => {
+    setShowNewCustomer(false);
+    setDupMatches([]);
+    setCustomerResults([]);
+    loadBuyerBasket(id);
+  };
+
   const updatePrice = (index: number, value: string) => {
     const price = Number(value);
     setCart((prev) => prev.map((it, i) => (i === index ? { ...it, price: isNaN(price) ? 0 : price } : it)));
@@ -308,6 +385,10 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setBuyerContact(null);
     setScanMode('item');
     setCustomerResults([]);
+    setShowNewCustomer(false);
+    setNewCustomer({ name: '', phone: '', email: '' });
+    setDupMatches([]);
+    setCustomerFormError(null);
     setDelivery({ address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '' });
   };
 
@@ -455,9 +536,17 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
               </div>
             )}
             {buyerName.trim() && customerResults.length === 0 && (
-              <p className="mt-1.5 text-xs text-gray-500">
-                No saved customer matches — this sale will use “{buyerName.trim()}” as an unregistered customer.
-              </p>
+              <div className="mt-1.5 flex items-center justify-between gap-2">
+                <p className="text-xs text-gray-500 min-w-0">
+                  No saved customer matches. Selling to “{buyerName.trim()}” as an unregistered customer, or:
+                </p>
+                <button
+                  onClick={openNewCustomer}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline whitespace-nowrap shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add customer
+                </button>
+              </div>
             )}
           </>
         )}
@@ -678,6 +767,107 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         ) : (
           <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />
         ))}
+
+      {/* New-customer popup: collect contact info and check for an existing
+          record/cart before creating a duplicate. */}
+      {showNewCustomer && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setShowNewCustomer(false)}
+        >
+          <div className="bg-white rounded-lg max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-bold text-gray-900">New customer</h3>
+              <button onClick={() => setShowNewCustomer(false)} className="p-1 rounded-full hover:bg-gray-100" aria-label="Close">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {customerFormError && (
+              <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+                {customerFormError}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <input
+                value={newCustomer.name}
+                onChange={(e) => { setNewCustomer({ ...newCustomer, name: e.target.value }); setDupMatches([]); }}
+                placeholder="Name"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+              />
+              <div className="flex gap-2">
+                <input
+                  value={newCustomer.phone}
+                  onChange={(e) => { setNewCustomer({ ...newCustomer, phone: e.target.value }); setDupMatches([]); }}
+                  placeholder="Phone"
+                  inputMode="tel"
+                  className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                />
+                <input
+                  value={newCustomer.email}
+                  onChange={(e) => { setNewCustomer({ ...newCustomer, email: e.target.value }); setDupMatches([]); }}
+                  placeholder="Email"
+                  inputMode="email"
+                  className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                />
+              </div>
+              <p className="text-xs text-gray-400">Name required; phone or email required so their cart can be found later.</p>
+            </div>
+
+            {dupMatches.length > 0 && (
+              <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-md">
+                <p className="text-sm font-medium text-amber-900 mb-2">
+                  This customer may already have a cart — use it instead of creating a duplicate?
+                </p>
+                <div className="space-y-2">
+                  {dupMatches.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{m.name}</p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {[m.phone, m.email].filter(Boolean).join(' · ') || 'No contact info'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => useExistingCustomer(m.id)}
+                        className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-md hover:bg-indigo-700 shrink-0"
+                      >
+                        Use this cart
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => saveNewCustomer(true)}
+                  disabled={savingCustomer}
+                  className="mt-3 text-xs text-amber-800 underline"
+                >
+                  None of these — create a new customer anyway
+                </button>
+              </div>
+            )}
+
+            {dupMatches.length === 0 && (
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => saveNewCustomer(false)}
+                  disabled={savingCustomer}
+                  className="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300"
+                >
+                  {savingCustomer ? 'Checking…' : 'Save & start cart'}
+                </button>
+                <button
+                  onClick={() => setShowNewCustomer(false)}
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
