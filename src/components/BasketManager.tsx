@@ -7,7 +7,7 @@
 // the buyer self-checkout gate.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { X, Search, Trash2, Plus, User, ScanLine } from 'lucide-react';
+import { X, Search, Trash2, Plus, User, ScanLine, Pencil } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
 import { reclaimExpiredHolds } from '../lib/holds';
@@ -70,6 +70,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [newShopper, setNewShopper] = useState({ name: '', phone: '', email: '' });
   const [showNewItem, setShowNewItem] = useState(false);
   const [newItem, setNewItem] = useState({ name: '', price: '' });
+  const [editLot, setEditLot] = useState<{ id: string; name: string; price: string } | null>(null);
   const [newItemPhoto, setNewItemPhoto] = useState<File | null>(null);
   const [showScanner, setShowScanner] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -116,9 +117,11 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   // When a customer is selected, load their saved delivery/mover details so the
   // floor can view/update them.
   useEffect(() => {
-    // Reset the add-item search when the open basket changes.
+    // Reset the add-item search and any in-progress item edit when the open
+    // basket changes.
     setAddSearch('');
     setAddResults([]);
+    setEditLot(null);
     let cancelled = false;
     if (!selected) {
       setDeliveryInfo(emptyDelivery);
@@ -320,6 +323,30 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     await load(); setBusy(false); onChanged?.();
   };
 
+  // Floor: edit a basket item's name / price in place (e.g. re-price on the
+  // spot, fix a label). Writes straight to the lot.
+  const saveLotEdit = async () => {
+    if (!editLot) return;
+    const name = editLot.name.trim();
+    if (!name) return alert('Enter an item name.');
+    const raw = editLot.price.trim();
+    const price = Number(raw);
+    if (raw && Number.isNaN(price)) return alert('Enter a valid price.');
+    setBusy(true);
+    await supabase
+      .from('lots')
+      .update({
+        name,
+        starting_bid: raw ? price : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', editLot.id);
+    setBusy(false);
+    setEditLot(null);
+    await load();
+    onChanged?.();
+  };
+
   // Floor: tag / untag a held item for delivery. Persists on the lot so the
   // register (and the customer's basket) sees it.
   const toggleItemDelivery = async (lotId: string, value: boolean) => {
@@ -341,6 +368,19 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     setSavingDelivery(false);
     if (error) return alert('Could not save delivery details.');
     setDeliverySaved(true);
+  };
+
+  // Floor: wipe the basket's saved delivery/mover details (customer no longer
+  // needs delivery, or the record was entered in error).
+  const clearFloorDelivery = async () => {
+    if (!selected) return;
+    if (!confirm('Clear all delivery details for this basket?')) return;
+    setSavingDelivery(true);
+    const { error } = await saveShopperDelivery(supabase, selected.id, emptyDelivery);
+    setSavingDelivery(false);
+    if (error) return alert('Could not clear delivery details.');
+    setDeliveryInfo(emptyDelivery);
+    setDeliverySaved(false);
   };
 
   // Delete a customer record. Releases any items they were holding (any sale)
@@ -682,33 +722,72 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                   <p className="text-sm text-gray-400 mb-4">This basket is empty.</p>
                 ) : (
                   <ul className="divide-y divide-gray-100 border border-gray-200 rounded-md mb-2 bg-white">
-                    {basketItems.map((l) => (
-                      <li key={l.id} className="px-3 py-2.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-800 truncate pr-2">
-                            #{l.lot_number ?? '—'} {l.name}
-                          </span>
-                          <span className="flex items-center gap-3 whitespace-nowrap">
-                            <span className="text-sm text-gray-600">{money(l.starting_bid)}</span>
-                            <button onClick={() => staffRelease(l.id)} disabled={busy} className="text-gray-400 hover:text-red-600">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </span>
-                        </div>
-                        <label className="mt-1 inline-flex items-center gap-2 cursor-pointer select-none">
+                    {basketItems.map((l) =>
+                      editLot?.id === l.id ? (
+                        <li key={l.id} className="px-3 py-2.5 space-y-2 bg-indigo-50/40">
+                          <p className="text-xs font-medium text-gray-500">Edit #{l.lot_number ?? '—'}</p>
                           <input
-                            type="checkbox"
-                            checked={!!l.for_delivery}
-                            disabled={busy}
-                            onChange={(e) => toggleItemDelivery(l.id, e.target.checked)}
-                            className="w-4 h-4 accent-amber-500"
+                            value={editLot.name}
+                            onChange={(e) => setEditLot({ ...editLot, name: e.target.value })}
+                            placeholder="Item name"
+                            className={inputCls}
                           />
-                          <span className={`text-xs font-medium ${l.for_delivery ? 'text-amber-700' : 'text-gray-500'}`}>
-                            {l.for_delivery ? 'For delivery' : 'Carry out'}
-                          </span>
-                        </label>
-                      </li>
-                    ))}
+                          <div className="flex items-center gap-2">
+                            <div className="relative flex-1">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                              <input
+                                value={editLot.price}
+                                onChange={(e) => setEditLot({ ...editLot, price: e.target.value })}
+                                type="number"
+                                inputMode="decimal"
+                                placeholder="Price"
+                                className="w-full pl-6 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                              />
+                            </div>
+                            <button onClick={saveLotEdit} disabled={busy} className="px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300">
+                              Save
+                            </button>
+                            <button onClick={() => setEditLot(null)} className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800">
+                              Cancel
+                            </button>
+                          </div>
+                        </li>
+                      ) : (
+                        <li key={l.id} className="px-3 py-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-800 truncate pr-2">
+                              #{l.lot_number ?? '—'} {l.name}
+                            </span>
+                            <span className="flex items-center gap-3 whitespace-nowrap">
+                              <span className="text-sm text-gray-600">{money(l.starting_bid)}</span>
+                              <button
+                                onClick={() => setEditLot({ id: l.id, name: l.name, price: l.starting_bid != null ? String(l.starting_bid) : '' })}
+                                disabled={busy}
+                                className="text-gray-400 hover:text-indigo-600"
+                                aria-label="Edit item"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => staffRelease(l.id)} disabled={busy} className="text-gray-400 hover:text-red-600" aria-label="Remove item">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </span>
+                          </div>
+                          <label className="mt-1 inline-flex items-center gap-2 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={!!l.for_delivery}
+                              disabled={busy}
+                              onChange={(e) => toggleItemDelivery(l.id, e.target.checked)}
+                              className="w-4 h-4 accent-amber-500"
+                            />
+                            <span className={`text-xs font-medium ${l.for_delivery ? 'text-amber-700' : 'text-gray-500'}`}>
+                              {l.for_delivery ? 'For delivery' : 'Carry out'}
+                            </span>
+                          </label>
+                        </li>
+                      ),
+                    )}
                   </ul>
                 )}
                 <p className="text-right text-sm font-semibold text-gray-900 mb-4">Total: {money(basketTotal)}</p>
@@ -736,6 +815,13 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                         className="px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700 disabled:bg-gray-300"
                       >
                         {savingDelivery ? 'Saving…' : 'Save delivery details'}
+                      </button>
+                      <button
+                        onClick={clearFloorDelivery}
+                        disabled={savingDelivery}
+                        className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-red-600 disabled:text-gray-300"
+                      >
+                        Clear
                       </button>
                       {deliverySaved && <span className="text-xs font-medium text-green-700">Saved ✓</span>}
                     </div>
