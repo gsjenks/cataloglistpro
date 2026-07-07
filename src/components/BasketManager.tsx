@@ -18,6 +18,7 @@ import {
   saveShopperDelivery,
   SHOPPER_DELIVERY_COLS,
 } from '../lib/delivery';
+import { searchTokens, tokenOrClause, lotMatchesTokens } from '../lib/lotSearch';
 import QRScanner from './QRScanner';
 
 interface Props {
@@ -259,21 +260,15 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
 
   // Search the whole sale (in the database, not just the loaded page) for
   // non-sold lots to add/hold — so every matching lot appears, not only the
-  // ones currently in memory.
+  // ones currently in memory. Tokenized so "blue sofa" matches "Blue Sleeper
+  // Sofa" (see lotSearch).
   const searchAddable = async (q: string) => {
     setAddSearch(q);
-    const term = q.trim();
-    if (!term) { setAddResults([]); return; }
-    const like = `%${term.replace(/[%,()]/g, ' ')}%`;
-    const ors = [`name.ilike.${like}`, `description.ilike.${like}`];
-    if (/^\d+$/.test(term)) ors.push(`lot_number.eq.${term}`);
-    const { data } = await supabase
-      .from('lots')
-      .select(LOT_COLS)
-      .eq('sale_id', saleId)
-      .or(ors.join(','))
-      .order('lot_number', { ascending: true })
-      .limit(50);
+    const tokens = searchTokens(q);
+    if (!tokens.length) { setAddResults([]); return; }
+    let query = supabase.from('lots').select(LOT_COLS).eq('sale_id', saleId);
+    for (const tok of tokens) query = query.or(tokenOrClause(tok));
+    const { data } = await query.order('lot_number', { ascending: true }).limit(50);
     // Exclude sold + items already in this basket. Treat a null status as
     // available so lots without an explicit status still appear.
     setAddResults(
@@ -286,14 +281,9 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   // Item lookup: with a query, search ALL lots (any status); with no query,
   // default to an overview of what's currently held.
   const itemResults = useMemo(() => {
-    const q = itemSearch.trim().toLowerCase();
-    if (!q) return heldItems;
-    return lots.filter(
-      (l) =>
-        l.name?.toLowerCase().includes(q) ||
-        l.description?.toLowerCase().includes(q) ||
-        String(l.lot_number ?? '').includes(q),
-    );
+    const tokens = searchTokens(itemSearch);
+    if (!tokens.length) return heldItems;
+    return lots.filter((l) => lotMatchesTokens(l, tokens));
   }, [lots, heldItems, itemSearch]);
 
   const dimensions = (l: LotRow) => {

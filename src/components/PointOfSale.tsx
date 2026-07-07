@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2, ShoppingBasket, User, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Lot, TenderType } from '../types';
 import { supabase } from '../lib/supabase';
+import { searchTokens, tokenOrClause } from '../lib/lotSearch';
 import { createTransaction, computeTotals, type PosLineItem } from '../services/PosService';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
 import {
@@ -147,18 +148,14 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const searchPicker = async (q: string) => {
     setPickerSearch(q);
     setPickerExpanded(false);
-    const term = q.trim();
-    if (!term) { setPickerResults([]); return; }
-    const like = `%${term.replace(/[%,()]/g, ' ')}%`;
-    const ors = [`name.ilike.${like}`, `description.ilike.${like}`];
-    if (/^\d+$/.test(term)) ors.push(`lot_number.eq.${term}`);
-    const { data } = await supabase
+    const tokens = searchTokens(q);
+    if (!tokens.length) { setPickerResults([]); return; }
+    let query = supabase
       .from('lots')
       .select('id, lot_number, name, starting_bid, inventory_status, held_by, held_until, for_delivery')
-      .eq('sale_id', saleId)
-      .or(ors.join(','))
-      .order('lot_number', { ascending: true })
-      .limit(50);
+      .eq('sale_id', saleId);
+    for (const tok of tokens) query = query.or(tokenOrClause(tok));
+    const { data } = await query.order('lot_number', { ascending: true }).limit(50);
     // Treat a null status as available (many catalog lots have no explicit
     // status); drop sold items and anything already in the cart.
     setPickerResults(
