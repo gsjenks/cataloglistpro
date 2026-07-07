@@ -63,6 +63,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [shopperResults, setShopperResults] = useState<Shopper[]>([]);
   const [selected, setSelected] = useState<Shopper | null>(null);
   const [addSearch, setAddSearch] = useState('');
+  const [addResults, setAddResults] = useState<LotRow[]>([]);
   const [itemSearch, setItemSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [showNewShopper, setShowNewShopper] = useState(false);
@@ -115,6 +116,9 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   // When a customer is selected, load their saved delivery/mover details so the
   // floor can view/update them.
   useEffect(() => {
+    // Reset the add-item search when the open basket changes.
+    setAddSearch('');
+    setAddResults([]);
     let cancelled = false;
     if (!selected) {
       setDeliveryInfo(emptyDelivery);
@@ -247,19 +251,29 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     return [...map.values()].sort((a, b) => a.shopper.name.localeCompare(b.shopper.name));
   }, [lots, shopperMap, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const addable = useMemo(() => {
-    const q = addSearch.trim().toLowerCase();
-    return lots
-      .filter((l) => (l.inventory_status ?? 'available') !== 'sold' && l.held_by !== selected?.id)
-      .filter(
-        (l) =>
-          !q ||
-          l.name?.toLowerCase().includes(q) ||
-          l.description?.toLowerCase().includes(q) ||
-          String(l.lot_number ?? '').includes(q),
-      )
-      .slice(0, 40);
-  }, [lots, addSearch, selected]);
+  const LOT_COLS =
+    'id, lot_number, name, description, category, condition, height, width, depth, dimension_unit, starting_bid, sold_price, inventory_status, held_by, held_until, for_delivery';
+
+  // Search the whole sale (in the database, not just the loaded page) for
+  // non-sold lots to add/hold — so every matching lot appears, not only the
+  // ones currently in memory.
+  const searchAddable = async (q: string) => {
+    setAddSearch(q);
+    const term = q.trim();
+    if (!term) { setAddResults([]); return; }
+    const like = `%${term.replace(/[%,()]/g, ' ')}%`;
+    const ors = [`name.ilike.${like}`, `description.ilike.${like}`];
+    if (/^\d+$/.test(term)) ors.push(`lot_number.eq.${term}`);
+    const { data } = await supabase
+      .from('lots')
+      .select(LOT_COLS)
+      .eq('sale_id', saleId)
+      .neq('inventory_status', 'sold')
+      .or(ors.join(','))
+      .order('lot_number', { ascending: true })
+      .limit(50);
+    setAddResults(((data as LotRow[] | null) || []).filter((l) => l.held_by !== selected?.id));
+  };
 
   // Item lookup: with a query, search ALL lots (any status); with no query,
   // default to an overview of what's currently held.
@@ -728,19 +742,19 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                   <Plus className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     value={addSearch}
-                    onChange={(e) => setAddSearch(e.target.value)}
+                    onChange={(e) => searchAddable(e.target.value)}
                     placeholder="Add / hold an item — search available lots…"
                     className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
                   />
                 </div>
                 {addSearch && (
                   <ul className="border border-gray-200 rounded-md bg-white max-h-56 overflow-auto">
-                    {addable.map((l) => {
+                    {addResults.map((l) => {
                       const heldElsewhere = isHeld(l);
                       return (
                         <li key={l.id}>
                           <button
-                            onClick={() => staffHold(l.id, selected.id)}
+                            onClick={async () => { await staffHold(l.id, selected.id); searchAddable(addSearch); }}
                             disabled={busy}
                             className="w-full flex items-center justify-between px-3 py-2 text-sm text-left hover:bg-gray-50"
                           >
@@ -755,7 +769,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                         </li>
                       );
                     })}
-                    {addable.length === 0 && <li className="px-3 py-2 text-sm text-gray-400">No matching items.</li>}
+                    {addResults.length === 0 && <li className="px-3 py-2 text-sm text-gray-400">No matching items.</li>}
                   </ul>
                 )}
 
