@@ -98,6 +98,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [showPicker, setShowPicker] = useState(false);
   const [pickerExpanded, setPickerExpanded] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerResults, setPickerResults] = useState<Lot[]>([]);
   const [newLotPrice, setNewLotPrice] = useState('');
   const [newLotDelivery, setNewLotDelivery] = useState(false);
   const [creatingItem, setCreatingItem] = useState(false);
@@ -140,15 +141,29 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     [lots, cartLotIds],
   );
 
-  const filteredPicker = useMemo(() => {
-    const q = pickerSearch.trim().toLowerCase();
-    if (!q) return availableLots;
-    return availableLots.filter(
-      (l) =>
-        l.name?.toLowerCase().includes(q) ||
-        String(l.lot_number ?? '').toLowerCase().includes(q),
-    );
-  }, [availableLots, pickerSearch]);
+  // With no query, show the available lots already in memory; with a query,
+  // search the whole sale in the database so every match appears (not just the
+  // loaded page). Excludes sold lots and anything already in the cart.
+  const searchPicker = async (q: string) => {
+    setPickerSearch(q);
+    setPickerExpanded(false);
+    const term = q.trim();
+    if (!term) { setPickerResults([]); return; }
+    const like = `%${term.replace(/[%,()]/g, ' ')}%`;
+    const ors = [`name.ilike.${like}`, `description.ilike.${like}`];
+    if (/^\d+$/.test(term)) ors.push(`lot_number.eq.${term}`);
+    const { data } = await supabase
+      .from('lots')
+      .select('id, lot_number, name, starting_bid, inventory_status, held_by, held_until, for_delivery')
+      .eq('sale_id', saleId)
+      .neq('inventory_status', 'sold')
+      .or(ors.join(','))
+      .order('lot_number', { ascending: true })
+      .limit(50);
+    setPickerResults(((data as Lot[] | null) || []).filter((l) => !cartLotIds.has(l.id)));
+  };
+
+  const filteredPicker = pickerSearch.trim() ? pickerResults : availableLots;
 
   // Make sure there's a customer/basket to save items into. If a customer is
   // already loaded, use them; otherwise, if staff typed a name, create a basket
@@ -800,7 +815,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               value={pickerSearch}
-              onChange={(e) => setPickerSearch(e.target.value)}
+              onChange={(e) => searchPicker(e.target.value)}
               placeholder="Search available items…"
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
             />
@@ -812,7 +827,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
               {filteredPicker.slice(0, pickerExpanded ? 50 : 2).map((lot) => (
                 <button
                   key={lot.id}
-                  onClick={() => addLot(lot)}
+                  onClick={async () => { await addLot(lot); if (pickerSearch.trim()) searchPicker(pickerSearch); }}
                   className="w-full flex justify-between items-center px-2 py-2 text-sm text-left hover:bg-gray-50 rounded"
                 >
                   <span className="text-gray-700 truncate pr-2">
