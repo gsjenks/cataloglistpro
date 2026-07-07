@@ -156,11 +156,16 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       .from('lots')
       .select('id, lot_number, name, starting_bid, inventory_status, held_by, held_until, for_delivery')
       .eq('sale_id', saleId)
-      .neq('inventory_status', 'sold')
       .or(ors.join(','))
       .order('lot_number', { ascending: true })
       .limit(50);
-    setPickerResults(((data as Lot[] | null) || []).filter((l) => !cartLotIds.has(l.id)));
+    // Treat a null status as available (many catalog lots have no explicit
+    // status); drop sold items and anything already in the cart.
+    setPickerResults(
+      ((data as Lot[] | null) || []).filter(
+        (l) => (l.inventory_status ?? 'available') !== 'sold' && !cartLotIds.has(l.id),
+      ),
+    );
   };
 
   const filteredPicker = pickerSearch.trim() ? pickerResults : availableLots;

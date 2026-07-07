@@ -268,11 +268,16 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
       .from('lots')
       .select(LOT_COLS)
       .eq('sale_id', saleId)
-      .neq('inventory_status', 'sold')
       .or(ors.join(','))
       .order('lot_number', { ascending: true })
       .limit(50);
-    setAddResults(((data as LotRow[] | null) || []).filter((l) => l.held_by !== selected?.id));
+    // Exclude sold + items already in this basket. Treat a null status as
+    // available so lots without an explicit status still appear.
+    setAddResults(
+      ((data as LotRow[] | null) || []).filter(
+        (l) => (l.inventory_status ?? 'available') !== 'sold' && l.held_by !== selected?.id,
+      ),
+    );
   };
 
   // Item lookup: with a query, search ALL lots (any status); with no query,
