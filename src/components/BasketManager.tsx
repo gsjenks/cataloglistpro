@@ -76,6 +76,9 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryDetails>(emptyDelivery);
   const [savingDelivery, setSavingDelivery] = useState(false);
   const [deliverySaved, setDeliverySaved] = useState(false);
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeQuery, setMergeQuery] = useState('');
+  const [mergeResults, setMergeResults] = useState<Shopper[]>([]);
   const [selectedLot, setSelectedLot] = useState<LotRow | null>(null);
   const [lotPhotoUrl, setLotPhotoUrl] = useState<string | null>(null);
   const [lotBuyer, setLotBuyer] = useState<string | null>(null);
@@ -306,6 +309,71 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     setDeliverySaved(true);
   };
 
+  // Delete a customer record. Releases any items they were holding (any sale)
+  // back to available first, so no lot is left pointing at a deleted customer.
+  const deleteCustomer = async () => {
+    if (!selected) return;
+    const heldCount = lots.filter((l) => l.held_by === selected.id && isHeld(l)).length;
+    const msg =
+      heldCount > 0
+        ? `Delete ${selected.name}? Their ${heldCount} held item(s) will be released back to available.`
+        : `Delete ${selected.name}? This can't be undone.`;
+    if (!confirm(msg)) return;
+    setBusy(true);
+    await supabase
+      .from('lots')
+      .update({ inventory_status: 'available', held_by: null, held_until: null, updated_at: new Date().toISOString() })
+      .eq('held_by', selected.id);
+    await supabase.from('shoppers').delete().eq('id', selected.id);
+    setBusy(false);
+    setSelected(null);
+    setShopperResults([]);
+    setShopperQuery('');
+    await load();
+    onChanged?.();
+  };
+
+  // Search for a customer to merge the current one INTO.
+  const searchMergeTargets = async (q: string) => {
+    setMergeQuery(q);
+    if (q.trim().length < 1) { setMergeResults([]); return; }
+    let query = supabase.from('shoppers').select('id, name, email, phone');
+    if (companyId) query = query.eq('company_id', companyId);
+    const term = `%${q.trim()}%`;
+    query = query.or(`name.ilike.${term},email.ilike.${term},phone.ilike.${term}`);
+    const { data } = await query.limit(20);
+    setMergeResults(((data as Shopper[] | null) || []).filter((s) => s.id !== selected?.id));
+  };
+
+  // Merge the current customer INTO `target`: move their held items to the
+  // target, fill any missing contact info on the target, then delete the
+  // duplicate.
+  const mergeInto = async (target: Shopper) => {
+    if (!selected || target.id === selected.id) return;
+    if (!confirm(`Merge ${selected.name} into ${target.name}? ${selected.name} will be removed.`)) return;
+    setBusy(true);
+    await supabase
+      .from('lots')
+      .update({ held_by: target.id, updated_at: new Date().toISOString() })
+      .eq('held_by', selected.id);
+    const patch: Record<string, string> = {};
+    if (!target.phone && selected.phone) patch.phone = selected.phone;
+    if (!target.email && selected.email) patch.email = selected.email;
+    if (Object.keys(patch).length) {
+      patch.updated_at = new Date().toISOString();
+      await supabase.from('shoppers').update(patch).eq('id', target.id);
+    }
+    await supabase.from('shoppers').delete().eq('id', selected.id);
+    setBusy(false);
+    setMergeMode(false);
+    setMergeQuery('');
+    setMergeResults([]);
+    const { data } = await supabase.from('shoppers').select('id, name, email, phone').eq('id', target.id).maybeSingle();
+    setSelected((data as Shopper) ?? target);
+    await load();
+    onChanged?.();
+  };
+
   const inputCls =
     'w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600';
 
@@ -484,7 +552,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
               </>
             ) : (
               <>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-start justify-between mb-3 gap-2">
                   <div className="min-w-0">
                     <p className="font-semibold text-gray-900">{selected.name}</p>
                     {selected.phone && (
@@ -501,10 +569,50 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                       <p className="text-xs text-gray-400">No contact info</p>
                     )}
                   </div>
-                  <button onClick={() => setSelected(null)} className="text-sm text-indigo-600 hover:underline shrink-0 ml-2">
-                    Change
-                  </button>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <button onClick={() => { setSelected(null); setMergeMode(false); }} className="text-sm text-indigo-600 hover:underline">
+                      Change
+                    </button>
+                    <div className="flex gap-2">
+                      <button onClick={() => { setMergeMode((m) => !m); setMergeQuery(''); setMergeResults([]); }} disabled={busy} className="text-xs text-gray-500 hover:text-indigo-600">
+                        Merge
+                      </button>
+                      <button onClick={deleteCustomer} disabled={busy} className="text-xs text-gray-500 hover:text-red-600">
+                        Delete
+                      </button>
+                    </div>
+                  </div>
                 </div>
+
+                {/* Merge: search for the customer to merge this one into */}
+                {mergeMode && (
+                  <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                    <p className="text-xs font-medium text-gray-700 mb-1.5">Merge {selected.name} into…</p>
+                    <input
+                      value={mergeQuery}
+                      onChange={(e) => searchMergeTargets(e.target.value)}
+                      placeholder="Search the customer to keep…"
+                      className={inputCls}
+                    />
+                    {mergeResults.length > 0 && (
+                      <ul className="mt-2 border border-gray-200 rounded-md bg-white divide-y divide-gray-100 max-h-40 overflow-auto">
+                        {mergeResults.map((m) => (
+                          <li key={m.id}>
+                            <button onClick={() => mergeInto(m)} disabled={busy} className="w-full text-left px-3 py-2 hover:bg-gray-50">
+                              <span className="block text-sm text-gray-800 truncate">{m.name}</span>
+                              <span className="block text-xs text-gray-500 truncate">
+                                {[m.phone, m.email].filter(Boolean).join(' · ') || 'No contact info'}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {mergeQuery.trim() && mergeResults.length === 0 && (
+                      <p className="mt-2 text-xs text-gray-400">No other customers match.</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Basket items */}
                 {basketItems.length === 0 ? (

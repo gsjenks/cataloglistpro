@@ -364,7 +364,10 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
         return (
           name.includes(term) ||
           email.includes(term) ||
-          (digits.length >= 2 && phoneDigits.includes(digits))
+          (digits.length >= 2 && phoneDigits.includes(digits)) ||
+          // Typo-tolerant fuzzy match on the full name and each word.
+          nameSimilar(term, name) ||
+          name.split(/\s+/).some((w) => nameSimilar(term, w))
         );
       })
       .slice(0, 20);
