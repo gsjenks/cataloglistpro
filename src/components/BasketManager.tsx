@@ -232,6 +232,21 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
 
   const heldItems = useMemo(() => lots.filter(isHeld), [lots, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Every basket with live holds: group held lots by their holder (shopper).
+  const openBaskets = useMemo(() => {
+    const map = new Map<string, { shopper: Shopper; count: number; total: number }>();
+    for (const l of lots) {
+      if (!l.held_by || !isHeld(l)) continue;
+      const sh = shopperMap[l.held_by];
+      if (!sh) continue;
+      const e = map.get(l.held_by) ?? { shopper: sh, count: 0, total: 0 };
+      e.count += 1;
+      e.total += l.starting_bid || 0;
+      map.set(l.held_by, e);
+    }
+    return [...map.values()].sort((a, b) => a.shopper.name.localeCompare(b.shopper.name));
+  }, [lots, shopperMap, now]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const addable = useMemo(() => {
     const q = addSearch.trim().toLowerCase();
     return lots
@@ -522,6 +537,35 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                 ))}
                 {shopperQuery && shopperResults.length === 0 && (
                   <p className="text-sm text-gray-400 text-center py-4">No shoppers match.</p>
+                )}
+
+                {/* All open baskets (customers currently holding items) */}
+                {!shopperQuery.trim() && (
+                  <div className="mt-1">
+                    <p className="text-xs font-medium text-gray-500 mb-2">
+                      Open baskets{openBaskets.length ? ` (${openBaskets.length})` : ''}
+                    </p>
+                    {openBaskets.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-4">No open baskets yet.</p>
+                    ) : (
+                      openBaskets.map(({ shopper: s, count, total }) => (
+                        <button
+                          key={s.id}
+                          onClick={() => { setSelected(s); setShopperResults([]); setShopperQuery(''); }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left bg-white border border-gray-200 rounded-md mb-2 hover:border-indigo-400"
+                        >
+                          <User className="w-4 h-4 text-gray-400 shrink-0" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium text-gray-800 truncate">{s.name}</span>
+                            <span className="block text-xs text-gray-500 truncate">{s.phone || s.email || 'No contact info'}</span>
+                          </span>
+                          <span className="text-xs text-gray-500 whitespace-nowrap shrink-0">
+                            {count} item{count === 1 ? '' : 's'} · {money(total)}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
                 )}
 
                 <div className="mt-4 border-t border-gray-100 pt-3">
