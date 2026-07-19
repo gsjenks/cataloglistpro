@@ -26,9 +26,10 @@ export interface Sale {
   start_date?: string;
   location?: string;
   status: 'upcoming' | 'active' | 'completed';
-  // Estate Sale vs Auction path (see Phase 0 of the estate-sale POS work).
-  // Defaults to 'auction' for legacy sales created before this field existed.
-  sale_type?: 'estate_sale' | 'auction';
+  // Selling path. estate_sale (on-site POS) / auction (live bidding) / social
+  // (comment-selling via Facebook/Instagram Reels or Live). Defaults to
+  // 'auction' for legacy sales created before this field existed.
+  sale_type?: 'estate_sale' | 'auction' | 'social';
   // Buyer self-checkout (Square Mode 1). Only meaningful for estate sales.
   online_checkout_enabled?: boolean;
   // When public self-checkout opens. null/undefined = opens immediately once
@@ -172,6 +173,61 @@ export interface SalesTransactionItem {
   price: number;
   fulfillment?: Fulfillment;
   created_at?: string;
+}
+
+// ── Social Media Sales Stream (comment-selling via Facebook / Instagram) ──────
+
+export type SocialPlatform = 'facebook' | 'instagram';
+
+// A connected Meta account (FB Page / IG business account). The access token is
+// NOT exposed here — it lives in a service-role-only table.
+export interface SocialConnection {
+  id: string;
+  company_id: string;
+  platform: SocialPlatform;
+  external_account_id: string;
+  account_name?: string | null;
+  status: 'active' | 'revoked' | 'expired';
+  token_expires_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// One live/Reel selling session tied to a sale.
+export interface SocialStream {
+  id: string;
+  sale_id: string;
+  company_id: string;
+  connection_id?: string | null;
+  platform: SocialPlatform;
+  media_type: 'reel' | 'live' | 'post';
+  external_media_id?: string | null;
+  status: 'draft' | 'live' | 'ended';
+  claim_keyword?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// One buyer comment claiming a lot.
+export interface SocialClaim {
+  id: string;
+  stream_id?: string | null;
+  sale_id?: string | null;
+  company_id: string;
+  lot_id?: string | null;
+  platform?: SocialPlatform | null;
+  external_comment_id?: string | null;
+  commenter_external_id?: string | null;
+  commenter_name?: string | null;
+  comment_text?: string | null;
+  matched_token?: string | null;
+  shopper_id?: string | null;
+  status: 'pending' | 'held' | 'checkout_sent' | 'purchased' | 'released' | 'failed';
+  checkout_url?: string | null;
+  hold_basket_id?: string | null;
+  note?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface UserCompany {

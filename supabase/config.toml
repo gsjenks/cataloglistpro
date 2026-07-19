@@ -1,4 +1,12 @@
 
+# Meta (Facebook/Instagram) webhook receiver. Meta sends no Supabase JWT, so JWT
+# verification MUST be off — the function verifies Meta's own X-Hub-Signature-256
+# instead. See supabase/functions/social-webhook/index.ts.
+[functions.social-webhook]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/social-webhook/index.ts"
+
 [functions.watched-lot-alert]
 enabled = true
 verify_jwt = true
