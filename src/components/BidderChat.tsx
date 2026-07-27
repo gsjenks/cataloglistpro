@@ -25,23 +25,31 @@ export function BidderChat({ saleId, bidder }: Props) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Latest `open` for the realtime handler without re-subscribing the channel.
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
   const loadMessages = useCallback(async () => {
+    // Fetch the most recent 50, then flip to ascending for display.
     const { data } = await supabase
       .from("chat_messages")
       .select("id, sender_name, message, is_clerk, created_at")
       .eq("sale_id", saleId)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(50);
-    setMessages(data ?? []);
+    setMessages((data ?? []).reverse());
   }, [saleId]);
 
   useEffect(() => {
     loadMessages();
   }, [loadMessages]);
 
-  // Realtime
+  // Realtime — subscribe once per sale; gate unread via openRef.
   useEffect(() => {
     const channel = supabase
       .channel(`bidder-chat:${saleId}`)
@@ -55,15 +63,17 @@ export function BidderChat({ saleId, bidder }: Props) {
         },
         (payload) => {
           const msg = payload.new as ChatMessage;
-          setMessages((prev) => [...prev, msg]);
-          if (!open && msg.is_clerk) setUnread((u) => u + 1);
+          setMessages((prev) =>
+            prev.some((m) => m.id === msg.id) ? prev : [...prev, msg],
+          );
+          if (!openRef.current && msg.is_clerk) setUnread((u) => u + 1);
         },
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [saleId, open]);
+  }, [saleId]);
 
   useEffect(() => {
     if (open) {
@@ -78,17 +88,24 @@ export function BidderChat({ saleId, bidder }: Props) {
   const sendMessage = async () => {
     if (!text.trim() || sending) return;
     setSending(true);
+    setError(null);
     const name = bidder
       ? `${bidder.first_name} (Paddle #${bidder.paddle_number ?? "?"})`
       : "Guest";
-    await supabase.from("chat_messages").insert({
-      sale_id: saleId,
-      sender_name: name,
-      message: text.trim(),
-      is_clerk: false,
-      bidder_id: bidder?.id ?? null,
-    });
-    setText("");
+    const { error: insertError } = await supabase
+      .from("chat_messages")
+      .insert({
+        sale_id: saleId,
+        sender_name: name,
+        message: text.trim(),
+        is_clerk: false,
+        bidder_id: bidder?.id ?? null,
+      });
+    if (insertError) {
+      setError("Message not sent — please try again.");
+    } else {
+      setText("");
+    }
     setSending(false);
   };
 
@@ -217,6 +234,21 @@ export function BidderChat({ saleId, bidder }: Props) {
             )}
             <div ref={bottomRef} />
           </div>
+
+          {/* Error */}
+          {error && (
+            <div
+              style={{
+                padding: "6px 10px",
+                background: "#fdecea",
+                color: "#b3261e",
+                fontSize: 11,
+                textAlign: "center",
+              }}
+            >
+              {error}
+            </div>
+          )}
 
           {/* Input */}
           <div

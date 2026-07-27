@@ -22,22 +22,31 @@ export function ClerkChat({ saleId, compact = false }: Props) {
   const [sending, setSending] = useState(false);
   const [unread, setUnread] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Latest `collapsed` for the realtime handler without re-subscribing.
+  const collapsedRef = useRef(collapsed);
+  useEffect(() => {
+    collapsedRef.current = collapsed;
+  }, [collapsed]);
+
   const loadMessages = useCallback(async () => {
+    // Fetch the most recent 50, then flip to ascending for display.
     const { data } = await supabase
       .from("chat_messages")
       .select("id, sender_name, message, is_clerk, created_at, bidder_id")
       .eq("sale_id", saleId)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(50);
-    setMessages(data ?? []);
+    setMessages((data ?? []).reverse());
   }, [saleId]);
 
   useEffect(() => {
     loadMessages();
   }, [loadMessages]);
 
+  // Realtime — subscribe once per sale; gate unread via collapsedRef.
   useEffect(() => {
     const channel = supabase
       .channel(`chat:${saleId}`)
@@ -51,15 +60,17 @@ export function ClerkChat({ saleId, compact = false }: Props) {
         },
         (payload) => {
           const msg = payload.new as ChatMessage;
-          setMessages((prev) => [...prev, msg]);
-          if (collapsed && !msg.is_clerk) setUnread((u) => u + 1);
+          setMessages((prev) =>
+            prev.some((m) => m.id === msg.id) ? prev : [...prev, msg],
+          );
+          if (collapsedRef.current && !msg.is_clerk) setUnread((u) => u + 1);
         },
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [saleId, collapsed]);
+  }, [saleId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -72,14 +83,21 @@ export function ClerkChat({ saleId, compact = false }: Props) {
   const sendReply = async () => {
     if (!reply.trim() || sending) return;
     setSending(true);
-    await supabase.from("chat_messages").insert({
-      sale_id: saleId,
-      sender_name: "Clerk",
-      message: reply.trim(),
-      is_clerk: true,
-      bidder_id: null,
-    });
-    setReply("");
+    setError(null);
+    const { error: insertError } = await supabase
+      .from("chat_messages")
+      .insert({
+        sale_id: saleId,
+        sender_name: "Clerk",
+        message: reply.trim(),
+        is_clerk: true,
+        bidder_id: null,
+      });
+    if (insertError) {
+      setError("Reply not sent — please try again.");
+    } else {
+      setReply("");
+    }
     setSending(false);
   };
 
@@ -160,6 +178,20 @@ export function ClerkChat({ saleId, compact = false }: Props) {
           )}
           <div ref={bottomRef} />
         </div>
+        {error && (
+          <div
+            style={{
+              padding: "5px 10px",
+              background: "#fdecea",
+              color: "#b3261e",
+              fontSize: 10,
+              textAlign: "center",
+              flexShrink: 0,
+            }}
+          >
+            {error}
+          </div>
+        )}
         <div
           style={{
             padding: "6px 8px",
@@ -341,6 +373,19 @@ export function ClerkChat({ saleId, compact = false }: Props) {
             )}
             <div ref={bottomRef} />
           </div>
+          {error && (
+            <div
+              style={{
+                padding: "5px 10px",
+                background: "#fdecea",
+                color: "#b3261e",
+                fontSize: 11,
+                textAlign: "center",
+              }}
+            >
+              {error}
+            </div>
+          )}
           <div
             style={{
               padding: "6px 8px",
