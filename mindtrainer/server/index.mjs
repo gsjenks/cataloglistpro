@@ -156,7 +156,13 @@ app.post("/api/lesson", async (req, res) => {
     const lesson = JSON.parse(textBlock.text);
     res.json(lesson);
   } catch (err) {
-    console.error("[/api/lesson]", err?.message || err);
+    const msg = err?.message || String(err);
+    console.error("[/api/lesson]", msg);
+    if (msg.includes("ANTHROPIC_API_KEY")) {
+      return res.status(503).json({
+        error: "The server has no Anthropic API key. Add ANTHROPIC_API_KEY to mindtrainer/.env and restart.",
+      });
+    }
     res.status(502).json({ error: "Could not generate the lesson. Please try again." });
   }
 });
@@ -220,11 +226,34 @@ app.post("/api/chat", async (req, res) => {
 
 // --- Static PWA (production) -------------------------------------------------
 const dist = path.join(ROOT, "dist");
-if (fs.existsSync(dist)) {
+const hasDist = fs.existsSync(path.join(dist, "index.html"));
+
+if (hasDist) {
   app.use(express.static(dist));
   app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
+} else {
+  // The app hasn't been built yet. Instead of a bare "Cannot GET /", explain
+  // exactly what to do so a wrong port / missing build is obvious.
+  app.get("*", (_req, res) => {
+    res.status(200).type("html").send(`<!doctype html>
+<meta charset="utf-8" />
+<title>Mind Trainer — not built yet</title>
+<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:12vh auto;padding:0 20px;color:#0f172a;line-height:1.6">
+  <h1 style="color:#2563eb">Mind Trainer</h1>
+  <p>The app hasn't been built, so there's nothing to serve on this port yet.</p>
+  <p><b>To develop:</b> run <code>npm run dev</code> and open
+     <a href="http://localhost:5173">http://localhost:5173</a> (not this port).</p>
+  <p><b>To run the built app:</b> run <code>npm start</code>
+     (it builds first), then reload this page.</p>
+</div>`);
+  });
 }
 
 app.listen(PORT, () => {
   console.log(`[mindtrainer] listening on http://localhost:${PORT}  (model: ${MODEL})`);
+  if (!hasDist) {
+    console.log(
+      `[mindtrainer] No build found. For development open http://localhost:5173 (npm run dev), or run 'npm start' to build and serve here.`,
+    );
+  }
 });
