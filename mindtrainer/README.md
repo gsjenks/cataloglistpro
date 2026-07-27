@@ -4,9 +4,10 @@ A personal daily mind trainer. One hour a day, a rotating subject, and an
 interactive AI tutor that teaches something new, explains what you don't
 understand, and checks what you've learned.
 
-It's an installable **web app (PWA)** — add it to your phone's home screen or
-run it on the desktop. The AI tutor is powered by the **Claude API**; your API
-key stays on the server and is never exposed to the browser.
+It's a **self-contained static web app (PWA)** — no backend server. It talks to
+the **Claude API** directly from your browser using an Anthropic API key you
+enter once, stored only on your device. That means you can host it on any static
+host and **install it on your phone**.
 
 ## Features
 
@@ -14,70 +15,64 @@ key stays on the server and is never exposed to the browser.
   Literature, Art, Music, Civics, Architecture, Environment, Astronomy,
   Mathematics, Chemistry, Design, Economics, Construction, Science, Law,
   Business, Politics, Religion, Critical Thinking).
-- **Learn** — a fresh ~1-hour lesson generated for the day. **Read** it,
+- **Learn** — a fresh ~1-hour lesson generated for the day: **Read** it,
   **Listen** to on-device narration, or **Watch** curated videos for the topic.
 - **Ask** — an interactive Socratic tutor grounded in today's lesson.
-- **Check** — flashcards plus an interactive "quiz me" mode that evaluates your
-  answers.
-- **Progress** — a daily streak and a log of subjects you've explored.
+- **Check** — flashcards plus an interactive "quiz me" mode that grades answers.
+- **Progress** — a daily streak and a log of subjects explored.
+- **Installable** — Add to Home Screen for an app-like experience.
 
-## Setup
+## Put it on your phone (no computer needed)
+
+You deploy it once from a hosting website, then open it on your phone. Using
+**Vercel** (all steps work in a phone browser):
+
+1. Go to **vercel.com** and sign in with your GitHub account.
+2. **Add New → Project**, and import this repository (`gsjenks/cataloglistpro`).
+3. Set **Root Directory** to **`mindtrainer`**. It auto-detects Vite; the
+   included `vercel.json` handles routing.
+4. If this code is on a branch (e.g. `claude/mind-trainer`), pick that branch as
+   the production branch, or merge it to `main` first.
+5. **Deploy.** Vercel gives you an `https://…vercel.app` URL.
+6. Open that URL on your phone. On first launch, paste your **Anthropic API
+   key** (get one at console.anthropic.com). It's saved on your device.
+7. In your browser menu choose **Add to Home Screen** to install it.
+
+**Netlify** works the same way: New site → import from Git → set **Base
+directory** to `mindtrainer` (the included `netlify.toml` does the rest).
+
+## Run it locally (optional, needs a computer)
 
 ```bash
 cd mindtrainer
 npm install
-cp .env.example .env      # then add your ANTHROPIC_API_KEY
+npm run dev        # open http://localhost:5173, paste your key on first launch
+npm run build      # produces the static site in dist/
+npm run preview    # serve the built site locally
 ```
 
-Get a key at https://console.anthropic.com. By default the app uses
-`claude-opus-5`; set `MODEL=claude-sonnet-5` in `.env` for roughly 5× lower
-cost with strong quality.
+## About your API key & cost
 
-## Run in development
-
-```bash
-npm run dev
-```
-
-- Front end: http://localhost:5173 (Vite)
-- API server: http://localhost:8787 (Express, holds the key)
-
-Vite proxies `/api/*` to the Express server.
-
-## Build & run for real
-
-```bash
-npm run build      # type-checks and builds the PWA into dist/
-npm start          # Express serves dist/ AND the API on http://localhost:8787
-```
-
-Deploy `npm start` to any Node host (Render, Railway, Fly, a VM). Set
-`ANTHROPIC_API_KEY` (and optionally `MODEL`, `PORT`) in the host's environment.
-Once served over HTTPS, the browser will offer **Install** / **Add to Home
-Screen**.
+- The key lives only in your browser's local storage on the device you enter it
+  on. It is sent only to Anthropic, in the calls the app makes for you.
+- Each day generates one lesson (cached locally, so once per day) plus any tutor
+  chat you use. On **Sonnet 5** that's a few cents per day of active use; **Opus
+  5** (the default) is higher quality and higher cost. Switch models any time
+  via the ⚙️ Settings button.
 
 ## How it works
 
 | Piece | What it does |
 |---|---|
 | `src/lib/curriculum.ts` | Deterministic day → subject rotation. |
-| `server/index.mjs` | `POST /api/lesson` (structured lesson) and `POST /api/chat` (streaming tutor). Holds the Claude key. |
-| `src/lib/storage.ts` | Caches each day's lesson and tracks the streak in `localStorage` — works offline, no account. |
+| `src/lib/api.ts` | Calls Claude directly from the browser (structured lesson + streaming tutor). |
+| `src/lib/settings.ts` | Stores the API key and model choice on the device. |
+| `src/lib/storage.ts` | Caches each day's lesson and tracks the streak in `localStorage`. |
 | `public/sw.js`, `manifest.webmanifest` | Make the app installable with an offline shell. |
-
-## Cost
-
-Each day generates one lesson (cached locally, so it's generated once per day)
-plus whatever tutor chat you use. On `claude-sonnet-5` this is a few cents per
-day of active use; `claude-opus-5` is higher. The lesson call runs with thinking
-disabled and medium effort to keep it fast and cheap.
 
 ## Notes / next steps
 
-- The PWA icon is an SVG placeholder (`public/icon.svg`). For the crispest
-  app-store/home-screen icons, add 192×192 and 512×512 PNGs and list them in the
-  manifest.
-- Progress is device-local. Add accounts + a database (e.g. Supabase) to sync
-  across devices.
-- To package as native iOS/Android apps later, wrap the built site with
-  Capacitor.
+- The PWA icon is an SVG placeholder (`public/icon.svg`); add 192/512 PNGs for
+  the crispest home-screen icon.
+- Progress is device-local. Add accounts + a database to sync across devices.
+- To ship as native iOS/Android apps later, wrap the built site with Capacitor.
