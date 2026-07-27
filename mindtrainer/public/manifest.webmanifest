@@ -4,8 +4,8 @@
   "description": "One hour a day. Rotating subjects. A personal AI tutor that teaches, explains, and checks what you've learned.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#f6f7fb",
+  "theme_color": "#f6f7fb",
   "orientation": "portrait",
   "icons": [
     {
