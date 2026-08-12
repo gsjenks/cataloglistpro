@@ -263,6 +263,17 @@ export default function Dashboard() {
     return filtered;
   }, [documents, searchQueries.documents, activeFilters.documents]);
 
+  // Set of sale ids that have at least one contract document on file
+  const salesWithContract = useMemo(
+    () =>
+      new Set(
+        documents
+          .filter((doc) => doc.sale_id && doc.document_type === 'contract')
+          .map((doc) => doc.sale_id as string),
+      ),
+    [documents],
+  );
+
   // Memoized tabs config
   const tabs = useMemo(() => [
     { id: 'sales', label: 'Sales', icon: <Calendar className="w-4 h-4" />, count: filteredSales.length },
@@ -396,7 +407,7 @@ export default function Dashboard() {
 
           <div className="p-6">
             {activeTab === 'sales' && (
-              <SalesList sales={filteredSales} onRefresh={loadDashboardData} />
+              <SalesList sales={filteredSales} onRefresh={loadDashboardData} salesWithContract={salesWithContract} />
             )}
             {activeTab === 'contacts' && (
               <ContactsList 

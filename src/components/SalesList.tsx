@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Sale } from "../types";
-import { Calendar, MapPin, Edit, Trash2 } from "lucide-react";
+import { Calendar, MapPin, Edit, Trash2, FileCheck, FileWarning } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useApp } from "../context/AppContext";
 import SaleModal from "../components/SaleModal";
@@ -9,9 +9,11 @@ import SaleModal from "../components/SaleModal";
 interface SalesListProps {
   sales: Sale[];
   onRefresh: () => void;
+  /** Set of sale ids that have a document with document_type === 'contract'. */
+  salesWithContract?: Set<string>;
 }
 
-export default function SalesList({ sales, onRefresh }: SalesListProps) {
+export default function SalesList({ sales, onRefresh, salesWithContract }: SalesListProps) {
   const navigate = useNavigate();
   const { currentCompany } = useApp();
   const [showModal, setShowModal] = useState(false);
@@ -120,11 +122,31 @@ export default function SalesList({ sales, onRefresh }: SalesListProps) {
               </div>
 
               <div className="flex items-center justify-between gap-2">
-                <span
-                  className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(sale.status)}`}
-                >
-                  {sale.status.charAt(0).toUpperCase() + sale.status.slice(1)}
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(sale.status)}`}
+                  >
+                    {sale.status.charAt(0).toUpperCase() + sale.status.slice(1)}
+                  </span>
+                  {salesWithContract &&
+                    (salesWithContract.has(sale.id) ? (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200"
+                        title="Contract on file for this sale"
+                      >
+                        <FileCheck className="w-3.5 h-3.5" />
+                        Contract
+                      </span>
+                    ) : (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                        title="No contract on file — add one in this sale's Documents"
+                      >
+                        <FileWarning className="w-3.5 h-3.5" />
+                        No contract
+                      </span>
+                    ))}
+                </div>
                 {sale.status === "active" && sale.sale_type !== "estate_sale" && (
                   <button
                     onClick={(e) => {

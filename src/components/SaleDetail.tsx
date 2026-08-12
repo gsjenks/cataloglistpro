@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document } from '../types';
@@ -679,6 +679,25 @@ export default function SaleDetail() {
           `}>
             {sale.status?.charAt(0).toUpperCase() + sale.status?.slice(1)}
           </span>
+          {documents.some((doc) => doc.document_type === 'contract') ? (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-green-50 text-green-700 border border-green-200"
+              title="Contract on file for this sale"
+            >
+              <FileCheck className="w-3.5 h-3.5" />
+              Contract on file
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setActiveTab('documents')}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+              title="No contract on file — click to open Documents and add one"
+            >
+              <FileWarning className="w-3.5 h-3.5" />
+              No contract
+            </button>
+          )}
         </div>
       </div>
 
