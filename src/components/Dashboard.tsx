@@ -30,6 +30,7 @@ export default function Dashboard() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [salesWithContract, setSalesWithContract] = useState<Set<string>>(new Set());
   const [totalLots, setTotalLots] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showSaleModal, setShowSaleModal] = useState(false);
@@ -86,15 +87,30 @@ export default function Dashboard() {
       setContacts(contactsResult.data || []);
       setDocuments(documentsResult.data || []);
 
-      // Count lots only if we have sales (separate query to not block UI)
+      // Count lots + resolve which sales have a contract (separate queries to not block UI).
+      // The contract lookup is keyed on sale_id — NOT company_id — because sale-level
+      // document uploads can leave company_id null, which the company-scoped documents
+      // query above would silently drop.
       if (salesData.length > 0) {
-        const { count } = await supabase
-          .from('lots')
-          .select('*', { count: 'exact', head: true })
-          .in('sale_id', salesData.map(s => s.id));
+        const saleIds = salesData.map(s => s.id);
+        const [{ count }, contractResult] = await Promise.all([
+          supabase
+            .from('lots')
+            .select('*', { count: 'exact', head: true })
+            .in('sale_id', saleIds),
+          supabase
+            .from('documents')
+            .select('sale_id')
+            .in('sale_id', saleIds)
+            .eq('document_type', 'contract')
+        ]);
         setTotalLots(count || 0);
+        setSalesWithContract(
+          new Set((contractResult.data || []).map(d => d.sale_id as string))
+        );
       } else {
         setTotalLots(0);
+        setSalesWithContract(new Set());
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -262,17 +278,6 @@ export default function Dashboard() {
     
     return filtered;
   }, [documents, searchQueries.documents, activeFilters.documents]);
-
-  // Set of sale ids that have at least one contract document on file
-  const salesWithContract = useMemo(
-    () =>
-      new Set(
-        documents
-          .filter((doc) => doc.sale_id && doc.document_type === 'contract')
-          .map((doc) => doc.sale_id as string),
-      ),
-    [documents],
-  );
 
   // Memoized tabs config
   const tabs = useMemo(() => [

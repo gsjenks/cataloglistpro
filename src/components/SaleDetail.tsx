@@ -763,6 +763,7 @@ export default function SaleDetail() {
             <DocumentsList
               documents={filteredDocuments}
               saleId={saleId!}
+              companyId={sale?.company_id ?? undefined}
               onRefresh={loadDocuments}
             />
             
