@@ -162,7 +162,9 @@ export async function importEoaAsNewSale(parsed: ParsedEOA, opts: ImportOptions)
         state: '',
         zip_code: '',
         notes: '',
-        company_id: companyId,
+        // contacts_check requires EXACTLY ONE of company_id / sale_id. This is a
+        // sale-level contact, so company_id must be null.
+        company_id: null,
         sale_id: sale.id,
       })
       .select()
