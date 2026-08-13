@@ -3,7 +3,6 @@
 // delivered. Actions apply to a set of lots (a buyer's shipment usually spans several).
 
 import { supabase } from '../lib/supabase';
-import { CARRIER_BY_VALUE } from '../lib/carriers';
 
 async function updateLots(lotIds: string[], patch: Record<string, unknown>): Promise<void> {
   if (!lotIds.length) return;
@@ -11,12 +10,12 @@ async function updateLots(lotIds: string[], patch: Record<string, unknown>): Pro
   if (error) throw error;
 }
 
-// Assign the carrier/handoff; sets fulfillment_method from whether it ships.
-export async function setCarrier(lotIds: string[], carrier: string): Promise<void> {
-  const c = CARRIER_BY_VALUE[carrier];
+// Assign the handoff (a shipper id, or a built-in 'pickup' / 'store'); `ships`
+// selects the ship vs pickup flow.
+export async function setCarrier(lotIds: string[], carrier: string, ships: boolean): Promise<void> {
   await updateLots(lotIds, {
     fulfillment_carrier: carrier || null,
-    fulfillment_method: c ? (c.ships ? 'ship' : 'pickup') : null,
+    fulfillment_method: carrier ? (ships ? 'ship' : 'pickup') : null,
   });
 }
 

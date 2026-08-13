@@ -841,7 +841,7 @@ export default function SaleDetail() {
         )}
 
         {activeTab === 'fulfillment' && (
-          <FulfillmentPanel saleId={saleId!} lots={lots} onChanged={loadLots} />
+          <FulfillmentPanel saleId={saleId!} companyId={sale.company_id} saleName={sale.name} lots={lots} onChanged={loadLots} />
         )}
 
         {activeTab === 'unsold' && (

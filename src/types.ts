@@ -285,6 +285,21 @@ export interface UserCompany {
   created_at?: string;
 }
 
+// A shipper / handler in the company's directory (Stage 6 fulfillment).
+export interface Shipper {
+  id: string;
+  company_id?: string;
+  name: string;
+  kind?: 'inhouse' | 'external';
+  phone?: string;
+  email?: string;
+  address?: string;
+  notes?: string;
+  active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 // ── Auction lifecycle (#2 Setup) ─────────────────────────────────────────────
 // Backing types for the sale stage pipeline, per-consignor consignments, and the
 // post-auction lot state machines. See docs/auction-lifecycle-spec.md.
