@@ -268,6 +268,29 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                   ))}
                 </div>
               </div>
+
+              <div className="rounded-md bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+                <p className="font-medium text-gray-700">How these are used at settlement</p>
+                <p>
+                  Consignor payout = total hammer &minus; commission &minus; fees. The
+                  buyer&apos;s premium is paid by the buyer (house revenue) and is not
+                  deducted from the consignor.
+                </p>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  <li>
+                    <span className="font-medium">Commission</span> — the house&apos;s share
+                    of each hammer price.
+                  </li>
+                  <li>
+                    <span className="font-medium">Photography / Cataloging / Insurance /
+                    Storage</span> — costs billed back to the consignor.
+                  </li>
+                  <li>
+                    <span className="font-medium">Buy-in</span> — charged on lots that
+                    didn&apos;t sell (failed to meet reserve).
+                  </li>
+                </ul>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 p-4 border-t border-gray-200">
