@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document, Consignment } from '../types';
@@ -20,6 +20,7 @@ import StageBanner from './StageBanner';
 import SaleSetupTab from './SaleSetupTab';
 import ConsignmentsManager from './ConsignmentsManager';
 import CatalogueImportModal from './CatalogueImportModal';
+import PaymentsPanel from './PaymentsPanel';
 import { listConsignments } from '../services/ConsignmentService';
 import { formatContactName } from '../utils/contactName';
 
@@ -589,6 +590,12 @@ export default function SaleDetail() {
       count: filteredLots.length,
     },
     {
+      id: 'payments',
+      label: 'Payments',
+      icon: <DollarSign className="w-4 h-4" />,
+      count: lots.filter((l) => l.outcome === 'sold' && (l.payment_status ?? 'unpaid') !== 'paid').length,
+    },
+    {
       id: 'contacts',
       label: 'Contacts',
       icon: <Users className="w-4 h-4" />,
@@ -813,6 +820,10 @@ export default function SaleDetail() {
               </div>
             )}
           </>
+        )}
+
+        {activeTab === 'payments' && (
+          <PaymentsPanel saleId={saleId!} lots={lots} onChanged={loadLots} />
         )}
 
         {activeTab === 'contacts' && (
