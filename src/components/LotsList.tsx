@@ -132,6 +132,15 @@ const LotCard = memo(({
     return result || 'Not specified';
   };
 
+  const DISPOSITION_INFO: Record<string, { label: string; cls: string }> = {
+    returned: { label: 'Returned', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+    hold_relist: { label: 'Held', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+    charity: { label: 'Charity', cls: 'bg-rose-50 text-rose-700 border-rose-200' },
+    discarded: { label: 'Discarded', cls: 'bg-gray-100 text-gray-600 border-gray-300' },
+  };
+  const dispo = lot.disposition ? DISPOSITION_INFO[lot.disposition] : undefined;
+  const showUnsold = !lot.disposition && lot.outcome === 'passed';
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow">
       <div className="flex items-start gap-4">
@@ -143,6 +152,16 @@ const LotCard = memo(({
             <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 flex-1">
               {lot.name}
             </h3>
+            {dispo && (
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border flex-shrink-0 ${dispo.cls}`}>
+                {dispo.label}
+              </span>
+            )}
+            {showUnsold && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border flex-shrink-0 bg-amber-50 text-amber-700 border-amber-200">
+                Unsold
+              </span>
+            )}
           </div>
 
           <div className="space-y-2">
