@@ -760,6 +760,8 @@ export default function SaleDetail() {
               companyId={sale.company_id}
               consignments={consignments}
               contacts={contacts}
+              lots={lots}
+              saleName={sale.name}
               onChanged={loadConsignments}
             />
             <div className="bg-white rounded-lg border border-gray-200 p-5 flex items-center justify-between gap-3">
