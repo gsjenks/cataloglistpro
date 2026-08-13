@@ -151,8 +151,10 @@ export async function importEoaAsNewSale(parsed: ParsedEOA, opts: ImportOptions)
         last_name: lastName,
         suffix: '',
         business_name: consignorName,
-        role: '',
-        contact_type: 'consignor',
+        role: 'consignor',
+        // 'consignor' is NOT an allowed contact_type (contacts_check enumerates the
+        // form's types); use 'client' — the consignor is the sale's client/seller.
+        contact_type: 'client',
         email: '',
         phone: '',
         address: '',
