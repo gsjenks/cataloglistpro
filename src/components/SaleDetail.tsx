@@ -19,6 +19,7 @@ import SaleReportsTools from './SaleReportsTools';
 import StageBanner from './StageBanner';
 import SaleSetupTab from './SaleSetupTab';
 import ConsignmentsManager from './ConsignmentsManager';
+import CatalogueImportModal from './CatalogueImportModal';
 import { listConsignments } from '../services/ConsignmentService';
 
 export default function SaleDetail() {
@@ -30,6 +31,7 @@ export default function SaleDetail() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [consignments, setConsignments] = useState<Consignment[]>([]);
+  const [showCatalogueImport, setShowCatalogueImport] = useState(false);
   const [activeTab, setActiveTab] = useState('items');
   const [loading, setLoading] = useState(true);
   const [showScanner, setShowScanner] = useState(false);
@@ -760,6 +762,21 @@ export default function SaleDetail() {
               contacts={contacts}
               onChanged={loadConsignments}
             />
+            <div className="bg-white rounded-lg border border-gray-200 p-5 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Catalogue</h2>
+                <p className="text-sm text-gray-500">
+                  Import the LiveAuctioneers catalogue PDF to add estimates and descriptions
+                  to existing lots and pull in the unsold lots.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCatalogueImport(true)}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shrink-0"
+              >
+                <Upload className="w-4 h-4" /> Import catalogue PDF
+              </button>
+            </div>
           </div>
         )}
         {activeTab === 'items' && (
@@ -861,6 +878,18 @@ export default function SaleDetail() {
           companyId={sale?.company_id ?? null}
           onClose={() => setShowBaskets(false)}
           onChanged={loadLots}
+        />
+      )}
+
+      {showCatalogueImport && (
+        <CatalogueImportModal
+          saleId={saleId!}
+          onClose={() => setShowCatalogueImport(false)}
+          onImported={(res) => {
+            setShowCatalogueImport(false);
+            loadLots();
+            alert(`Catalogue imported: ${res.updated} lots updated, ${res.created} added as unsold.`);
+          }}
         />
       )}
     </div>
