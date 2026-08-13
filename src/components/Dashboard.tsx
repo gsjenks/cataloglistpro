@@ -2,6 +2,7 @@
 // OPTIMIZED: Parallel API calls, memoized filters, useCallback handlers
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useFooter } from '../context/FooterContext';
 import { supabase } from '../lib/supabase';
@@ -22,6 +23,7 @@ import DocumentsList from './DocumentsList';
 import ScrollableTabs from './ScrollableTabs';
 import SaleModal from './SaleModal';
 import ReportsAndTools from './ReportsAndTools';
+import EOAImportModal from './EOAImportModal';
 
 export default function Dashboard() {
   const { user, currentCompany } = useApp();
@@ -34,6 +36,8 @@ export default function Dashboard() {
   const [totalLots, setTotalLots] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showSaleModal, setShowSaleModal] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const navigate = useNavigate();
   
   const [searchQueries, setSearchQueries] = useState<Record<string, string>>({
     sales: '',
@@ -412,7 +416,17 @@ export default function Dashboard() {
 
           <div className="p-6">
             {activeTab === 'sales' && (
-              <SalesList sales={filteredSales} onRefresh={loadDashboardData} salesWithContract={salesWithContract} />
+              <div className="space-y-4">
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setShowImport(true)}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  >
+                    <FileUp className="w-4 h-4" /> Import LiveAuctioneers auction
+                  </button>
+                </div>
+                <SalesList sales={filteredSales} onRefresh={loadDashboardData} salesWithContract={salesWithContract} />
+              </div>
             )}
             {activeTab === 'contacts' && (
               <ContactsList 
@@ -439,6 +453,18 @@ export default function Dashboard() {
           companyId={currentCompany?.id || ''}
           onClose={handleSaleModalClose}
           onSave={handleSaleSave}
+        />
+      )}
+
+      {showImport && currentCompany && (
+        <EOAImportModal
+          companyId={currentCompany.id}
+          onClose={() => setShowImport(false)}
+          onImported={(saleId) => {
+            setShowImport(false);
+            loadDashboardData();
+            navigate(`/sales/${saleId}`);
+          }}
         />
       )}
     </div>
