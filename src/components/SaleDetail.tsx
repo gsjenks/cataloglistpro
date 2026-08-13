@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useFooter } from '../context/FooterContext';
-import type { Sale, Lot, Contact, Document } from '../types';
+import type { Sale, Lot, Contact, Document, Consignment } from '../types';
 import { useLotInventoryRealtime } from '../hooks/useLotInventoryRealtime';
 import { reclaimExpiredHolds } from '../lib/holds';
 import type { ScannedLot } from '../services/ScannerService';
@@ -16,6 +16,9 @@ import ContactsList from './ContactsList';
 import DocumentsList from './DocumentsList';
 import ExportService from '../services/ExportService';
 import SaleReportsTools from './SaleReportsTools';
+import StageBanner from './StageBanner';
+import SaleSetupTab from './SaleSetupTab';
+import { listConsignments } from '../services/ConsignmentService';
 
 export default function SaleDetail() {
   const { saleId } = useParams<{ saleId: string }>();
@@ -25,6 +28,7 @@ export default function SaleDetail() {
   const [lots, setLots] = useState<Lot[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [consignments, setConsignments] = useState<Consignment[]>([]);
   const [activeTab, setActiveTab] = useState('items');
   const [loading, setLoading] = useState(true);
   const [showScanner, setShowScanner] = useState(false);
@@ -81,6 +85,7 @@ export default function SaleDetail() {
     loadLots();
     loadContacts();
     loadDocuments();
+    loadConsignments();
   }, [saleId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load export stats when Reports tab is active
@@ -325,6 +330,15 @@ export default function SaleDetail() {
     }
   };
 
+  const loadConsignments = async () => {
+    if (!saleId) return;
+    try {
+      setConsignments(await listConsignments(saleId));
+    } catch (error) {
+      console.error('Error loading consignments:', error);
+    }
+  };
+
   const loadExportStats = async () => {
     if (!saleId) return;
 
@@ -551,6 +565,11 @@ export default function SaleDetail() {
   // Define tabs with filtered counts
   const tabs = [
     {
+      id: 'setup',
+      label: 'Setup',
+      icon: <ListChecks className="w-4 h-4" />,
+    },
+    {
       id: 'items',
       label: 'Items',
       icon: <Package className="w-4 h-4" />,
@@ -701,6 +720,16 @@ export default function SaleDetail() {
         </div>
       </div>
 
+      {/* Auction lifecycle stage banner (#2) */}
+      <StageBanner
+        sale={sale}
+        lots={lots}
+        consignments={consignments}
+        documents={documents}
+        onChanged={loadSale}
+        onOpenSetup={() => setActiveTab('setup')}
+      />
+
       {/* Scrollable Tabs with Search, Filter, and Sort */}
       <ScrollableTabs
         tabs={tabs}
@@ -714,6 +743,15 @@ export default function SaleDetail() {
 
       {/* Tab Content */}
       <div className="mt-6">
+        {activeTab === 'setup' && (
+          <SaleSetupTab
+            sale={sale}
+            lots={lots}
+            consignments={consignments}
+            documents={documents}
+            onChanged={loadSale}
+          />
+        )}
         {activeTab === 'items' && (
           <>
             <LotsList
