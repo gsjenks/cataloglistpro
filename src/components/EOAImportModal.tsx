@@ -59,7 +59,11 @@ export default function EOAImportModal({ companyId, onClose, onImported }: Props
       onImported(res.saleId);
     } catch (err) {
       console.error('EOA import failed:', err);
-      setError(err instanceof Error ? err.message : 'Import failed.');
+      // Supabase/PostgREST errors are plain objects ({message,details,hint,code}),
+      // not Error instances — surface the real message so failures are actionable.
+      const e = err as { message?: string; details?: string; hint?: string } | null;
+      const msg = e?.message || (err instanceof Error ? err.message : 'Import failed.');
+      setError([msg, e?.details, e?.hint].filter(Boolean).join(' — '));
     } finally {
       setImporting(false);
     }

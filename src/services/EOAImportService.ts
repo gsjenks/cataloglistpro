@@ -135,13 +135,28 @@ export async function importEoaAsNewSale(parsed: ParsedEOA, opts: ImportOptions)
   if (saleErr) throw saleErr;
 
   // 2. Consignor (contact) + consignment terms.
+  // Mirror the full contact form shape (empty strings for unset fields) so NOT NULL
+  // text columns are satisfied, matching how ContactsList creates contacts.
   const { data: contact, error: contactErr } = await supabase
     .from('contacts')
     .insert({
+      prefix: '',
+      first_name: '',
+      middle_name: '',
+      last_name: '',
+      suffix: '',
+      business_name: consignorName,
+      role: '',
+      contact_type: 'consignor',
+      email: '',
+      phone: '',
+      address: '',
+      city: '',
+      state: '',
+      zip_code: '',
+      notes: '',
       company_id: companyId,
       sale_id: sale.id,
-      business_name: consignorName,
-      contact_type: 'consignor',
     })
     .select()
     .single();
@@ -170,6 +185,16 @@ export async function importEoaAsNewSale(parsed: ParsedEOA, opts: ImportOptions)
     sale_id: sale.id,
     lot_number: it.lotNumber,
     name: it.title || `Lot ${it.lotNumber ?? ''}`.trim(),
+    // Defaults matching a freshly-created lot (LotDetail) so NOT NULL columns clear.
+    description: '',
+    quantity: 1,
+    condition: '',
+    category: '',
+    style: '',
+    origin: '',
+    creator: '',
+    materials: '',
+    dimension_unit: 'inches',
     sold_price: it.hammer,
     buyers_premium: it.buyersPremium,
     la_invoice_id: it.invoiceID || null,
