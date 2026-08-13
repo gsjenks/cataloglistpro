@@ -35,6 +35,14 @@ export interface Sale {
   // When public self-checkout opens. null/undefined = opens immediately once
   // enabled. A future timestamp gives in-person shoppers a priority window.
   online_checkout_opens_at?: string | null;
+  // Auction lifecycle pipeline (#2). Fine-grained stage that drives the coarse
+  // `status` above; see docs/auction-lifecycle-spec.md + src/lib/auctionStages.ts.
+  stage?: SaleStage;
+  stage_progress?: StageProgress;
+  // LiveAuctioneers listing metadata (Stage 3 "Listed").
+  la_auction_url?: string;
+  auction_starts_at?: string;
+  la_approved_at?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -71,6 +79,28 @@ export interface Lot {
   // is held until `held_until`; `held_by` is the buyer's basket id.
   held_until?: string | null;
   held_by?: string | null;
+  // Auction lifecycle (#2). Consignor tag (supersedes the legacy free-text
+  // `consignor` above) + cataloging and post-auction state. See
+  // docs/auction-lifecycle-spec.md.
+  consignment_id?: string;
+  condition_report?: string;
+  is_restricted?: boolean;
+  restricted_category?: string;
+  // Post-auction outcome + payment resolution (spec §4.1)
+  outcome?: LotOutcome;
+  payment_status?: LotPaymentStatus;
+  payment_due_at?: string;         // won_at + 72h
+  second_bidder_amount?: number;   // manual entry
+  second_bidder_contact?: string;  // manual entry
+  // Unsold disposition cascade (spec §4.2)
+  disposition?: LotDisposition;
+  disposition_at?: string;
+  disposition_note?: string;
+  // Fulfillment (Stage 6)
+  fulfillment_method?: 'ship' | 'pickup';
+  tracking_number?: string;
+  shipped_at?: string;
+  delivered_at?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -235,4 +265,67 @@ export interface UserCompany {
   company_id: string;
   role: 'owner' | 'admin' | 'member';
   created_at?: string;
+}
+
+// ── Auction lifecycle (#2 Setup) ─────────────────────────────────────────────
+// Backing types for the sale stage pipeline, per-consignor consignments, and the
+// post-auction lot state machines. See docs/auction-lifecycle-spec.md.
+
+export type SaleStage =
+  | 'intake' | 'setup' | 'listed' | 'live'
+  | 'settlement' | 'fulfillment' | 'reconciliation' | 'closed';
+
+export type LotOutcome = 'pending' | 'sold' | 'passed';
+export type LotPaymentStatus = 'unpaid' | 'paid' | 'second_chance' | 'defaulted';
+export type LotDisposition = 'returned' | 'hold_relist' | 'charity';
+
+// One checklist item's state within sales.stage_progress.
+export interface ChecklistItemState {
+  done: boolean;
+  done_at?: string;
+  done_by?: string;
+  note?: string;
+}
+
+// Recorded whenever an operator force-advances past an unsatisfied gate.
+export interface StageOverride {
+  stage: SaleStage;
+  at: string;
+  by?: string;
+  reason: string;
+}
+
+// Shape of the sales.stage_progress jsonb column.
+export interface StageProgress {
+  items?: Record<string, ChecklistItemState>;
+  overrides?: StageOverride[];
+}
+
+export interface ConsignmentFees {
+  photography?: number;
+  cataloging?: number;
+  insurance?: number;
+  storage?: number;
+  buyin?: number;
+}
+
+// One consignor's terms + settlement for a sale. A sale pools lots from many
+// consignments; each lot carries consignment_id.
+export interface Consignment {
+  id: string;
+  company_id?: string;
+  sale_id?: string;
+  contact_id?: string;          // the consignor (references contacts)
+  commission_rate?: number;
+  buyers_premium_rate?: number;
+  reserve_policy?: 'none' | 'per_lot' | 'blanket';
+  fee_schedule?: ConsignmentFees;
+  lead_source?: string;
+  // Reconciliation (Stage 7)
+  net_due?: number;
+  settled_at?: string;
+  paid_at?: string;
+  payment_method?: string;
+  created_at?: string;
+  updated_at?: string;
 }
