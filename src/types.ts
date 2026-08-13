@@ -101,8 +101,25 @@ export interface Lot {
   tracking_number?: string;
   shipped_at?: string;
   delivered_at?: string;
+  // Winning buyer + settlement extras captured from the LA EOA import (D3).
+  buyer?: LotBuyer;
+  buyers_premium?: number;
+  la_invoice_id?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+// Winning buyer as stored in lots.buyer (jsonb), from the LiveAuctioneers EOA export.
+export interface LotBuyer {
+  name?: string;
+  username?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
 }
 
 export interface Photo {
