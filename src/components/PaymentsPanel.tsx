@@ -4,10 +4,10 @@
 // mark paid / offer 2nd bidder / (accept|decline) / mark defaulted. See PaymentService.
 
 import { useState } from 'react';
-import { CheckCircle2, AlertTriangle, UserPlus, X } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, UserPlus, X, ChevronRight, ChevronDown, Undo2 } from 'lucide-react';
 import type { Lot } from '../types';
 import {
-  markLotPaid, markAllPaid, offerSecondBidder, secondBidderAccepted, markDefaulted,
+  markLotPaid, markLotUnpaid, markAllPaid, offerSecondBidder, secondBidderAccepted, markDefaulted,
 } from '../services/PaymentService';
 
 interface Props {
@@ -29,11 +29,16 @@ export default function PaymentsPanel({ saleId, lots, onChanged }: Props) {
   const [offerFor, setOfferFor] = useState<Lot | null>(null);
   const [offerName, setOfferName] = useState('');
   const [offerAmount, setOfferAmount] = useState('');
+  const [showPaid, setShowPaid] = useState(false);
 
   const outstanding = lots.filter(
     (l) => l.outcome === 'sold' && (l.payment_status ?? 'unpaid') !== 'paid',
   );
   const totalOutstanding = outstanding.reduce((s, l) => s + (l.sold_price ?? 0), 0);
+  const paid = lots
+    .filter((l) => l.outcome === 'sold' && l.payment_status === 'paid')
+    .sort((a, b) => (b.sold_price ?? 0) - (a.sold_price ?? 0));
+  const totalPaid = paid.reduce((s, l) => s + (l.sold_price ?? 0), 0);
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
@@ -172,6 +177,39 @@ export default function PaymentsPanel({ saleId, lots, onChanged }: Props) {
             );
           })}
         </ul>
+      )}
+
+      {paid.length > 0 && (
+        <div className="mt-6 border-t border-gray-100 pt-4">
+          <button
+            onClick={() => setShowPaid((v) => !v)}
+            className="flex items-center gap-1.5 text-sm font-medium text-gray-700 hover:text-gray-900"
+          >
+            {showPaid ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            Paid ({paid.length}) · {money(totalPaid)}
+          </button>
+          {showPaid && (
+            <ul className="mt-2 divide-y divide-gray-100">
+              {paid.map((l) => (
+                <li key={l.id} className="py-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0 text-sm truncate">
+                    <span className="text-gray-900">#{l.lot_number} {l.name}</span>
+                    <span className="text-gray-500 ml-2">{money(l.sold_price)}</span>
+                    {l.buyer?.name && <span className="text-gray-400 ml-2">{l.buyer.name}</span>}
+                  </div>
+                  <button
+                    onClick={() => run(`unpaid:${l.id}`, () => markLotUnpaid(l.id))}
+                    disabled={busy === `unpaid:${l.id}`}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 shrink-0"
+                    title="Revert to unpaid"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" /> Mark unpaid
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       {offerFor && (

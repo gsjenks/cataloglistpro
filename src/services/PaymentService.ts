@@ -14,6 +14,11 @@ export async function markLotPaid(lotId: string): Promise<void> {
   await updateLot(lotId, { payment_status: 'paid' });
 }
 
+// Revert an accidental payment back to unpaid (does not undo a 2nd-bidder price/buyer swap).
+export async function markLotUnpaid(lotId: string): Promise<void> {
+  await updateLot(lotId, { payment_status: 'unpaid' });
+}
+
 // Bulk-clear the historical/settled backlog: every sold+unpaid lot on a sale → paid.
 export async function markAllPaid(saleId: string): Promise<number> {
   const { data, error } = await supabase
