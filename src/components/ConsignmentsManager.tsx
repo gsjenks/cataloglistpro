@@ -4,18 +4,21 @@
 // (later) settlement. Consignor is picked from the sale's Contacts.
 
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, UserPlus, X } from 'lucide-react';
-import type { Consignment, Contact, ConsignmentFees } from '../types';
+import { Plus, Pencil, Trash2, UserPlus, X, FileText } from 'lucide-react';
+import type { Consignment, Contact, ConsignmentFees, Lot } from '../types';
 import {
   createConsignment, updateConsignment, deleteConsignment,
 } from '../services/ConsignmentService';
 import { formatContactName } from '../utils/contactName';
+import SettlementStatement from './SettlementStatement';
 
 interface Props {
   saleId: string;
   companyId?: string;
   consignments: Consignment[];
   contacts: Contact[];
+  lots: Lot[];
+  saleName: string;
   onChanged: () => void;
 }
 
@@ -50,11 +53,12 @@ const num = (s: string): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-export default function ConsignmentsManager({ saleId, companyId, consignments, contacts, onChanged }: Props) {
+export default function ConsignmentsManager({ saleId, companyId, consignments, contacts, lots, saleName, onChanged }: Props) {
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Consignment | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [statementFor, setStatementFor] = useState<Consignment | null>(null);
 
   const contactById = (id?: string) => contacts.find((c) => c.id === id);
 
@@ -167,6 +171,9 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => setStatementFor(c)} className="p-1.5 text-gray-500 hover:text-green-600" aria-label="Settlement statement" title="Settlement statement">
+                  <FileText className="w-4 h-4" />
+                </button>
                 <button onClick={() => openEdit(c)} className="p-1.5 text-gray-500 hover:text-blue-600" aria-label="Edit">
                   <Pencil className="w-4 h-4" />
                 </button>
@@ -303,6 +310,16 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
             </div>
           </div>
         </div>
+      )}
+
+      {statementFor && (
+        <SettlementStatement
+          consignment={statementFor}
+          consignorName={formatContactName(contactById(statementFor.contact_id))}
+          saleName={saleName}
+          lots={lots}
+          onClose={() => setStatementFor(null)}
+        />
       )}
     </div>
   );
