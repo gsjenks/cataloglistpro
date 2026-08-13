@@ -20,6 +20,8 @@ interface LotsListProps {
   // Estate sales show the Available/Held/Sold floor control per lot.
   saleType?: Sale['sale_type'];
   onInventoryChange?: (lotId: string, status: InventoryStatus) => void;
+  // consignment_id -> consignor display name, for the card's Consignor line.
+  consignorNames?: Record<string, string>;
 }
 
 // Lazy image component with intersection observer
@@ -99,7 +101,8 @@ const LotCard = memo(({
   refreshKey,
   showInventory,
   onInventoryChange,
-  saleId
+  saleId,
+  consignorName
 }: {
   lot: Lot;
   deleting: string | null;
@@ -110,6 +113,7 @@ const LotCard = memo(({
   showInventory: boolean;
   onInventoryChange?: (lotId: string, status: InventoryStatus) => void;
   saleId: string;
+  consignorName?: string;
 }) => {
   const formatCurrency = (value: number | null | undefined) => {
     if (value === null || value === undefined) return '';
@@ -171,6 +175,20 @@ const LotCard = memo(({
               <div className="flex items-baseline gap-2">
                 <span className="text-xs text-gray-500 w-20 flex-shrink-0">Sold Price:</span>
                 <span className="text-sm font-semibold text-green-600">{formatCurrency(lot.sold_price)}</span>
+              </div>
+            )}
+
+            {lot.reserve_price ? (
+              <div className="flex items-baseline gap-2">
+                <span className="text-xs text-gray-500 w-20 flex-shrink-0">Reserve:</span>
+                <span className="text-sm font-semibold text-amber-700">{formatCurrency(lot.reserve_price)}</span>
+              </div>
+            ) : null}
+
+            {consignorName && (
+              <div className="flex items-baseline gap-2">
+                <span className="text-xs text-gray-500 w-20 flex-shrink-0">Consignor:</span>
+                <span className="text-sm text-gray-700 truncate">{consignorName}</span>
               </div>
             )}
 
@@ -246,7 +264,7 @@ const LotCard = memo(({
 
 LotCard.displayName = 'LotCard';
 
-export default function LotsList({ lots, saleId, onRefresh, saleType, onInventoryChange }: LotsListProps) {
+export default function LotsList({ lots, saleId, onRefresh, saleType, onInventoryChange, consignorNames }: LotsListProps) {
   const showInventory = saleType === 'estate_sale';
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -383,6 +401,7 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
           showInventory={showInventory}
           onInventoryChange={onInventoryChange}
           saleId={saleId}
+          consignorName={lot.consignment_id ? consignorNames?.[lot.consignment_id] : undefined}
         />
       ))}
     </div>
