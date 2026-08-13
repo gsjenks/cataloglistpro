@@ -18,6 +18,7 @@ import ExportService from '../services/ExportService';
 import SaleReportsTools from './SaleReportsTools';
 import StageBanner from './StageBanner';
 import SaleSetupTab from './SaleSetupTab';
+import ConsignmentsManager from './ConsignmentsManager';
 import { listConsignments } from '../services/ConsignmentService';
 
 export default function SaleDetail() {
@@ -744,13 +745,22 @@ export default function SaleDetail() {
       {/* Tab Content */}
       <div className="mt-6">
         {activeTab === 'setup' && (
-          <SaleSetupTab
-            sale={sale}
-            lots={lots}
-            consignments={consignments}
-            documents={documents}
-            onChanged={loadSale}
-          />
+          <div className="space-y-6">
+            <SaleSetupTab
+              sale={sale}
+              lots={lots}
+              consignments={consignments}
+              documents={documents}
+              onChanged={loadSale}
+            />
+            <ConsignmentsManager
+              saleId={saleId!}
+              companyId={sale.company_id}
+              consignments={consignments}
+              contacts={contacts}
+              onChanged={loadConsignments}
+            />
+          </div>
         )}
         {activeTab === 'items' && (
           <>

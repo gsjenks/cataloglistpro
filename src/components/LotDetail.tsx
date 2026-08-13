@@ -27,7 +27,8 @@ import {
   getLACreators,
   getLAMaterials,
 } from "../services/LiveAuctioneersData";
-import type { Lot, Photo } from "../types";
+import type { Lot, Photo, Consignment, Contact } from "../types";
+import { listConsignments } from "../services/ConsignmentService";
 import { toTitleCase } from "../utils/titleCase";
 import { ArrowLeft, Save, Trash2, Upload, Camera } from "lucide-react";
 
@@ -74,6 +75,8 @@ export default function LotDetail() {
     lotRef.current = lot;
   }, [lot]);
   const [photos, setPhotos] = useState<Photo[]>([]);
+  const [consignments, setConsignments] = useState<Consignment[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -112,6 +115,24 @@ export default function LotDetail() {
     if (isNewLot) initializeNewLot();
     else loadLot();
   }, [lotId, saleId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load consignors (#2) for the consignment picker: the sale's consignments plus
+  // the contacts they resolve to.
+  useEffect(() => {
+    if (!saleId) return;
+    (async () => {
+      try {
+        const [cons, { data: cts }] = await Promise.all([
+          listConsignments(saleId),
+          supabase.from("contacts").select("*").eq("sale_id", saleId),
+        ]);
+        setConsignments(cons);
+        setContacts(cts || []);
+      } catch (e) {
+        console.error("Error loading consignors:", e);
+      }
+    })();
+  }, [saleId]);
 
   // Load photos
   useEffect(() => {
@@ -1076,6 +1097,8 @@ export default function LotDetail() {
         hasPhotos={photos.length > 0}
         saving={saving}
         onAIEnrich={handleAIEnrich}
+        consignments={consignments}
+        contacts={contacts}
       />
 
       {/* QR code — links to the public lot page (existing lots only) */}

@@ -13,7 +13,8 @@ import {
   getLACreators,
   getLAMaterials,
 } from "../services/LiveAuctioneersData";
-import type { Lot } from "../types";
+import type { Lot, Consignment, Contact } from "../types";
+import { formatContactName } from "../utils/contactName";
 
 interface LotFormProps {
   lot: Partial<Lot>;
@@ -23,6 +24,10 @@ interface LotFormProps {
   hasPhotos: boolean;
   saving: boolean;
   onAIEnrich: () => void;
+  // Auction lifecycle (#2): consignor assignment source. Optional so other callers
+  // of LotForm keep working.
+  consignments?: Consignment[];
+  contacts?: Contact[];
 }
 
 const formatPrice = (value: number | undefined | null): string => {
@@ -38,6 +43,8 @@ function LotForm({
   hasPhotos,
   saving,
   onAIEnrich,
+  consignments,
+  contacts,
 }: LotFormProps) {
   const updateField = useCallback(
     <K extends keyof Lot>(field: K, value: Lot[K]) => {
@@ -200,6 +207,19 @@ function LotForm({
               onChange={(value) => updateField("style", value)}
               items={getLAStyles()}
               placeholder="Search styles..."
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Condition Report
+            </label>
+            <textarea
+              value={lot.condition_report || ""}
+              onChange={(e) => updateField("condition_report", e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
+              placeholder="Detailed condition: wear, damage, repairs, provenance notes buyers rely on..."
             />
           </div>
         </div>
@@ -373,14 +393,52 @@ function LotForm({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Consignor
               </label>
+              <select
+                value={lot.consignment_id || ""}
+                onChange={(e) =>
+                  updateField("consignment_id", e.target.value || undefined)
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
+              >
+                <option value="">Unassigned</option>
+                {(consignments || []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {formatContactName(
+                      (contacts || []).find((ct) => ct.id === c.contact_id),
+                    )}
+                  </option>
+                ))}
+              </select>
+              {(!consignments || consignments.length === 0) && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Add consignors in the sale's Setup tab to assign here.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Compliance */}
+          <div className="mt-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <input
+                type="checkbox"
+                checked={!!lot.is_restricted}
+                onChange={(e) => updateField("is_restricted", e.target.checked)}
+                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-600"
+              />
+              Restricted / regulated item (ivory, firearm, hazmat, etc.)
+            </label>
+            {lot.is_restricted && (
               <input
                 type="text"
-                value={lot.consignor || ""}
-                onChange={(e) => updateField("consignor", e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
-                placeholder="Consignor name or reference"
+                value={lot.restricted_category || ""}
+                onChange={(e) =>
+                  updateField("restricted_category", e.target.value)
+                }
+                className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                placeholder="Restriction type / notes"
               />
-            </div>
+            )}
           </div>
         </div>
       </div>
