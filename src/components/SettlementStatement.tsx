@@ -92,8 +92,44 @@ export default function SettlementStatement({ consignment, consignorName, saleNa
             </div>
           </div>
 
+          {/* Unsold lots — buy-in is charged on those with a reserve */}
+          {s.unsoldLots.length > 0 && (
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-2">
+                Unsold lots ({s.unsoldLots.length}) — buy-in {s.buyinRate}% of reserve
+              </h3>
+              <div className="border border-gray-200 rounded-md overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="text-left font-medium px-3 py-2 w-16">Lot</th>
+                      <th className="text-left font-medium px-3 py-2">Item</th>
+                      <th className="text-right font-medium px-3 py-2 w-24">Reserve</th>
+                      <th className="text-right font-medium px-3 py-2 w-24">Buy-in</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {s.unsoldLots.map((u, i) => (
+                      <tr key={i}>
+                        <td className="px-3 py-1.5 text-gray-500">{u.lotNumber ?? ''}</td>
+                        <td className="px-3 py-1.5">{u.name}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {u.reserve && u.reserve > 0
+                            ? money(u.reserve)
+                            : <span className="text-gray-300">no reserve</span>}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {u.buyinCharge > 0 ? money(u.buyinCharge) : <span className="text-gray-300">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <p className="text-xs text-gray-400">
-            {s.unsoldCount > 0 && `${s.unsoldCount} unsold lot(s) not included. `}
             Buyer's premium is retained by the auction house and is not part of this settlement.
           </p>
         </div>

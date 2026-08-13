@@ -11,6 +11,7 @@ import {
 } from '../services/ConsignmentService';
 import { formatContactName } from '../utils/contactName';
 import SettlementStatement from './SettlementStatement';
+import { FLAT_FEE_KEYS, FEE_LABELS, DEFAULT_BUYIN_RATE } from '../lib/settlement';
 
 interface Props {
   saleId: string;
@@ -37,15 +38,7 @@ const emptyForm: FormState = {
   buyers_premium_rate: '',
   reserve_policy: 'none',
   lead_source: '',
-  fees: { photography: '', cataloging: '', insurance: '', storage: '', buyin: '' },
-};
-
-const FEE_LABELS: Record<keyof ConsignmentFees, string> = {
-  photography: 'Photography',
-  cataloging: 'Cataloging',
-  insurance: 'Insurance',
-  storage: 'Storage',
-  buyin: 'Buy-in',
+  fees: { photography: '', cataloging: '', insurance: '', storage: '', buyin: String(DEFAULT_BUYIN_RATE) },
 };
 
 const num = (s: string): number | undefined => {
@@ -81,7 +74,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
         cataloging: c.fee_schedule?.cataloging?.toString() ?? '',
         insurance: c.fee_schedule?.insurance?.toString() ?? '',
         storage: c.fee_schedule?.storage?.toString() ?? '',
-        buyin: c.fee_schedule?.buyin?.toString() ?? '',
+        buyin: c.fee_schedule?.buyin?.toString() ?? String(DEFAULT_BUYIN_RATE),
       },
     });
     setShowModal(true);
@@ -261,9 +254,9 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Fees ($)</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(Object.keys(FEE_LABELS) as (keyof ConsignmentFees)[]).map((k) => (
+                <label className="block text-sm font-medium text-gray-700 mb-2">Flat fees ($)</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {FLAT_FEE_KEYS.map((k) => (
                     <div key={k}>
                       <span className="block text-xs text-gray-500 mb-1">{FEE_LABELS[k]}</span>
                       <input
@@ -274,6 +267,15 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <div className="w-1/2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Buy-in rate (% of reserve)</label>
+                <input
+                  type="number" inputMode="decimal" value={form.fees.buyin}
+                  onChange={(e) => setForm({ ...form, fees: { ...form.fees, buyin: e.target.value } })}
+                  className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="3"
+                />
               </div>
 
               <div className="rounded-md bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
@@ -293,8 +295,8 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                     Storage</span> — costs billed back to the consignor.
                   </li>
                   <li>
-                    <span className="font-medium">Buy-in</span> — charged on lots that
-                    didn&apos;t sell (failed to meet reserve).
+                    <span className="font-medium">Buy-in</span> — {DEFAULT_BUYIN_RATE}% (editable) of
+                    the reserve on each unsold lot; only lots that had a reserve are charged.
                   </li>
                 </ul>
               </div>
