@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -21,6 +21,7 @@ import SaleSetupTab from './SaleSetupTab';
 import ConsignmentsManager from './ConsignmentsManager';
 import CatalogueImportModal from './CatalogueImportModal';
 import { listConsignments } from '../services/ConsignmentService';
+import { formatContactName } from '../utils/contactName';
 
 export default function SaleDetail() {
   const { saleId } = useParams<{ saleId: string }>();
@@ -32,6 +33,15 @@ export default function SaleDetail() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [consignments, setConsignments] = useState<Consignment[]>([]);
   const [showCatalogueImport, setShowCatalogueImport] = useState(false);
+
+  // consignment_id -> consignor display name, for lot cards.
+  const consignorNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    consignments.forEach((c) => {
+      map[c.id] = formatContactName(contacts.find((ct) => ct.id === c.contact_id));
+    });
+    return map;
+  }, [consignments, contacts]);
   const [activeTab, setActiveTab] = useState('items');
   const [loading, setLoading] = useState(true);
   const [showScanner, setShowScanner] = useState(false);
@@ -789,6 +799,7 @@ export default function SaleDetail() {
               onRefresh={loadLots}
               saleType={sale?.sale_type}
               onInventoryChange={handleInventoryChange}
+              consignorNames={consignorNames}
             />
             
             {/* Show "No results" message when searching */}

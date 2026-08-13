@@ -441,6 +441,43 @@ function LotForm({
             )}
           </div>
         </div>
+
+        {/* Buyer — captured from the LiveAuctioneers EOA import (read-only) */}
+        {lot.buyer && (lot.buyer.name || lot.buyer.email || lot.buyer.phone || lot.buyer.address) && (
+          <div className="space-y-4 mt-6">
+            <h2 className="text-lg font-semibold text-gray-900">Buyer</h2>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm space-y-1">
+              {lot.buyer.name && (
+                <div className="font-medium text-gray-900">
+                  {lot.buyer.name}
+                  {lot.buyer.username ? ` (${lot.buyer.username})` : ""}
+                </div>
+              )}
+              {lot.buyer.email && <div className="text-gray-700">{lot.buyer.email}</div>}
+              {lot.buyer.phone && <div className="text-gray-700">{lot.buyer.phone}</div>}
+              {(lot.buyer.address || lot.buyer.city) && (
+                <div className="text-gray-700">
+                  {[
+                    lot.buyer.address,
+                    [lot.buyer.city, lot.buyer.state, lot.buyer.zip].filter(Boolean).join(" "),
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
+                  {lot.buyer.country && lot.buyer.country !== "US" ? ` ${lot.buyer.country}` : ""}
+                </div>
+              )}
+              {(lot.la_invoice_id || lot.buyers_premium != null) && (
+                <div className="text-xs text-gray-500 pt-1">
+                  {lot.la_invoice_id && <span>Invoice {lot.la_invoice_id}</span>}
+                  {lot.la_invoice_id && lot.buyers_premium != null ? " · " : ""}
+                  {lot.buyers_premium != null && (
+                    <span>Buyer&apos;s premium ${lot.buyers_premium.toLocaleString()}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
