@@ -134,81 +134,94 @@ export async function importEoaAsNewSale(parsed: ParsedEOA, opts: ImportOptions)
     .single();
   if (saleErr) throw saleErr;
 
-  // 2. Consignor (contact) + consignment terms.
-  // Mirror the full contact form shape (empty strings for unset fields) so NOT NULL
-  // text columns are satisfied, matching how ContactsList creates contacts.
-  const { data: contact, error: contactErr } = await supabase
-    .from('contacts')
-    .insert({
-      prefix: '',
-      first_name: '',
-      middle_name: '',
-      last_name: '',
-      suffix: '',
-      business_name: consignorName,
-      role: '',
-      contact_type: 'consignor',
-      email: '',
-      phone: '',
-      address: '',
-      city: '',
-      state: '',
-      zip_code: '',
-      notes: '',
-      company_id: companyId,
+  // Consignor name → first/last. The contacts_check constraint requires a personal
+  // name (first/last); business_name alone does not satisfy it.
+  const nameParts = consignorName.trim().split(/\s+/).filter(Boolean);
+  const firstName = nameParts[0] || consignorName;
+  const lastName = nameParts.slice(1).join(' ') || nameParts[0] || consignorName;
+
+  try {
+    // 2. Consignor (contact) + consignment terms.
+    const { data: contact, error: contactErr } = await supabase
+      .from('contacts')
+      .insert({
+        prefix: '',
+        first_name: firstName,
+        middle_name: '',
+        last_name: lastName,
+        suffix: '',
+        business_name: consignorName,
+        role: '',
+        contact_type: 'consignor',
+        email: '',
+        phone: '',
+        address: '',
+        city: '',
+        state: '',
+        zip_code: '',
+        notes: '',
+        company_id: companyId,
+        sale_id: sale.id,
+      })
+      .select()
+      .single();
+    if (contactErr) throw contactErr;
+
+    const { data: consignment, error: consErr } = await supabase
+      .from('consignments')
+      .insert({
+        company_id: companyId,
+        sale_id: sale.id,
+        contact_id: contact.id,
+        commission_rate: commissionRate,
+      })
+      .select()
+      .single();
+    if (consErr) throw consErr;
+
+    // 3. Lots — one per EOA item.
+    const nowIso = new Date().toISOString();
+    const paymentDueAt = parsed.saleDate
+      ? new Date(parsed.saleDate.getTime() + paymentTermsHours * 3600 * 1000).toISOString()
+      : null;
+
+    const rows = parsed.items.map((it) => ({
+      id: crypto.randomUUID(),
       sale_id: sale.id,
-    })
-    .select()
-    .single();
-  if (contactErr) throw contactErr;
+      lot_number: it.lotNumber,
+      name: it.title || `Lot ${it.lotNumber ?? ''}`.trim(),
+      // Defaults matching a freshly-created lot (LotDetail) so NOT NULL columns clear.
+      description: '',
+      quantity: 1,
+      condition: '',
+      category: '',
+      style: '',
+      origin: '',
+      creator: '',
+      materials: '',
+      dimension_unit: 'inches',
+      sold_price: it.hammer,
+      buyers_premium: it.buyersPremium,
+      la_invoice_id: it.invoiceID || null,
+      buyer: it.buyer,
+      consignment_id: consignment.id,
+      outcome: 'sold',
+      payment_status: 'unpaid',
+      payment_due_at: paymentDueAt,
+      created_at: nowIso,
+      updated_at: nowIso,
+    }));
 
-  const { data: consignment, error: consErr } = await supabase
-    .from('consignments')
-    .insert({
-      company_id: companyId,
-      sale_id: sale.id,
-      contact_id: contact.id,
-      commission_rate: commissionRate,
-    })
-    .select()
-    .single();
-  if (consErr) throw consErr;
+    const { error: lotsErr } = await supabase.from('lots').insert(rows);
+    if (lotsErr) throw lotsErr;
 
-  // 3. Lots — one per EOA item.
-  const nowIso = new Date().toISOString();
-  const paymentDueAt = parsed.saleDate
-    ? new Date(parsed.saleDate.getTime() + paymentTermsHours * 3600 * 1000).toISOString()
-    : null;
-
-  const rows = parsed.items.map((it) => ({
-    id: crypto.randomUUID(),
-    sale_id: sale.id,
-    lot_number: it.lotNumber,
-    name: it.title || `Lot ${it.lotNumber ?? ''}`.trim(),
-    // Defaults matching a freshly-created lot (LotDetail) so NOT NULL columns clear.
-    description: '',
-    quantity: 1,
-    condition: '',
-    category: '',
-    style: '',
-    origin: '',
-    creator: '',
-    materials: '',
-    dimension_unit: 'inches',
-    sold_price: it.hammer,
-    buyers_premium: it.buyersPremium,
-    la_invoice_id: it.invoiceID || null,
-    buyer: it.buyer,
-    consignment_id: consignment.id,
-    outcome: 'sold',
-    payment_status: 'unpaid',
-    payment_due_at: paymentDueAt,
-    created_at: nowIso,
-    updated_at: nowIso,
-  }));
-
-  const { error: lotsErr } = await supabase.from('lots').insert(rows);
-  if (lotsErr) throw lotsErr;
-
-  return { saleId: sale.id, consignmentId: consignment.id, lotsCreated: rows.length };
+    return { saleId: sale.id, consignmentId: consignment.id, lotsCreated: rows.length };
+  } catch (err) {
+    // Best-effort rollback so a failed import leaves no orphan sale behind.
+    await supabase.from('lots').delete().eq('sale_id', sale.id);
+    await supabase.from('consignments').delete().eq('sale_id', sale.id);
+    await supabase.from('contacts').delete().eq('sale_id', sale.id);
+    await supabase.from('sales').delete().eq('id', sale.id);
+    throw err;
+  }
 }
