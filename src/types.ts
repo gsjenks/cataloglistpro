@@ -98,6 +98,7 @@ export interface Lot {
   disposition_note?: string;
   // Fulfillment (Stage 6)
   fulfillment_method?: 'ship' | 'pickup';
+  fulfillment_carrier?: string;   // fedex|usps|ups|allied|crating|inhouse|pickup|store…
   tracking_number?: string;
   shipped_at?: string;
   delivered_at?: string;
