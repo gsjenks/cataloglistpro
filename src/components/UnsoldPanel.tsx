@@ -5,7 +5,7 @@
 // tracked apart) each printable for records. See DispositionService.
 
 import { useState } from 'react';
-import { RotateCcw, Archive, Heart, X, Undo2, Printer, ChevronRight, ChevronDown } from 'lucide-react';
+import { RotateCcw, Archive, Heart, Trash2, X, Undo2, Printer, ChevronRight, ChevronDown } from 'lucide-react';
 import type { Lot, LotDisposition } from '../types';
 import { sellAftersale, setDisposition, clearDisposition } from '../services/DispositionService';
 import DispositionPrintList from './DispositionPrintList';
@@ -32,6 +32,7 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, onChanged 
   const returned = passed.filter((l) => l.disposition === 'returned');
   const held = passed.filter((l) => l.disposition === 'hold_relist');
   const charity = passed.filter((l) => l.disposition === 'charity');
+  const discarded = passed.filter((l) => l.disposition === 'discarded');
 
   const consignorOf = (l: Lot) => (l.consignment_id ? consignorNames?.[l.consignment_id] : undefined);
 
@@ -103,6 +104,10 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, onChanged 
                     className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50">
                     Charity
                   </button>
+                  <button onClick={() => disposition(l, 'discarded')} disabled={busy === `discarded:${l.id}`}
+                    className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
+                    Trash
+                  </button>
                 </div>
               </li>
             ))}
@@ -124,6 +129,11 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, onChanged 
         lots={charity} consignorOf={consignorOf} busy={busy}
         onUndo={(l) => run(`undo:${l.id}`, () => clearDisposition(l.id))}
         onPrint={() => setPrintCat({ title: 'Charity Donation', lots: charity })} />
+
+      <DispositionSection title="Discarded / unsellable" icon={<Trash2 className="w-4 h-4" />}
+        lots={discarded} consignorOf={consignorOf} busy={busy}
+        onUndo={(l) => run(`undo:${l.id}`, () => clearDisposition(l.id))}
+        onPrint={() => setPrintCat({ title: 'Discarded (Unsellable)', lots: discarded })} />
 
       {/* Aftersale modal */}
       {afterFor && (

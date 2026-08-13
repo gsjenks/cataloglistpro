@@ -294,7 +294,7 @@ export type SaleStage =
 
 export type LotOutcome = 'pending' | 'sold' | 'passed';
 export type LotPaymentStatus = 'unpaid' | 'paid' | 'second_chance' | 'defaulted';
-export type LotDisposition = 'returned' | 'hold_relist' | 'charity';
+export type LotDisposition = 'returned' | 'hold_relist' | 'charity' | 'discarded';
 
 // One checklist item's state within sales.stage_progress.
 export interface ChecklistItemState {
