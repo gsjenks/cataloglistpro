@@ -344,6 +344,11 @@ export default function ContactsList({ contacts, companyId, saleId, onRefresh }:
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
+              {/* Consignor reminder */}
+              <p className="text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                Consignment clients: remember to add their consignor terms in the sale's Setup tab.
+              </p>
+
               {/* Personal Name */}
               <div>
                 <h4 className="text-sm font-medium text-gray-900 mb-3">Personal Information</h4>
