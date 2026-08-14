@@ -98,6 +98,7 @@ export interface Lot {
   disposition_note?: string;
   // Fulfillment (Stage 6)
   fulfillment_method?: 'ship' | 'pickup';
+  fulfillment_carrier?: string;   // fedex|usps|ups|allied|crating|inhouse|pickup|store…
   tracking_number?: string;
   shipped_at?: string;
   delivered_at?: string;
@@ -282,6 +283,21 @@ export interface UserCompany {
   company_id: string;
   role: 'owner' | 'admin' | 'member';
   created_at?: string;
+}
+
+// A shipper / handler in the company's directory (Stage 6 fulfillment).
+export interface Shipper {
+  id: string;
+  company_id?: string;
+  name: string;
+  kind?: 'inhouse' | 'external';
+  phone?: string;
+  email?: string;
+  address?: string;
+  notes?: string;
+  active?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // ── Auction lifecycle (#2 Setup) ─────────────────────────────────────────────

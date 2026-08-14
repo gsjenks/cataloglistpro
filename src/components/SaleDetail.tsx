@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document, Consignment } from '../types';
@@ -22,6 +22,7 @@ import ConsignmentsManager from './ConsignmentsManager';
 import CatalogueImportModal from './CatalogueImportModal';
 import PaymentsPanel from './PaymentsPanel';
 import UnsoldPanel from './UnsoldPanel';
+import FulfillmentPanel from './FulfillmentPanel';
 import { listConsignments } from '../services/ConsignmentService';
 import { formatContactName } from '../utils/contactName';
 
@@ -597,6 +598,12 @@ export default function SaleDetail() {
       count: lots.filter((l) => l.outcome === 'sold' && (l.payment_status ?? 'unpaid') !== 'paid').length,
     },
     {
+      id: 'fulfillment',
+      label: 'Fulfillment',
+      icon: <Truck className="w-4 h-4" />,
+      count: lots.filter((l) => l.outcome === 'sold' && l.payment_status === 'paid' && !l.shipped_at && !l.delivered_at).length,
+    },
+    {
       id: 'unsold',
       label: 'Unsold',
       icon: <PackageX className="w-4 h-4" />,
@@ -831,6 +838,10 @@ export default function SaleDetail() {
 
         {activeTab === 'payments' && (
           <PaymentsPanel saleId={saleId!} lots={lots} onChanged={loadLots} />
+        )}
+
+        {activeTab === 'fulfillment' && (
+          <FulfillmentPanel saleId={saleId!} companyId={sale.company_id} saleName={sale.name} lots={lots} onChanged={loadLots} />
         )}
 
         {activeTab === 'unsold' && (
