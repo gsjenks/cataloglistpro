@@ -55,15 +55,17 @@ export default function DispositionPrintList({ title, saleName, consignorName, l
                 <tr>
                   <th className="text-left font-medium px-3 py-2 w-16">Lot</th>
                   <th className="text-left font-medium px-3 py-2">Item</th>
-                  <th className="text-right font-medium px-3 py-2 w-40">Est. value</th>
+                  <th className="text-left font-medium px-3 py-2">Note</th>
+                  <th className="text-right font-medium px-3 py-2 w-32">Est. value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {lots.map((l) => (
                   <tr key={l.id}>
-                    <td className="px-3 py-1.5 text-gray-500">{l.lot_number ?? ''}</td>
-                    <td className="px-3 py-1.5">{l.name}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{estimateText(l)}</td>
+                    <td className="px-3 py-1.5 text-gray-500 align-top">{l.lot_number ?? ''}</td>
+                    <td className="px-3 py-1.5 align-top">{l.name}</td>
+                    <td className="px-3 py-1.5 align-top text-gray-600">{l.disposition_note ?? ''}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums align-top">{estimateText(l)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -36,6 +36,11 @@ export async function setDisposition(lotId: string, disposition: LotDisposition,
   });
 }
 
+// Edit just the note on an already-dispositioned lot (keeps disposition + date).
+export async function updateDispositionNote(lotId: string, note: string): Promise<void> {
+  await updateLot(lotId, { disposition_note: note.trim() || null });
+}
+
 // Undo a disposition (back to pending).
 export async function clearDisposition(lotId: string): Promise<void> {
   await updateLot(lotId, { disposition: null, disposition_at: null, disposition_note: null });
