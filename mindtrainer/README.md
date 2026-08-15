@@ -4,9 +4,9 @@ A personal daily mind trainer. One hour a day, a rotating subject, and an
 interactive AI tutor that teaches something new, explains what you don't
 understand, and checks what you've learned.
 
-It's an installable **web app (PWA)** — add it to your phone's home screen or
-run it on the desktop. The AI tutor is powered by the **Claude API**; your API
-key stays on the server and is never exposed to the browser.
+It's an installable **web app (PWA)** — add it to your phone's home screen. The
+AI tutor is powered by the **Claude API**, and **your API key stays on the
+server** — it is never exposed to the browser.
 
 ## Features
 
@@ -14,70 +14,74 @@ key stays on the server and is never exposed to the browser.
   Literature, Art, Music, Civics, Architecture, Environment, Astronomy,
   Mathematics, Chemistry, Design, Economics, Construction, Science, Law,
   Business, Politics, Religion, Critical Thinking).
-- **Learn** — a fresh ~1-hour lesson generated for the day. **Read** it,
+- **Learn** — a fresh ~1-hour lesson generated for the day: **Read** it,
   **Listen** to on-device narration, or **Watch** curated videos for the topic.
 - **Ask** — an interactive Socratic tutor grounded in today's lesson.
-- **Check** — flashcards plus an interactive "quiz me" mode that evaluates your
-  answers.
-- **Progress** — a daily streak and a log of subjects you've explored.
+- **Check** — flashcards plus an interactive "quiz me" mode that grades answers.
+- **Progress** — a daily streak and a log of subjects explored.
 
-## Setup
+## Put it on your phone
+
+Because the key stays server-side, the app runs as a small Node service. Host it
+once, then open the link on your phone and install it. **Render** has a free
+tier and can deploy straight from GitHub in a phone browser:
+
+1. Create your **Anthropic API key** at console.anthropic.com (this powers the
+   tutor; usage is billed to your Anthropic account).
+2. Go to **render.com**, sign in with **GitHub**.
+3. **New → Web Service**, and pick this repo (`gsjenks/cataloglistpro`).
+4. Set these fields:
+   - **Root Directory:** `mindtrainer`
+   - **Build Command:** `npm install && npm run build`
+   - **Start Command:** `npm run serve`
+   - **Branch:** `claude/mind-trainer` (or `main` once it's merged)
+5. Under **Environment**, add a variable:
+   - `ANTHROPIC_API_KEY` = your key
+   - *(optional)* `MODEL` = `claude-sonnet-5` for ~5× lower cost
+6. **Create Web Service.** Render builds it and gives you an
+   `https://…onrender.com` link.
+7. Open that link on your phone → menu → **Add to Home Screen**.
+
+The same works on **Railway**, **Fly.io**, or any Node host: build with
+`npm run build`, start with `npm run serve`, and set `ANTHROPIC_API_KEY` in the
+host's environment. (Note: Render's free tier sleeps when idle, so the first
+open after a while takes ~30 seconds to wake.)
+
+## Run it locally (optional, needs a computer)
 
 ```bash
 cd mindtrainer
 npm install
-cp .env.example .env      # then add your ANTHROPIC_API_KEY
+cp .env.example .env      # add ANTHROPIC_API_KEY (and optionally MODEL)
+npm run dev               # front end on http://localhost:5173, API on :8787
 ```
 
-Get a key at https://console.anthropic.com. By default the app uses
-`claude-opus-5`; set `MODEL=claude-sonnet-5` in `.env` for roughly 5× lower
-cost with strong quality.
-
-## Run in development
+Build and serve the production bundle from one server:
 
 ```bash
-npm run dev
+npm start                 # builds, then serves dist/ + the API on :8787
 ```
 
-- Front end: http://localhost:5173 (Vite)
-- API server: http://localhost:8787 (Express, holds the key)
+## Cost
 
-Vite proxies `/api/*` to the Express server.
-
-## Build & run for real
-
-```bash
-npm run build      # type-checks and builds the PWA into dist/
-npm start          # Express serves dist/ AND the API on http://localhost:8787
-```
-
-Deploy `npm start` to any Node host (Render, Railway, Fly, a VM). Set
-`ANTHROPIC_API_KEY` (and optionally `MODEL`, `PORT`) in the host's environment.
-Once served over HTTPS, the browser will offer **Install** / **Add to Home
-Screen**.
+Each day generates one lesson (cached, so once per day) plus any tutor chat you
+use. On `claude-sonnet-5` that's a few cents per day of active use; `claude-opus-5`
+(the default) is higher quality and higher cost. The lesson call runs with
+thinking off and medium effort to stay fast and cheap.
 
 ## How it works
 
 | Piece | What it does |
 |---|---|
 | `src/lib/curriculum.ts` | Deterministic day → subject rotation. |
-| `server/index.mjs` | `POST /api/lesson` (structured lesson) and `POST /api/chat` (streaming tutor). Holds the Claude key. |
-| `src/lib/storage.ts` | Caches each day's lesson and tracks the streak in `localStorage` — works offline, no account. |
+| `server/index.mjs` | Holds the Claude key. `POST /api/lesson` (structured lesson) and `POST /api/chat` (streaming tutor); serves the built app in production. |
+| `src/lib/api.ts` | Browser calls `/api/*` — it never sees the key. |
+| `src/lib/storage.ts` | Caches each day's lesson and the streak in `localStorage`. |
 | `public/sw.js`, `manifest.webmanifest` | Make the app installable with an offline shell. |
-
-## Cost
-
-Each day generates one lesson (cached locally, so it's generated once per day)
-plus whatever tutor chat you use. On `claude-sonnet-5` this is a few cents per
-day of active use; `claude-opus-5` is higher. The lesson call runs with thinking
-disabled and medium effort to keep it fast and cheap.
 
 ## Notes / next steps
 
-- The PWA icon is an SVG placeholder (`public/icon.svg`). For the crispest
-  app-store/home-screen icons, add 192×192 and 512×512 PNGs and list them in the
-  manifest.
-- Progress is device-local. Add accounts + a database (e.g. Supabase) to sync
-  across devices.
-- To package as native iOS/Android apps later, wrap the built site with
-  Capacitor.
+- The PWA icon is an SVG placeholder (`public/icon.svg`); add 192/512 PNGs for
+  the crispest home-screen icon.
+- Progress is device-local. Add accounts + a database to sync across devices.
+- To ship as native iOS/Android apps later, wrap the built site with Capacitor.
