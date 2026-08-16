@@ -355,10 +355,12 @@ export interface Consignment {
   fee_schedule?: ConsignmentFees;
   lead_source?: string;
   // Reconciliation (Stage 7)
-  net_due?: number;
-  settled_at?: string;
+  net_due?: number;             // amount of the payout that was recorded
+  settled_at?: string;          // statement generated / figures locked
   paid_at?: string;
-  payment_method?: string;
+  payment_method?: string;      // check | ach | wire | cash | other
+  payment_reference?: string;   // check #, ACH/wire confirmation
+  payout_note?: string;
   created_at?: string;
   updated_at?: string;
 }
