@@ -111,6 +111,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
   // Buyers entered by hand (second chance, aftersale) often arrive with a name only.
   const [buyerFor, setBuyerFor] = useState<Group | null>(null);
   const [buyerDraft, setBuyerDraft] = useState<LotBuyer>({});
+  const [detachLa, setDetachLa] = useState(false);
 
   const loadBilling = useCallback(() => {
     listBuyerInvoices(saleId)
@@ -214,12 +215,14 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
   const openBuyer = (g: Group) => {
     setBuyerFor(g);
     setBuyerDraft({ ...g.buyer, name: g.buyer.name || g.name });
+    setDetachLa(false);
   };
 
   const saveBuyer = () => {
     if (!buyerFor) return;
     const g = buyerFor;
-    run(`buyer:${g.key}`, () => updateBuyerForLots(ids(g), buyerDraft)).then(() => setBuyerFor(null));
+    run(`buyer:${g.key}`, () => updateBuyerForLots(ids(g), buyerDraft, detachLa))
+      .then(() => { setBuyerFor(null); loadBilling(); });
   };
 
   const printLabels = async () => {
@@ -468,6 +471,28 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
               </button>
             </div>
             <BuyerFields value={buyerDraft} onChange={setBuyerDraft} />
+
+            {/* Repairs lots sold on a second chance / aftersale before those flows
+                detached the previous buyer's invoice and shipment. */}
+            {buyerFor.lots.some((l) => l.la_invoice_id) && (
+              <label className="flex items-start gap-2 text-sm text-gray-700 mt-3 rounded-md border border-amber-200 bg-amber-50 p-2.5">
+                <input
+                  type="checkbox" checked={detachLa}
+                  onChange={(e) => setDetachLa(e.target.checked)}
+                  className="mt-0.5 rounded border-gray-300"
+                />
+                <span>
+                  This was a house sale, not on a LiveAuctioneers invoice
+                  <span className="block text-xs text-amber-700">
+                    Tick for a second-chance or aftersale buyer: clears invoice{' '}
+                    {[...new Set(buyerFor.lots.map((l) => l.la_invoice_id).filter(Boolean))].join(', ')} and
+                    the shipment left behind by the previous buyer, so this buyer's invoice
+                    stops showing theirs.
+                  </span>
+                </span>
+              </label>
+            )}
+
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setBuyerFor(null)} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
                 Cancel
