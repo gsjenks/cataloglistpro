@@ -14,12 +14,26 @@ async function updateLot(lotId: string, patch: Record<string, unknown>): Promise
 
 // Aftersale: a post-auction offer was accepted. The lot becomes sold + unpaid so it
 // flows into the Payments worklist and the consignor settlement.
-export async function sellAftersale(lotId: string, buyerName: string, price: number): Promise<void> {
-  const buyer: LotBuyer = { name: buyerName };
+// An aftersale is a HOUSE transaction: LiveAuctioneers never invoiced it, so any LA
+// invoice id and any shipment left over from a buyer who defaulted on this lot must be
+// cleared, or the lot rides along on their shipment and prints their invoice totals.
+export async function sellAftersale(
+  lotId: string,
+  buyer: LotBuyer,
+  price: number,
+  buyersPremium?: number,
+): Promise<void> {
   await updateLot(lotId, {
     outcome: 'sold',
     sold_price: price,
     buyer,
+    buyers_premium: buyersPremium ?? null,
+    la_invoice_id: null,
+    fulfillment_carrier: null,
+    fulfillment_method: null,
+    tracking_number: null,
+    shipped_at: null,
+    delivered_at: null,
     payment_status: 'unpaid',
     payment_due_at: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
     disposition: null,

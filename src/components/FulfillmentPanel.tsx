@@ -7,12 +7,14 @@
 // See ShipperService, ShippersManager, FulfillmentService.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList, ListOrdered, Receipt, Tags, BadgeCheck } from 'lucide-react';
+import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList, ListOrdered, Receipt, Tags, BadgeCheck, Pencil } from 'lucide-react';
 import type { Lot, LotBuyer, Shipper, BuyerInvoiceRecord, HouseCharge } from '../types';
 import { setCarrier, shipLots, markPickedUp, markDelivered, resetFulfillment } from '../services/FulfillmentService';
 import { listShippers } from '../services/ShipperService';
 import { listBuyerInvoices } from '../services/BuyerInvoiceImportService';
 import { listHouseCharges } from '../services/HouseChargeService';
+import { updateBuyerForLots } from '../services/BuyerService';
+import BuyerFields from './BuyerFields';
 import HouseChargesModal from './HouseChargesModal';
 import { generateShippingLabels } from '../services/LabelService';
 import { useApp } from '../context/AppContext';
@@ -106,6 +108,9 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
   const [laInvoices, setLaInvoices] = useState<BuyerInvoiceRecord[]>([]);
   const [houseCharges, setHouseCharges] = useState<HouseCharge[]>([]);
   const [chargesFor, setChargesFor] = useState<Group | null>(null);
+  // Buyers entered by hand (second chance, aftersale) often arrive with a name only.
+  const [buyerFor, setBuyerFor] = useState<Group | null>(null);
+  const [buyerDraft, setBuyerDraft] = useState<LotBuyer>({});
 
   const loadBilling = useCallback(() => {
     listBuyerInvoices(saleId)
@@ -206,6 +211,17 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
     run(`ship:${shipFor.key}`, () => shipLots(ids(shipFor), tracking)).then(() => { setShipFor(null); setTracking(''); });
   };
 
+  const openBuyer = (g: Group) => {
+    setBuyerFor(g);
+    setBuyerDraft({ ...g.buyer, name: g.buyer.name || g.name });
+  };
+
+  const saveBuyer = () => {
+    if (!buyerFor) return;
+    const g = buyerFor;
+    run(`buyer:${g.key}`, () => updateBuyerForLots(ids(g), buyerDraft)).then(() => setBuyerFor(null));
+  };
+
   const printLabels = async () => {
     setBusy('labels');
     try {
@@ -285,7 +301,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
             <ul className="space-y-3">
               {unassigned.map((g) => (
                 <li key={g.key} className="border border-gray-200 rounded-lg p-4 flex items-start justify-between gap-3">
-                  <GroupInfo g={g} />
+                  <GroupInfo g={g} onEditBuyer={() => openBuyer(g)} />
                   <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={() => setChargesFor(g)}
@@ -358,7 +374,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
               return (
                 <li key={g.key} className="border border-gray-200 rounded-lg p-4 flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <GroupInfo g={g} status={status} pickup={!info.ships} />
+                    <GroupInfo g={g} status={status} pickup={!info.ships} onEditBuyer={() => openBuyer(g)} />
                     {trackingNo && <div className="text-xs text-gray-500 mt-1">Tracking: {trackingNo}</div>}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -437,6 +453,37 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
         />
       )}
 
+      {buyerFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg w-full max-w-sm max-h-[90vh] overflow-y-auto p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Buyer details</h3>
+                <p className="text-xs text-gray-500">
+                  {buyerFor.name} · applies to all {buyerFor.lots.length} of their lot(s)
+                </p>
+              </div>
+              <button onClick={() => setBuyerFor(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <BuyerFields value={buyerDraft} onChange={setBuyerDraft} />
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setBuyerFor(null)} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={saveBuyer}
+                disabled={busy === `buyer:${buyerFor.key}`}
+                className="px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Save buyer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {chargesFor && (
         <HouseChargesModal
           saleId={saleId}
@@ -505,7 +552,9 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
   );
 }
 
-function GroupInfo({ g, status, pickup }: { g: Group; status?: Status; pickup?: boolean }) {
+function GroupInfo({ g, status, pickup, onEditBuyer }: {
+  g: Group; status?: Status; pickup?: boolean; onEditBuyer?: () => void;
+}) {
   const total = g.lots.reduce((s, l) => s + (l.sold_price ?? 0), 0);
   const addr = addressText(g.buyer);
   return (
@@ -515,7 +564,26 @@ function GroupInfo({ g, status, pickup }: { g: Group; status?: Status; pickup?: 
         {status && <StatusBadge status={status} pickup={pickup} />}
       </div>
       <div className="text-xs text-gray-500 mt-0.5">{g.lots.length} lot(s) · {money(total)}</div>
-      {addr && <div className="text-xs text-gray-500 mt-1 flex items-start gap-1"><MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span>{addr}</span></div>}
+      {addr ? (
+        <div className="text-xs text-gray-500 mt-1 flex items-start gap-1">
+          <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" /><span>{addr}</span>
+          {onEditBuyer && (
+            <button onClick={onEditBuyer} className="text-gray-400 hover:text-blue-600 shrink-0" title="Edit buyer details">
+              <Pencil className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      ) : (
+        // No address means no label, no manifest line and no invoice address — usually
+        // a second-chance or aftersale buyer whose details were never captured.
+        <button
+          onClick={onEditBuyer}
+          disabled={!onEditBuyer}
+          className="text-xs text-amber-600 hover:text-amber-700 mt-1 inline-flex items-center gap-1 disabled:opacity-60"
+        >
+          <MapPin className="w-3.5 h-3.5" /> No shipping address{onEditBuyer && ' — add it'}
+        </button>
+      )}
       <div className="text-xs text-gray-400 mt-1">{g.lots.map((l) => `#${l.lot_number}`).join(', ')}</div>
     </div>
   );

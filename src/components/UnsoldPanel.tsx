@@ -6,9 +6,10 @@
 
 import { useState } from 'react';
 import { RotateCcw, Archive, Heart, Trash2, X, Undo2, Printer, Pencil, ChevronRight, ChevronDown } from 'lucide-react';
-import type { Lot, LotDisposition } from '../types';
+import type { Lot, LotDisposition, LotBuyer } from '../types';
 import { sellAftersale, setDisposition, updateDispositionNote, clearDisposition } from '../services/DispositionService';
 import DispositionPrintList from './DispositionPrintList';
+import BuyerFields from './BuyerFields';
 
 const DISPO_META: Record<LotDisposition, { label: string; noteLabel: string; placeholder: string }> = {
   returned: { label: 'Return to consignor', noteLabel: 'Reason (optional)', placeholder: 'high value, family requested…' },
@@ -32,6 +33,10 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, onChanged 
   const [afterFor, setAfterFor] = useState<Lot | null>(null);
   const [afterName, setAfterName] = useState('');
   const [afterPrice, setAfterPrice] = useState('');
+  // An aftersale buyer is ours, not LiveAuctioneers' — their address only exists if
+  // we capture it here, and without it there's no label, no manifest line, no invoice.
+  const [afterBuyer, setAfterBuyer] = useState<LotBuyer>({});
+  const [afterPremiumRate, setAfterPremiumRate] = useState('');
   const [printCat, setPrintCat] = useState<{ title: string; lots: Lot[] } | null>(null);
   const [dispoModal, setDispoModal] = useState<{ lot: Lot; disposition: LotDisposition; edit: boolean } | null>(null);
   const [note, setNote] = useState('');
@@ -78,10 +83,19 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, onChanged 
       alert('Enter the buyer and the agreed price.');
       return;
     }
-    run(`after:${afterFor.id}`, () => sellAftersale(afterFor.id, afterName.trim(), amt)).then(() => {
+    const rate = parseFloat(afterPremiumRate);
+    const premium = Number.isFinite(rate) && rate > 0
+      ? Math.round(amt * (rate / 100) * 100) / 100
+      : undefined;
+    const lot = afterFor;
+    run(`after:${lot.id}`, () =>
+      sellAftersale(lot.id, { ...afterBuyer, name: afterName.trim() }, amt, premium),
+    ).then(() => {
       setAfterFor(null);
       setAfterName('');
       setAfterPrice('');
+      setAfterBuyer({});
+      setAfterPremiumRate('');
     });
   };
 
@@ -158,24 +172,35 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, onChanged 
       {/* Aftersale modal */}
       {afterFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-lg w-full max-w-sm p-5">
+          <div className="bg-white rounded-lg w-full max-w-sm max-h-[90vh] overflow-y-auto p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-semibold text-gray-900">Aftersale — #{afterFor.lot_number}</h3>
               <button onClick={() => setAfterFor(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Buyer (name / contact)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Buyer name</label>
                 <input type="text" value={afterName} onChange={(e) => setAfterName(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="name, email or phone" />
+                  className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="who bought it" />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Agreed price</label>
-                <input type="number" inputMode="decimal" value={afterPrice} onChange={(e) => setAfterPrice(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="e.g. 150" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Agreed price</label>
+                  <input type="number" inputMode="decimal" value={afterPrice} onChange={(e) => setAfterPrice(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="e.g. 150" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Premium %</label>
+                  <input type="number" inputMode="decimal" value={afterPremiumRate} onChange={(e) => setAfterPremiumRate(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="none" />
+                </div>
               </div>
+
+              <BuyerFields value={afterBuyer} onChange={setAfterBuyer} hideName />
+
               <p className="text-xs text-gray-500">
                 Records the lot as sold &amp; unpaid — it moves to the Payments tab to collect and counts toward settlement.
+                Shipping and sales tax go under Charges on the Fulfillment tab.
               </p>
             </div>
             <div className="flex justify-end gap-2 mt-4">

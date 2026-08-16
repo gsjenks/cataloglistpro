@@ -42,12 +42,29 @@ export async function offerSecondBidder(lotId: string, contact: string, amount: 
 }
 
 // The underbidder accepted: the sale price + buyer become theirs, lot is paid.
-export async function secondBidderAccepted(lotId: string, contact: string, amount: number): Promise<void> {
-  const buyer: LotBuyer = { name: contact };
+//
+// Everything the ORIGINAL buyer left on the lot has to go with them. The lot is no
+// longer on their LiveAuctioneers invoice (LA never billed this sale — it's a house
+// transaction), and it must not travel on the shipment that was assigned for them.
+// Leaving those behind is how a second-chance lot ends up shipping to the wrong
+// address and printing someone else's invoice totals.
+export async function secondBidderAccepted(
+  lotId: string,
+  buyer: LotBuyer,
+  amount: number,
+  buyersPremium?: number,
+): Promise<void> {
   await updateLot(lotId, {
     payment_status: 'paid',
     sold_price: amount,
     buyer,
+    buyers_premium: buyersPremium ?? null,
+    la_invoice_id: null,
+    fulfillment_carrier: null,
+    fulfillment_method: null,
+    tracking_number: null,
+    shipped_at: null,
+    delivered_at: null,
   });
 }
 

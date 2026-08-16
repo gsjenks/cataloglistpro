@@ -5,7 +5,8 @@
 
 import { useState } from 'react';
 import { CheckCircle2, AlertTriangle, UserPlus, X, ChevronRight, ChevronDown, Undo2, FileDown } from 'lucide-react';
-import type { Lot } from '../types';
+import type { Lot, LotBuyer } from '../types';
+import BuyerFields from './BuyerFields';
 import {
   markLotPaid, markLotUnpaid, markAllPaid, offerSecondBidder, secondBidderAccepted, markDefaulted,
 } from '../services/PaymentService';
@@ -34,6 +35,12 @@ export default function PaymentsPanel({ saleId, companyId, lots, onChanged }: Pr
   const [offerFor, setOfferFor] = useState<Lot | null>(null);
   const [offerName, setOfferName] = useState('');
   const [offerAmount, setOfferAmount] = useState('');
+  // Accepting a second-chance offer needs the new buyer's full details — they get the
+  // shipping label and the invoice, and nothing about them is known yet.
+  const [acceptFor, setAcceptFor] = useState<Lot | null>(null);
+  const [acceptBuyer, setAcceptBuyer] = useState<LotBuyer>({});
+  const [acceptAmount, setAcceptAmount] = useState('');
+  const [acceptPremiumRate, setAcceptPremiumRate] = useState('');
   const [showPaid, setShowPaid] = useState(false);
 
   const outstanding = lots.filter(
@@ -61,6 +68,38 @@ export default function PaymentsPanel({ saleId, companyId, lots, onChanged }: Pr
   const doMarkAllPaid = () => {
     if (!confirm(`Mark all ${outstanding.length} outstanding lots as paid?`)) return;
     run('all', () => markAllPaid(saleId));
+  };
+
+  // Premium rate the original sale ran at, so the underbidder is charged the same.
+  const premiumRateOf = (l: Lot): string => {
+    const hammer = l.sold_price ?? 0;
+    const premium = l.buyers_premium ?? 0;
+    if (hammer <= 0 || premium <= 0) return '';
+    return String(Math.round((premium / hammer) * 1000) / 10);
+  };
+
+  const openAccept = (l: Lot) => {
+    setAcceptFor(l);
+    setAcceptBuyer({ name: l.second_bidder_contact ?? '' });
+    setAcceptAmount(String(l.second_bidder_amount ?? ''));
+    setAcceptPremiumRate(premiumRateOf(l));
+  };
+
+  const submitAccept = () => {
+    if (!acceptFor) return;
+    const amt = parseFloat(acceptAmount);
+    if (!acceptBuyer.name?.trim() || !Number.isFinite(amt)) {
+      alert('Enter the buyer name and the agreed price.');
+      return;
+    }
+    const rate = parseFloat(acceptPremiumRate);
+    const premium = Number.isFinite(rate) && rate > 0
+      ? Math.round(amt * (rate / 100) * 100) / 100
+      : undefined;
+    const lot = acceptFor;
+    run(`acc:${lot.id}`, () =>
+      secondBidderAccepted(lot.id, { ...acceptBuyer, name: acceptBuyer.name?.trim() }, amt, premium),
+    ).then(() => setAcceptFor(null));
   };
 
   const submitOffer = () => {
@@ -161,7 +200,7 @@ export default function PaymentsPanel({ saleId, companyId, lots, onChanged }: Pr
                   {isSecond ? (
                     <>
                       <button
-                        onClick={() => run(`acc:${l.id}`, () => secondBidderAccepted(l.id, l.second_bidder_contact ?? '', l.second_bidder_amount ?? 0))}
+                        onClick={() => openAccept(l)}
                         disabled={busy === `acc:${l.id}`}
                         className="px-2 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
                       >
@@ -241,6 +280,72 @@ export default function PaymentsPanel({ saleId, companyId, lots, onChanged }: Pr
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {acceptFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-lg w-full max-w-sm max-h-[90vh] overflow-y-auto p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">
+                  2nd bidder paid — #{acceptFor.lot_number}
+                </h3>
+                <p className="text-xs text-gray-500">{acceptFor.name}</p>
+              </div>
+              <button onClick={() => setAcceptFor(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-xs text-blue-800">
+              This becomes a house sale: the lot leaves
+              {acceptFor.buyer?.name ? ` ${acceptFor.buyer.name}'s` : ' the original buyer’s'} invoice
+              and shipment, so the new buyer's own address is needed here.
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Price</label>
+                  <input
+                    type="number" inputMode="decimal" value={acceptAmount}
+                    onChange={(e) => setAcceptAmount(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Premium %</label>
+                  <input
+                    type="number" inputMode="decimal" value={acceptPremiumRate}
+                    onChange={(e) => setAcceptPremiumRate(e.target.value)}
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                    placeholder="none"
+                  />
+                </div>
+              </div>
+
+              <BuyerFields value={acceptBuyer} onChange={setAcceptBuyer} />
+
+              <p className="text-xs text-gray-400">
+                Shipping and sales tax for this sale are entered under Charges on the
+                Fulfillment tab.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setAcceptFor(null)} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={submitAccept}
+                disabled={busy === `acc:${acceptFor.id}`}
+                className="px-3 py-1.5 text-sm rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                Record sale
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
