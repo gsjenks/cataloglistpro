@@ -7,12 +7,13 @@
 // See ShipperService, ShippersManager, FulfillmentService.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail } from 'lucide-react';
+import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList } from 'lucide-react';
 import type { Lot, LotBuyer, Shipper } from '../types';
 import { setCarrier, shipLots, markPickedUp, markDelivered, resetFulfillment } from '../services/FulfillmentService';
 import { listShippers } from '../services/ShipperService';
 import ShippersManager from './ShippersManager';
 import PackingInvoice from './PackingInvoice';
+import ShipperManifest from './ShipperManifest';
 
 interface Props {
   saleId: string;
@@ -66,6 +67,9 @@ export default function FulfillmentPanel({ companyId, saleName, lots, onChanged 
   const [shippers, setShippers] = useState<Shipper[]>([]);
   const [showShippers, setShowShippers] = useState(false);
   const [invoiceFor, setInvoiceFor] = useState<Group | null>(null);
+  // Carrier value whose handoff manifest is open (built from ALL its shipments, not
+  // the search-filtered view — a sheet someone signs must not silently omit lots).
+  const [manifestFor, setManifestFor] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
   const loadShippers = useCallback(async () => {
@@ -211,6 +215,13 @@ export default function FulfillmentPanel({ companyId, saleName, lots, onChanged 
             <h3 className="font-semibold text-gray-900">{info.label}</h3>
             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 capitalize">{info.kind}</span>
             <span className="text-sm text-gray-500">({gs.length})</span>
+            <button
+              onClick={() => setManifestFor(value)}
+              className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+              title="One-page handoff manifest for this shipper — driver signs once"
+            >
+              <ClipboardList className="w-3.5 h-3.5" /> Manifest
+            </button>
           </div>
           {(info.phone || info.email) && (
             <div className="text-xs text-gray-500 mb-3 flex flex-wrap gap-x-3">
@@ -280,6 +291,18 @@ export default function FulfillmentPanel({ companyId, saleName, lots, onChanged 
 
       {showShippers && (
         <ShippersManager companyId={companyId} shippers={shippers} onChanged={loadShippers} onClose={() => setShowShippers(false)} />
+      )}
+
+      {manifestFor && (
+        <ShipperManifest
+          saleName={saleName}
+          shipperLabel={resolve(manifestFor)?.label ?? manifestFor}
+          shipperKind={resolve(manifestFor)?.kind}
+          phone={resolve(manifestFor)?.phone}
+          email={resolve(manifestFor)?.email}
+          shipments={groups.filter((g) => g.carrier === manifestFor)}
+          onClose={() => setManifestFor(null)}
+        />
       )}
 
       {invoiceFor && (
