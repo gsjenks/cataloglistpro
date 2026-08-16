@@ -4,7 +4,7 @@
 // earned, what it owes, what it has already paid out — plus the accounting CSV.
 // No I/O. See docs/auction-lifecycle-spec.md §3 Stage 7.
 
-import type { Consignment, Lot } from '../types';
+import type { Consignment, Lot, HouseCharge, BuyerInvoiceRecord } from '../types';
 import { computeSettlement, type Settlement } from './settlement';
 
 export interface ConsignorRow {
@@ -36,7 +36,19 @@ export interface SaleReconciliation {
   buyersPremium: number;        // Σ buyer's premium, house revenue
   commission: number;           // Σ per-consignor commission
   feesCharged: number;          // Σ per-consignor fees (incl. buy-in)
-  houseRevenue: number;         // commission + buyer's premium + fees
+  // Charges the house billed buyers directly. Shipping and handling are revenue
+  // (less whatever the shipper costs, which the app doesn't track).
+  houseShipping: number;
+  houseRevenue: number;         // commission + buyer's premium + fees + house shipping/handling
+  // Sales tax the house collected is NOT revenue — it is money held for the state.
+  // Kept out of houseRevenue deliberately and reported on its own.
+  taxLiability: number;
+  taxCollectedCount: number;    // buyers charged house tax
+  exemptCount: number;          // buyers billed tax-exempt (resale certificates)
+  // Collected by LiveAuctioneers, never touching the house's books. Informational
+  // only, so the totals here can be reconciled against LA's own statement.
+  laTaxCollected: number;
+  laShippingCollected: number;
   payoutsDue: number;           // Σ consignor net
   paidOut: number;              // Σ net of consignors already paid
   outstanding: number;          // payoutsDue − paidOut
@@ -49,6 +61,8 @@ export function computeReconciliation(
   consignments: Consignment[],
   lots: Lot[],
   consignorNames: Record<string, string>,
+  houseCharges: HouseCharge[] = [],
+  laInvoices: BuyerInvoiceRecord[] = [],
 ): SaleReconciliation {
   const rows: ConsignorRow[] = consignments
     .map((c) => {
@@ -76,6 +90,8 @@ export function computeReconciliation(
   const buyersPremium = sold.reduce((s, l) => s + (l.buyers_premium ?? 0), 0);
   const commission = rows.reduce((s, r) => s + r.settlement.commission, 0);
   const feesCharged = rows.reduce((s, r) => s + r.settlement.feesTotal, 0);
+  const houseShipping = houseCharges.reduce((s, c) => s + (c.shipping ?? 0) + (c.handling ?? 0), 0);
+  const taxLiability = houseCharges.reduce((s, c) => s + (c.tax ?? 0), 0);
   const payoutsDue = rows.reduce((s, r) => s + r.settlement.net, 0);
   const paidRows = rows.filter((r) => r.paid);
   const paidOut = paidRows.reduce((s, r) => s + (r.recorded ?? r.settlement.net), 0);
@@ -93,7 +109,13 @@ export function computeReconciliation(
     buyersPremium: round2(buyersPremium),
     commission: round2(commission),
     feesCharged: round2(feesCharged),
-    houseRevenue: round2(commission + buyersPremium + feesCharged),
+    houseShipping: round2(houseShipping),
+    houseRevenue: round2(commission + buyersPremium + feesCharged + houseShipping),
+    taxLiability: round2(taxLiability),
+    taxCollectedCount: houseCharges.filter((c) => (c.tax ?? 0) > 0).length,
+    exemptCount: houseCharges.filter((c) => c.tax_exempt).length,
+    laTaxCollected: round2(laInvoices.reduce((s, i) => s + (i.sales_tax ?? 0), 0)),
+    laShippingCollected: round2(laInvoices.reduce((s, i) => s + (i.shipping ?? 0), 0)),
     payoutsDue: round2(payoutsDue),
     paidOut: round2(paidOut),
     outstanding: round2(payoutsDue - paidOut),
@@ -138,7 +160,17 @@ export function buildAccountingCsv(saleName: string, recon: SaleReconciliation):
   lines.push(csvRow(["Buyer's premium (house)", recon.buyersPremium]));
   lines.push(csvRow(['Commission (house)', recon.commission]));
   lines.push(csvRow(['Fees billed to consignors (house)', recon.feesCharged]));
+  lines.push(csvRow(['Shipping & handling billed in-house', recon.houseShipping]));
   lines.push(csvRow(['House revenue', recon.houseRevenue]));
+  lines.push('');
+  lines.push(csvRow(['Held for others — NOT revenue']));
+  lines.push(csvRow(['Sales tax collected in-house (remit to state)', recon.taxLiability]));
+  lines.push('');
+  lines.push(csvRow(['Collected by LiveAuctioneers — not house funds']));
+  lines.push(csvRow(['Sales tax', recon.laTaxCollected]));
+  lines.push(csvRow(['Shipping', recon.laShippingCollected]));
+  lines.push('');
+  lines.push(csvRow(['Consignor settlement']));
   lines.push(csvRow(['Consignor payouts due', recon.payoutsDue]));
   lines.push(csvRow(['Consignor payouts made', recon.paidOut]));
   lines.push(csvRow(['Outstanding to consignors', recon.outstanding]));

@@ -863,6 +863,7 @@ export default function SaleDetail() {
 
         {activeTab === 'reconciliation' && (
           <ReconciliationPanel
+            saleId={saleId!}
             saleName={sale.name}
             consignments={consignments}
             lots={lots}

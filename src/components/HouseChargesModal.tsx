@@ -3,11 +3,13 @@
 // for lots the house ships itself and for post-sale purchases, neither of which
 // LiveAuctioneers bills. Tax base is hammer + premium + shipping + handling.
 
-import { useMemo, useState } from 'react';
-import { X, Trash2, AlertTriangle } from 'lucide-react';
-import type { HouseCharge } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import { X, Trash2, AlertTriangle, BadgeCheck, Camera } from 'lucide-react';
+import type { HouseCharge, TaxExemption } from '../types';
 import { computeHouseTotals } from '../lib/invoices';
 import { saveHouseCharge, deleteHouseCharge } from '../services/HouseChargeService';
+import { listExemptions, findForBuyer, isExpired } from '../services/TaxExemptionService';
+import TaxExemptionModal from './TaxExemptionModal';
 
 interface Props {
   saleId: string;
@@ -29,6 +31,11 @@ interface Props {
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const METHODS = ['cash', 'check', 'card', 'other'];
 
+// What gets printed on the invoice as the reason tax wasn't charged.
+const certReason = (c: TaxExemption) =>
+  [c.state, 'resale certificate', c.permit_number && `#${c.permit_number}`]
+    .filter(Boolean).join(' ');
+
 export default function HouseChargesModal({
   saleId, companyId, buyerKey, buyerName, goods, existing, laTax = 0, laShipping = 0,
   defaultTaxRate = 0, onSaved, onClose,
@@ -47,6 +54,33 @@ export default function HouseChargesModal({
   const [method, setMethod] = useState(existing?.payment_method ?? 'cash');
   const [note, setNote] = useState(existing?.note ?? '');
   const [saving, setSaving] = useState(false);
+
+  // A resale certificate on file exempts this buyer automatically; an expired one
+  // never does — it says so instead, so nobody exempts a sale they can't defend.
+  const [cert, setCert] = useState<TaxExemption | null>(null);
+  const [showCert, setShowCert] = useState(false);
+  useEffect(() => {
+    if (!companyId) return;
+    let live = true;
+    listExemptions(companyId)
+      .then((all) => {
+        if (!live) return;
+        const found = findForBuyer(all, buyerKey) ?? null;
+        setCert(found);
+        // Don't override a decision already recorded on an existing charge row.
+        if (found && !isExpired(found) && !existing) {
+          setExempt(true);
+          setExemptReason(certReason(found));
+        }
+      })
+      .catch((e) => console.error('Failed to load tax exemptions:', e));
+    return () => { live = false; };
+  }, [companyId, buyerKey, existing]);
+
+  const certValid = !!cert && !isExpired(cert);
+  const certLabel = cert
+    ? [cert.state, cert.permit_number && `#${cert.permit_number}`].filter(Boolean).join(' ')
+    : '';
 
   const num = (s: string) => {
     const n = parseFloat(s);
@@ -147,6 +181,40 @@ export default function HouseChargesModal({
             </div>
           </div>
 
+          {/* Resale certificate on file for this buyer, company-wide. */}
+          <div className={`rounded-md border p-2.5 text-xs ${
+            certValid ? 'border-green-200 bg-green-50' : cert ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50'
+          }`}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                {certValid ? (
+                  <span className="inline-flex items-center gap-1 text-green-800 font-medium">
+                    <BadgeCheck className="w-3.5 h-3.5" /> Resale certificate on file
+                  </span>
+                ) : cert ? (
+                  <span className="inline-flex items-center gap-1 text-red-700 font-medium">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Certificate expired
+                  </span>
+                ) : (
+                  <span className="text-gray-600">No resale certificate on file</span>
+                )}
+                {cert && (
+                  <div className="text-gray-600 mt-0.5">
+                    {[certLabel, cert.business_name].filter(Boolean).join(' · ')}
+                    {cert.expires_on && <> · {isExpired(cert) ? 'expired' : 'expires'} {cert.expires_on}</>}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setShowCert(true)}
+                disabled={!companyId}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 shrink-0 disabled:opacity-50"
+              >
+                <Camera className="w-3.5 h-3.5" /> {cert ? 'View / update' : 'Add'}
+              </button>
+            </div>
+          </div>
+
           {exempt && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Exemption reason</label>
@@ -155,6 +223,11 @@ export default function HouseChargesModal({
                 className="w-full border border-gray-300 rounded-md p-2 text-sm"
                 placeholder="resale certificate #, out of state…"
               />
+              {!certValid && (
+                <p className="text-xs text-amber-600 mt-1">
+                  No valid certificate on file — attach one so the exemption is defensible.
+                </p>
+              )}
             </div>
           )}
 
@@ -241,6 +314,26 @@ export default function HouseChargesModal({
             </button>
           </div>
         </div>
+
+        {showCert && (
+          <TaxExemptionModal
+            companyId={companyId}
+            buyerKey={buyerKey}
+            buyerName={buyerName}
+            existing={cert ?? undefined}
+            onSaved={(ex) => {
+              setCert(ex);
+              setShowCert(false);
+              if (ex && !isExpired(ex)) {
+                setExempt(true);
+                setExemptReason(certReason(ex));
+              } else if (!ex) {
+                setExempt(false);
+              }
+            }}
+            onClose={() => setShowCert(false)}
+          />
+        )}
       </div>
     </div>
   );

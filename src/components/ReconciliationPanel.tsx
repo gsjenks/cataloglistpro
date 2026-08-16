@@ -3,16 +3,19 @@
 // is owed to consignors, a payout worklist (record check/ACH per consignor), and
 // the accounting CSV export. Statements themselves live in SettlementStatement.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  Banknote, CheckCircle2, Download, FileText, Undo2, X, AlertTriangle,
+  Banknote, CheckCircle2, Download, FileText, Undo2, X, AlertTriangle, Landmark,
 } from 'lucide-react';
-import type { Consignment, Lot } from '../types';
+import type { Consignment, Lot, HouseCharge, BuyerInvoiceRecord } from '../types';
+import { listHouseCharges } from '../services/HouseChargeService';
+import { listBuyerInvoices } from '../services/BuyerInvoiceImportService';
 import { computeReconciliation, downloadAccountingCsv, type ConsignorRow } from '../lib/reconciliation';
 import { recordPayout, clearPayout, markSettled } from '../services/ConsignmentService';
 import SettlementStatement from './SettlementStatement';
 
 interface Props {
+  saleId: string;
   saleName: string;
   consignments: Consignment[];
   lots: Lot[];
@@ -37,7 +40,7 @@ const shortDate = (iso?: string) =>
   iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
 
 export default function ReconciliationPanel({
-  saleName, consignments, lots, consignorNames, onChanged,
+  saleId, saleName, consignments, lots, consignorNames, onChanged,
 }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [statementFor, setStatementFor] = useState<ConsignorRow | null>(null);
@@ -48,9 +51,23 @@ export default function ReconciliationPanel({
   const [paidOn, setPaidOn] = useState(today());
   const [note, setNote] = useState('');
 
+  // Money the house billed buyers directly, and what LA collected on its own side.
+  const [houseCharges, setHouseCharges] = useState<HouseCharge[]>([]);
+  const [laInvoices, setLaInvoices] = useState<BuyerInvoiceRecord[]>([]);
+  useEffect(() => {
+    let live = true;
+    listHouseCharges(saleId)
+      .then((rows) => { if (live) setHouseCharges(rows); })
+      .catch((e) => console.error('Failed to load house charges:', e));
+    listBuyerInvoices(saleId)
+      .then((rows) => { if (live) setLaInvoices(rows); })
+      .catch((e) => console.error('Failed to load buyer invoices:', e));
+    return () => { live = false; };
+  }, [saleId]);
+
   const recon = useMemo(
-    () => computeReconciliation(consignments, lots, consignorNames),
-    [consignments, lots, consignorNames],
+    () => computeReconciliation(consignments, lots, consignorNames, houseCharges, laInvoices),
+    [consignments, lots, consignorNames, houseCharges, laInvoices],
   );
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
@@ -125,9 +142,51 @@ export default function ReconciliationPanel({
           <Stat label="Buyer's premium" value={money(recon.buyersPremium)} />
           <Stat label="Commission" value={money(recon.commission)} />
           <Stat label="Fees billed" value={money(recon.feesCharged)} />
+          {recon.houseShipping > 0 && (
+            <Stat label="Shipping billed in-house" value={money(recon.houseShipping)} />
+          )}
           <Stat label="House revenue" value={money(recon.houseRevenue)} strong />
           <Stat label="Consignor payouts" value={money(recon.payoutsDue)} />
         </div>
+
+        {/* Money that passes through the house without ever being its own. Kept out
+            of House revenue above — sales tax is owed to the state, and anything
+            LiveAuctioneers collected never reaches the house's books at all. */}
+        {(recon.taxLiability > 0 || recon.laTaxCollected > 0 || recon.laShippingCollected > 0) && (
+          <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-4">
+            <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-gray-500">
+              <Landmark className="w-3.5 h-3.5" /> Held or collected for others — not revenue
+            </div>
+
+            {recon.taxLiability > 0 && (
+              <div className="mt-3 flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-gray-900">Sales tax collected in-house</div>
+                  <div className="text-xs text-gray-500">
+                    Owed to the state, not income · {recon.taxCollectedCount} buyer(s)
+                    {recon.exemptCount > 0 && <> · {recon.exemptCount} billed exempt</>}
+                  </div>
+                </div>
+                <span className="text-lg font-bold tabular-nums text-amber-700 shrink-0">
+                  {money(recon.taxLiability)}
+                </span>
+              </div>
+            )}
+
+            {(recon.laTaxCollected > 0 || recon.laShippingCollected > 0) && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="text-sm font-medium text-gray-700">Collected by LiveAuctioneers</div>
+                <div className="text-xs text-gray-500">
+                  Billed and remitted by LA — excluded from every figure above.
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-600">
+                  <span>Sales tax <span className="tabular-nums text-gray-900">{money(recon.laTaxCollected)}</span></span>
+                  <span>Shipping <span className="tabular-nums text-gray-900">{money(recon.laShippingCollected)}</span></span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500">
           <span>

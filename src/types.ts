@@ -342,6 +342,29 @@ export interface ConsignmentFees {
   buyin?: number;
 }
 
+// A buyer's resale / sales-tax exemption certificate. Company-scoped and not tied to a
+// sale, so a returning dealer is recognised automatically. `image_path` is an object in
+// the private `documents` bucket — read it through a signed URL, never a public one.
+export interface TaxExemption {
+  id: string;
+  company_id?: string;
+  contact_id?: string;
+  buyer_key: string;            // buyer email, else name
+  buyer_name?: string;
+  business_name?: string;
+  state?: string;
+  permit_number?: string;
+  issued_on?: string;           // date-only
+  expires_on?: string;          // date-only; absent = no stated expiry
+  image_path?: string;
+  image_name?: string;
+  note?: string;
+  verified_at?: string;
+  verified_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 // Shipping, handling and sales tax the AUCTION HOUSE collects from a buyer directly —
 // as opposed to whatever LiveAuctioneers collected (BuyerInvoiceRecord). Only these
 // touch the house's books. One row per buyer per sale; also covers post-sale purchases,
