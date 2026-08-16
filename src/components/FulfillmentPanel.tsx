@@ -8,9 +8,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList, ListOrdered, Receipt, Tags } from 'lucide-react';
-import type { Lot, LotBuyer, Shipper } from '../types';
+import type { Lot, LotBuyer, Shipper, BuyerInvoiceRecord } from '../types';
 import { setCarrier, shipLots, markPickedUp, markDelivered, resetFulfillment } from '../services/FulfillmentService';
 import { listShippers } from '../services/ShipperService';
+import { listBuyerInvoices } from '../services/BuyerInvoiceImportService';
 import { generateShippingLabels } from '../services/LabelService';
 import { useApp } from '../context/AppContext';
 import ShippersManager from './ShippersManager';
@@ -91,6 +92,16 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
     }
   }, [companyId]);
   useEffect(() => { loadShippers(); }, [loadShippers]);
+
+  // LA invoices (if imported) are authoritative for tax/shipping on the printed invoice.
+  const [laInvoices, setLaInvoices] = useState<BuyerInvoiceRecord[]>([]);
+  useEffect(() => {
+    let live = true;
+    listBuyerInvoices(saleId)
+      .then((rows) => { if (live) setLaInvoices(rows); })
+      .catch((e) => console.error('Failed to load buyer invoices:', e));
+    return () => { live = false; };
+  }, [saleId]);
 
   const handoffs = useMemo<Handoff[]>(
     () => [
@@ -374,6 +385,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
           companyPhone={company?.phone}
           companyAddress={company?.address}
           lots={lots}
+          laInvoices={laInvoices}
           buyerKey={invoicesFor || undefined}
           carrierLabel={carrierLabel}
           onClose={() => setInvoicesFor(null)}

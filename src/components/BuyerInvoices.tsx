@@ -8,7 +8,7 @@
 
 import { useMemo, useState } from 'react';
 import { X, Printer } from 'lucide-react';
-import type { Lot } from '../types';
+import type { Lot, BuyerInvoiceRecord } from '../types';
 import { buildBuyerInvoices, addressLines, type BuyerInvoice } from '../lib/invoices';
 
 interface Props {
@@ -18,21 +18,52 @@ interface Props {
   companyPhone?: string;
   companyAddress?: string;
   lots: Lot[];
+  /** Invoices imported from the LA PDF — authoritative for tax, shipping and balance. */
+  laInvoices?: BuyerInvoiceRecord[];
   buyerKey?: string;                       // limit to one buyer
   carrierLabel: (value?: string) => string;
   onClose: () => void;
+}
+
+// LA's own figures for a buyer, summed when their lots span more than one invoice.
+interface LaTotals {
+  ids: string[];
+  shipping: number;
+  onlineFee: number;
+  salesTax: number;
+  total: number;
+  balanceDue: number;
+  flagged: boolean;
+}
+
+function laTotalsFor(inv: BuyerInvoice, byId: Map<string, BuyerInvoiceRecord>): LaTotals | null {
+  const matches = inv.invoiceIds.map((id) => byId.get(id)).filter((r): r is BuyerInvoiceRecord => !!r);
+  if (matches.length === 0) return null;
+  return {
+    ids: matches.map((m) => m.la_invoice_id),
+    shipping: matches.reduce((s, m) => s + (m.shipping ?? 0), 0),
+    onlineFee: matches.reduce((s, m) => s + (m.online_fee ?? 0), 0),
+    salesTax: matches.reduce((s, m) => s + (m.sales_tax ?? 0), 0),
+    total: matches.reduce((s, m) => s + (m.total ?? 0), 0),
+    balanceDue: matches.reduce((s, m) => s + (m.balance_due ?? 0), 0),
+    flagged: matches.some((m) => m.totals_balance === false),
+  };
 }
 
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 const taxKey = (saleId: string) => `invoice_taxrate_${saleId}`;
 
 export default function BuyerInvoices({
-  saleId, saleName, companyName, companyPhone, companyAddress, lots, buyerKey, carrierLabel, onClose,
+  saleId, saleName, companyName, companyPhone, companyAddress, lots, laInvoices, buyerKey, carrierLabel, onClose,
 }: Props) {
   const [taxRate, setTaxRate] = useState<string>(() => localStorage.getItem(taxKey(saleId)) ?? '0');
   const [unpaidOnly, setUnpaidOnly] = useState(false);
 
   const rate = parseFloat(taxRate) || 0;
+  const laById = useMemo(
+    () => new Map((laInvoices ?? []).map((r) => [r.la_invoice_id, r])),
+    [laInvoices],
+  );
   const invoices = useMemo(() => {
     let list = buildBuyerInvoices(lots, rate);
     if (buyerKey) list = list.filter((i) => i.key === buyerKey);
@@ -45,7 +76,10 @@ export default function BuyerInvoices({
     localStorage.setItem(taxKey(saleId), v);
   };
 
-  const grand = invoices.reduce((s, i) => s + i.total, 0);
+  const laFor = (inv: BuyerInvoice) => laTotalsFor(inv, laById);
+  const grand = invoices.reduce((s, i) => s + (laFor(i)?.total ?? i.total), 0);
+  // The typed rate is only a fallback for buyers with no imported LA invoice.
+  const needsFallbackTax = invoices.some((i) => !laFor(i));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -69,14 +103,16 @@ export default function BuyerInvoices({
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-xs text-gray-600">
-              Tax %
-              <input
-                type="number" inputMode="decimal" value={taxRate}
-                onChange={(e) => setRate(e.target.value)}
-                className="w-16 border border-gray-300 rounded-md p-1 text-sm"
-              />
-            </label>
+            {needsFallbackTax && (
+              <label className="flex items-center gap-1.5 text-xs text-gray-600" title="Only applied to buyers with no imported LiveAuctioneers invoice">
+                Tax %
+                <input
+                  type="number" inputMode="decimal" value={taxRate}
+                  onChange={(e) => setRate(e.target.value)}
+                  className="w-16 border border-gray-300 rounded-md p-1 text-sm"
+                />
+              </label>
+            )}
             {!buyerKey && (
               <label className="flex items-center gap-1.5 text-xs text-gray-600">
                 <input
@@ -102,6 +138,7 @@ export default function BuyerInvoices({
               <Invoice
                 key={inv.key}
                 inv={inv}
+                la={laFor(inv)}
                 saleName={saleName}
                 companyName={companyName}
                 companyPhone={companyPhone}
@@ -117,9 +154,10 @@ export default function BuyerInvoices({
 }
 
 function Invoice({
-  inv, saleName, companyName, companyPhone, companyAddress, carrierLabel,
+  inv, la, saleName, companyName, companyPhone, companyAddress, carrierLabel,
 }: {
   inv: BuyerInvoice;
+  la: LaTotals | null;
   saleName: string;
   companyName?: string;
   companyPhone?: string;
@@ -193,20 +231,48 @@ function Invoice({
       <div className="ml-auto w-full max-w-sm space-y-1.5">
         <Row label={`Hammer (${inv.lines.length} lot${inv.lines.length === 1 ? '' : 's'})`} value={money(inv.hammerTotal)} />
         <Row label="Buyer's premium" value={money(inv.premiumTotal)} />
-        {inv.taxRate > 0 ? (
-          <Row label={`Sales tax (${inv.taxRate}%)`} value={money(inv.tax)} />
+        {la ? (
+          <>
+            {la.shipping > 0 && <Row label="Shipping" value={money(la.shipping)} />}
+            {la.onlineFee > 0 && <Row label="Online payments fee" value={money(la.onlineFee)} />}
+            <Row label="Sales tax" value={money(la.salesTax)} />
+            <div className="border-t border-gray-300 pt-2 mt-2 flex items-center justify-between">
+              <span className="font-semibold text-gray-900">Total</span>
+              <span className="font-bold text-lg text-gray-900 tabular-nums">{money(la.total)}</span>
+            </div>
+            {la.balanceDue > 0 && (
+              <div className="flex items-center justify-between text-amber-700">
+                <span className="font-medium">Balance due</span>
+                <span className="font-bold tabular-nums">{money(la.balanceDue)}</span>
+              </div>
+            )}
+          </>
         ) : (
-          <Row label="Sales tax" value="collected by LiveAuctioneers" muted />
+          <>
+            {inv.taxRate > 0 ? (
+              <Row label={`Sales tax (${inv.taxRate}%)`} value={money(inv.tax)} />
+            ) : (
+              <Row label="Sales tax" value="collected by LiveAuctioneers" muted />
+            )}
+            <div className="border-t border-gray-300 pt-2 mt-2 flex items-center justify-between">
+              <span className="font-semibold text-gray-900">Total</span>
+              <span className="font-bold text-lg text-gray-900 tabular-nums">{money(inv.total)}</span>
+            </div>
+          </>
         )}
-        <div className="border-t border-gray-300 pt-2 mt-2 flex items-center justify-between">
-          <span className="font-semibold text-gray-900">Total</span>
-          <span className="font-bold text-lg text-gray-900 tabular-nums">{money(inv.total)}</span>
-        </div>
       </div>
 
-      <p className="text-xs text-gray-400">
-        Shipping and handling, if any, are billed separately by the shipper.
-      </p>
+      {la ? (
+        <p className="text-xs text-gray-400">
+          Figures from LiveAuctioneers invoice #{la.ids.join(', #')}.
+          {la.flagged && ' That invoice’s printed total doesn’t equal its lines — check it against LA before sending.'}
+        </p>
+      ) : (
+        <p className="text-xs text-gray-400">
+          Totals computed from this sale's data — no LiveAuctioneers invoice imported for this buyer.
+          Shipping and handling, if any, are billed separately by the shipper.
+        </p>
+      )}
     </div>
   );
 }

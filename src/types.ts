@@ -342,6 +342,39 @@ export interface ConsignmentFees {
   buyin?: number;
 }
 
+// A buyer's invoice as printed by LiveAuctioneers, imported from the end-of-auction
+// invoice PDF. The only source of sales tax, shipping and the online-payments fee —
+// the EOA XML carries hammer + premium alone. Joins to lots on la_invoice_id.
+export interface BuyerInvoiceRecord {
+  id: string;
+  company_id?: string;
+  sale_id?: string;
+  la_invoice_id: string;
+  status?: 'paid' | 'unpaid';
+  buyer_name?: string;
+  buyer_email?: string;
+  buyer_phone?: string;
+  ship_to?: {
+    lines?: string[];
+    address?: string; city?: string; state?: string; zip?: string; country?: string;
+  };
+  shipping_method?: string;
+  hammer_total?: number;
+  premium_total?: number;
+  shipping?: number;
+  online_fee?: number;
+  sales_tax?: number;
+  total?: number;
+  balance_due?: number;
+  payment_method?: string;
+  paid_at_text?: string;
+  lot_numbers?: number[];
+  totals_balance?: boolean;   // false = LA's printed total doesn't add up; review it
+  imported_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 // One consignor's terms + settlement for a sale. A sale pools lots from many
 // consignments; each lot carries consignment_id.
 export interface Consignment {

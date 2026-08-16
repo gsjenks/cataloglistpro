@@ -4,14 +4,17 @@
 // mark paid / offer 2nd bidder / (accept|decline) / mark defaulted. See PaymentService.
 
 import { useState } from 'react';
-import { CheckCircle2, AlertTriangle, UserPlus, X, ChevronRight, ChevronDown, Undo2 } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, UserPlus, X, ChevronRight, ChevronDown, Undo2, FileDown } from 'lucide-react';
 import type { Lot } from '../types';
 import {
   markLotPaid, markLotUnpaid, markAllPaid, offerSecondBidder, secondBidderAccepted, markDefaulted,
 } from '../services/PaymentService';
+import BuyerInvoiceImportModal from './BuyerInvoiceImportModal';
+import type { ImportInvoicesResult } from '../services/BuyerInvoiceImportService';
 
 interface Props {
   saleId: string;
+  companyId?: string;
   lots: Lot[];
   onChanged: () => void;
 }
@@ -24,8 +27,10 @@ function overdueDays(due?: string): number | null {
   return Math.floor((Date.now() - new Date(due).getTime()) / 86_400_000);
 }
 
-export default function PaymentsPanel({ saleId, lots, onChanged }: Props) {
+export default function PaymentsPanel({ saleId, companyId, lots, onChanged }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [showInvoiceImport, setShowInvoiceImport] = useState(false);
+  const [importResult, setImportResult] = useState<ImportInvoicesResult | null>(null);
   const [offerFor, setOfferFor] = useState<Lot | null>(null);
   const [offerName, setOfferName] = useState('');
   const [offerAmount, setOfferAmount] = useState('');
@@ -81,16 +86,43 @@ export default function PaymentsPanel({ saleId, lots, onChanged }: Props) {
             {outstanding.length} outstanding · {money(totalOutstanding)} to collect
           </p>
         </div>
-        {outstanding.length > 0 && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={doMarkAllPaid}
-            disabled={busy === 'all'}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+            onClick={() => setShowInvoiceImport(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+            title="Import the LiveAuctioneers invoice PDF — tax, shipping and buyer balances"
           >
-            <CheckCircle2 className="w-4 h-4" /> Mark all paid
+            <FileDown className="w-4 h-4" /> Import LA invoices
           </button>
-        )}
+          {outstanding.length > 0 && (
+            <button
+              onClick={doMarkAllPaid}
+              disabled={busy === 'all'}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              <CheckCircle2 className="w-4 h-4" /> Mark all paid
+            </button>
+          )}
+        </div>
       </div>
+
+      {importResult && (
+        <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+          Imported {importResult.imported} invoice(s) covering {importResult.matchedLots} lot(s) in this sale ·{' '}
+          {money(importResult.salesTax)} tax · {money(importResult.shipping)} shipping
+          {importResult.markedPaid > 0 && <> · marked {importResult.markedPaid} lot(s) paid</>}
+          {importResult.unmatchedInvoices.length > 0 && (
+            <div className="text-xs text-amber-700 mt-1">
+              {importResult.unmatchedInvoices.length} invoice(s) reference lots that aren't in this sale.
+            </div>
+          )}
+          {importResult.flagged.length > 0 && (
+            <div className="text-xs text-amber-700 mt-1">
+              Flagged for review (LA's printed total doesn't add up): #{importResult.flagged.join(', #')}
+            </div>
+          )}
+        </div>
+      )}
 
       {outstanding.length === 0 ? (
         <div className="mt-6 text-center py-8 text-gray-400">
@@ -210,6 +242,19 @@ export default function PaymentsPanel({ saleId, lots, onChanged }: Props) {
             </ul>
           )}
         </div>
+      )}
+
+      {showInvoiceImport && (
+        <BuyerInvoiceImportModal
+          saleId={saleId}
+          companyId={companyId}
+          onClose={() => setShowInvoiceImport(false)}
+          onImported={(res) => {
+            setImportResult(res);
+            setShowInvoiceImport(false);
+            onChanged();
+          }}
+        />
       )}
 
       {offerFor && (

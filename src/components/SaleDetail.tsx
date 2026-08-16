@@ -837,7 +837,7 @@ export default function SaleDetail() {
         )}
 
         {activeTab === 'payments' && (
-          <PaymentsPanel saleId={saleId!} lots={lots} onChanged={loadLots} />
+          <PaymentsPanel saleId={saleId!} companyId={sale.company_id} lots={lots} onChanged={loadLots} />
         )}
 
         {activeTab === 'fulfillment' && (
