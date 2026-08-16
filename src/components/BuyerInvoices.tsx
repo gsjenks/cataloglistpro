@@ -8,7 +8,7 @@
 
 import { useMemo, useState } from 'react';
 import { X, Printer } from 'lucide-react';
-import type { Lot, BuyerInvoiceRecord } from '../types';
+import type { Lot, BuyerInvoiceRecord, HouseCharge } from '../types';
 import { buildBuyerInvoices, addressLines, type BuyerInvoice } from '../lib/invoices';
 
 interface Props {
@@ -20,6 +20,8 @@ interface Props {
   lots: Lot[];
   /** Invoices imported from the LA PDF — authoritative for tax, shipping and balance. */
   laInvoices?: BuyerInvoiceRecord[];
+  /** Shipping / handling / tax the house bills directly, per buyer. */
+  houseCharges?: HouseCharge[];
   buyerKey?: string;                       // limit to one buyer
   carrierLabel: (value?: string) => string;
   onClose: () => void;
@@ -54,7 +56,8 @@ const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', curr
 const taxKey = (saleId: string) => `invoice_taxrate_${saleId}`;
 
 export default function BuyerInvoices({
-  saleId, saleName, companyName, companyPhone, companyAddress, lots, laInvoices, buyerKey, carrierLabel, onClose,
+  saleId, saleName, companyName, companyPhone, companyAddress, lots, laInvoices, houseCharges,
+  buyerKey, carrierLabel, onClose,
 }: Props) {
   const [taxRate, setTaxRate] = useState<string>(() => localStorage.getItem(taxKey(saleId)) ?? '0');
   const [unpaidOnly, setUnpaidOnly] = useState(false);
@@ -76,8 +79,18 @@ export default function BuyerInvoices({
     localStorage.setItem(taxKey(saleId), v);
   };
 
+  const houseByBuyer = useMemo(
+    () => new Map((houseCharges ?? []).map((c) => [c.buyer_key, c])),
+    [houseCharges],
+  );
   const laFor = (inv: BuyerInvoice) => laTotalsFor(inv, laById);
-  const grand = invoices.reduce((s, i) => s + (laFor(i)?.total ?? i.total), 0);
+  const houseFor = (inv: BuyerInvoice) => houseByBuyer.get(inv.key) ?? null;
+  const houseAdds = (c: HouseCharge | null) =>
+    c ? (c.shipping ?? 0) + (c.handling ?? 0) + (c.tax ?? 0) : 0;
+  const grand = invoices.reduce(
+    (s, i) => s + (laFor(i)?.total ?? i.total) + houseAdds(houseFor(i)),
+    0,
+  );
   // The typed rate is only a fallback for buyers with no imported LA invoice.
   const needsFallbackTax = invoices.some((i) => !laFor(i));
 
@@ -139,6 +152,7 @@ export default function BuyerInvoices({
                 key={inv.key}
                 inv={inv}
                 la={laFor(inv)}
+                house={houseFor(inv)}
                 saleName={saleName}
                 companyName={companyName}
                 companyPhone={companyPhone}
@@ -154,10 +168,11 @@ export default function BuyerInvoices({
 }
 
 function Invoice({
-  inv, la, saleName, companyName, companyPhone, companyAddress, carrierLabel,
+  inv, la, house, saleName, companyName, companyPhone, companyAddress, carrierLabel,
 }: {
   inv: BuyerInvoice;
   la: LaTotals | null;
+  house: HouseCharge | null;
   saleName: string;
   companyName?: string;
   companyPhone?: string;
@@ -249,15 +264,54 @@ function Invoice({
           </>
         ) : (
           <>
-            {inv.taxRate > 0 ? (
+            {house ? (
+              // Tax is billed by the house below; don't also guess at one here.
+              <Row label="Subtotal" value={money(inv.hammerTotal + inv.premiumTotal)} />
+            ) : inv.taxRate > 0 ? (
               <Row label={`Sales tax (${inv.taxRate}%)`} value={money(inv.tax)} />
             ) : (
               <Row label="Sales tax" value="collected by LiveAuctioneers" muted />
             )}
+            {!house && (
+              <div className="border-t border-gray-300 pt-2 mt-2 flex items-center justify-between">
+                <span className="font-semibold text-gray-900">Total</span>
+                <span className="font-bold text-lg text-gray-900 tabular-nums">{money(inv.total)}</span>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Anything the auction house bills directly — house-shipped lots and
+            post-sale purchases, neither of which LiveAuctioneers invoices. */}
+        {house && (
+          <>
+            <div className="border-t border-gray-200 pt-2 mt-2 text-xs uppercase tracking-wide text-gray-400">
+              Collected by {companyName || 'the auction house'}
+            </div>
+            {(house.shipping ?? 0) > 0 && <Row label="Shipping" value={money(house.shipping)} />}
+            {(house.handling ?? 0) > 0 && <Row label="Handling" value={money(house.handling)} />}
+            {house.tax_exempt ? (
+              <Row
+                label="Sales tax — exempt"
+                value={house.exempt_reason || 'certificate on file'}
+                muted
+              />
+            ) : (
+              <Row label={`Sales tax (${house.tax_rate ?? 0}%)`} value={money(house.tax ?? 0)} />
+            )}
             <div className="border-t border-gray-300 pt-2 mt-2 flex items-center justify-between">
               <span className="font-semibold text-gray-900">Total</span>
-              <span className="font-bold text-lg text-gray-900 tabular-nums">{money(inv.total)}</span>
+              <span className="font-bold text-lg text-gray-900 tabular-nums">
+                {money((la?.total ?? inv.hammerTotal + inv.premiumTotal)
+                  + (house.shipping ?? 0) + (house.handling ?? 0) + (house.tax ?? 0))}
+              </span>
             </div>
+            {house.collected_at && (
+              <div className="flex items-center justify-between text-xs text-green-700">
+                <span>House charges collected{house.payment_method ? ` (${house.payment_method})` : ''}</span>
+                <span className="tabular-nums">{money((house.shipping ?? 0) + (house.handling ?? 0) + (house.tax ?? 0))}</span>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -265,7 +319,17 @@ function Invoice({
       {la ? (
         <p className="text-xs text-gray-400">
           Figures from LiveAuctioneers invoice #{la.ids.join(', #')}.
+          {house && (
+            house.tax_includes_goods === false
+              ? ` Shipping, handling and tax on those charges billed by ${companyName || 'the auction house'}; the lots were taxed by LiveAuctioneers.`
+              : ` Shipping, handling and sales tax billed by ${companyName || 'the auction house'}.`
+          )}
           {la.flagged && ' That invoice’s printed total doesn’t equal its lines — check it against LA before sending.'}
+        </p>
+      ) : house ? (
+        <p className="text-xs text-gray-400">
+          Shipping, handling and sales tax billed by {companyName || 'the auction house'};
+          tax charged on the goods plus shipping and handling.
         </p>
       ) : (
         <p className="text-xs text-gray-400">

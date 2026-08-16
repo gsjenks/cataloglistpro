@@ -99,6 +99,51 @@ export function buildBuyerInvoices(lots: Lot[], taxRate: number): BuyerInvoice[]
     .sort((a, b) => a.buyerName.localeCompare(b.buyerName));
 }
 
+// ── House-collected charges ──────────────────────────────────────────────────
+// Shipping / handling / tax the house bills directly. Tax base is
+// hammer + premium + shipping + handling (Georgia taxes shipping on a taxable sale).
+// A resale certificate zeroes the tax but the base is still recorded.
+
+export interface HouseTotals {
+  shipping: number;
+  handling: number;
+  taxGoods: boolean;
+  taxableBase: number;
+  taxRate: number;
+  tax: number;
+  exempt: boolean;
+  /** shipping + handling + tax — what the house collects on top of the lots. */
+  charged: number;
+}
+
+export function computeHouseTotals(
+  goods: number,                    // hammer + premium for this buyer's lots
+  input: {
+    shipping?: number; handling?: number; taxRate?: number; exempt?: boolean;
+    /** Include the lots in the tax base. False when LiveAuctioneers already taxed
+     *  them, leaving only the house's own shipping/handling taxable. */
+    taxGoods?: boolean;
+  },
+): HouseTotals {
+  const shipping = input.shipping ?? 0;
+  const handling = input.handling ?? 0;
+  const taxRate = input.taxRate ?? 0;
+  const exempt = !!input.exempt;
+  const taxGoods = input.taxGoods !== false;
+  const taxableBase = round2((taxGoods ? goods : 0) + shipping + handling);
+  const tax = exempt ? 0 : round2(taxableBase * (taxRate / 100));
+  return {
+    shipping,
+    handling,
+    taxGoods,
+    taxableBase,
+    taxRate,
+    tax,
+    exempt,
+    charged: round2(shipping + handling + tax),
+  };
+}
+
 // ── Shared address formatting ────────────────────────────────────────────────
 
 export function addressLines(b: LotBuyer): string[] {

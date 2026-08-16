@@ -8,10 +8,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList, ListOrdered, Receipt, Tags } from 'lucide-react';
-import type { Lot, LotBuyer, Shipper, BuyerInvoiceRecord } from '../types';
+import type { Lot, LotBuyer, Shipper, BuyerInvoiceRecord, HouseCharge } from '../types';
 import { setCarrier, shipLots, markPickedUp, markDelivered, resetFulfillment } from '../services/FulfillmentService';
 import { listShippers } from '../services/ShipperService';
 import { listBuyerInvoices } from '../services/BuyerInvoiceImportService';
+import { listHouseCharges } from '../services/HouseChargeService';
+import HouseChargesModal from './HouseChargesModal';
 import { generateShippingLabels } from '../services/LabelService';
 import { useApp } from '../context/AppContext';
 import ShippersManager from './ShippersManager';
@@ -54,6 +56,10 @@ const BUILTIN: Handoff[] = [
 
 const money = (n?: number) => (n == null ? '' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
 
+// What the house collects on top of the lots themselves.
+const houseTotalOf = (c: HouseCharge) =>
+  Math.round(((c.shipping ?? 0) + (c.handling ?? 0) + (c.tax ?? 0)) * 100) / 100;
+
 function addressText(b: LotBuyer): string {
   const cityLine = [b.city, b.state, b.zip].filter(Boolean).join(' ');
   return [b.address, cityLine, b.country && b.country !== 'US' ? b.country : ''].filter(Boolean).join(', ');
@@ -93,15 +99,42 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
   }, [companyId]);
   useEffect(() => { loadShippers(); }, [loadShippers]);
 
-  // LA invoices (if imported) are authoritative for tax/shipping on the printed invoice.
+  // LA invoices (if imported) are authoritative for tax/shipping on the printed invoice;
+  // house charges are what we bill on top (or instead, for post-sale purchases).
   const [laInvoices, setLaInvoices] = useState<BuyerInvoiceRecord[]>([]);
-  useEffect(() => {
-    let live = true;
+  const [houseCharges, setHouseCharges] = useState<HouseCharge[]>([]);
+  const [chargesFor, setChargesFor] = useState<Group | null>(null);
+
+  const loadBilling = useCallback(() => {
     listBuyerInvoices(saleId)
-      .then((rows) => { if (live) setLaInvoices(rows); })
+      .then(setLaInvoices)
       .catch((e) => console.error('Failed to load buyer invoices:', e));
-    return () => { live = false; };
+    listHouseCharges(saleId)
+      .then(setHouseCharges)
+      .catch((e) => console.error('Failed to load house charges:', e));
   }, [saleId]);
+  useEffect(() => { loadBilling(); }, [loadBilling]);
+
+  const laById = useMemo(
+    () => new Map(laInvoices.map((r) => [r.la_invoice_id, r])),
+    [laInvoices],
+  );
+  const chargeByBuyer = useMemo(
+    () => new Map(houseCharges.map((c) => [c.buyer_key, c])),
+    [houseCharges],
+  );
+
+  // What LA already billed a buyer, so the charges form can warn about double-billing.
+  const laBilledFor = (g: Group) => {
+    const ids = [...new Set(g.lots.map((l) => l.la_invoice_id).filter(Boolean))] as string[];
+    const rows = ids.map((id) => laById.get(id)).filter((r): r is BuyerInvoiceRecord => !!r);
+    return {
+      tax: rows.reduce((s, r) => s + (r.sales_tax ?? 0), 0),
+      shipping: rows.reduce((s, r) => s + (r.shipping ?? 0), 0),
+    };
+  };
+  const goodsFor = (g: Group) =>
+    Math.round(g.lots.reduce((s, l) => s + (l.sold_price ?? 0) + (l.buyers_premium ?? 0), 0) * 100) / 100;
 
   const handoffs = useMemo<Handoff[]>(
     () => [
@@ -248,6 +281,18 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
               {unassigned.map((g) => (
                 <li key={g.key} className="border border-gray-200 rounded-lg p-4 flex items-start justify-between gap-3">
                   <GroupInfo g={g} />
+                  <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setChargesFor(g)}
+                    className={`px-2 py-1 text-xs rounded border ${
+                      chargeByBuyer.has(g.key)
+                        ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                    }`}
+                    title="Shipping / handling / tax collected by the house"
+                  >
+                    {chargeByBuyer.has(g.key) ? `+${money(houseTotalOf(chargeByBuyer.get(g.key)!))}` : 'Charges'}
+                  </button>
                   <select
                     value=""
                     onChange={(e) => {
@@ -269,6 +314,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
                       {BUILTIN.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
                     </optgroup>
                   </select>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -332,6 +378,17 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
                     <button onClick={() => setInvoicesFor(g.key)} className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50" title="Buyer invoice (hammer, premium, tax, total)">
                       Invoice
                     </button>
+                    <button
+                      onClick={() => setChargesFor(g)}
+                      className={`px-2 py-1 text-xs rounded border ${
+                        chargeByBuyer.has(g.key)
+                          ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}
+                      title="Shipping / handling / tax collected by the house"
+                    >
+                      {chargeByBuyer.has(g.key) ? `+${money(houseTotalOf(chargeByBuyer.get(g.key)!))}` : 'Charges'}
+                    </button>
                     <button onClick={() => run(`reset:${g.key}`, () => resetFulfillment(ids(g)))} disabled={busy === `reset:${g.key}`} className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50" title="Reset (unassign)">
                       <Undo2 className="w-3.5 h-3.5" />
                     </button>
@@ -367,6 +424,22 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
         <ShippersManager companyId={companyId} shippers={shippers} onChanged={loadShippers} onClose={() => setShowShippers(false)} />
       )}
 
+      {chargesFor && (
+        <HouseChargesModal
+          saleId={saleId}
+          companyId={companyId}
+          buyerKey={chargesFor.key}
+          buyerName={chargesFor.name}
+          goods={goodsFor(chargesFor)}
+          existing={chargeByBuyer.get(chargesFor.key)}
+          laTax={laBilledFor(chargesFor).tax}
+          laShipping={laBilledFor(chargesFor).shipping}
+          defaultTaxRate={houseCharges[0]?.tax_rate}
+          onSaved={() => { setChargesFor(null); loadBilling(); }}
+          onClose={() => setChargesFor(null)}
+        />
+      )}
+
       {showPackingList && (
         <AuctionPackingList
           saleName={saleName}
@@ -386,6 +459,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
           companyAddress={company?.address}
           lots={lots}
           laInvoices={laInvoices}
+          houseCharges={houseCharges}
           buyerKey={invoicesFor || undefined}
           carrierLabel={carrierLabel}
           onClose={() => setInvoicesFor(null)}

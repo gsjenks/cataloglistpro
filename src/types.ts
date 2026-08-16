@@ -342,6 +342,32 @@ export interface ConsignmentFees {
   buyin?: number;
 }
 
+// Shipping, handling and sales tax the AUCTION HOUSE collects from a buyer directly —
+// as opposed to whatever LiveAuctioneers collected (BuyerInvoiceRecord). Only these
+// touch the house's books. One row per buyer per sale; also covers post-sale purchases,
+// which have no LA invoice.
+export interface HouseCharge {
+  id: string;
+  company_id?: string;
+  sale_id?: string;
+  buyer_key: string;            // buyer email, else name
+  buyer_name?: string;
+  shipping: number;
+  handling: number;
+  tax_rate: number;             // percent
+  // False when LA already taxed the lots — only the house's shipping/handling is taxed.
+  tax_includes_goods?: boolean;
+  taxable_base: number;         // (goods, if included) + shipping + handling
+  tax: number;
+  tax_exempt?: boolean;
+  exempt_reason?: string;
+  collected_at?: string;
+  payment_method?: string;
+  note?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 // A buyer's invoice as printed by LiveAuctioneers, imported from the end-of-auction
 // invoice PDF. The only source of sales tax, shipping and the online-payments fee —
 // the EOA XML carries hammer + premium alone. Joins to lots on la_invoice_id.
