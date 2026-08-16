@@ -7,13 +7,17 @@
 // See ShipperService, ShippersManager, FulfillmentService.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList } from 'lucide-react';
+import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList, ListOrdered, Receipt, Tags } from 'lucide-react';
 import type { Lot, LotBuyer, Shipper } from '../types';
 import { setCarrier, shipLots, markPickedUp, markDelivered, resetFulfillment } from '../services/FulfillmentService';
 import { listShippers } from '../services/ShipperService';
+import { generateShippingLabels } from '../services/LabelService';
+import { useApp } from '../context/AppContext';
 import ShippersManager from './ShippersManager';
 import PackingInvoice from './PackingInvoice';
 import ShipperManifest from './ShipperManifest';
+import AuctionPackingList from './AuctionPackingList';
+import BuyerInvoices from './BuyerInvoices';
 
 interface Props {
   saleId: string;
@@ -60,7 +64,10 @@ function groupStatus(g: Group): Status {
   return 'pending';
 }
 
-export default function FulfillmentPanel({ companyId, saleName, lots, onChanged }: Props) {
+export default function FulfillmentPanel({ saleId, companyId, saleName, lots, onChanged }: Props) {
+  const { currentCompany } = useApp();
+  // Only trust the active company when it's the one that owns this sale.
+  const company = currentCompany && currentCompany.id === companyId ? currentCompany : null;
   const [busy, setBusy] = useState<string | null>(null);
   const [shipFor, setShipFor] = useState<Group | null>(null);
   const [tracking, setTracking] = useState('');
@@ -70,6 +77,9 @@ export default function FulfillmentPanel({ companyId, saleName, lots, onChanged 
   // Carrier value whose handoff manifest is open (built from ALL its shipments, not
   // the search-filtered view — a sheet someone signs must not silently omit lots).
   const [manifestFor, setManifestFor] = useState<string | null>(null);
+  // Packing-session paperwork: master list, buyer invoices (all or one), lot labels.
+  const [showPackingList, setShowPackingList] = useState(false);
+  const [invoicesFor, setInvoicesFor] = useState<string | null>(null);  // '' = every buyer
   const [search, setSearch] = useState('');
 
   const loadShippers = useCallback(async () => {
@@ -93,6 +103,11 @@ export default function FulfillmentPanel({ companyId, saleName, lots, onChanged 
   );
   const handoffByValue = useMemo(() => Object.fromEntries(handoffs.map((h) => [h.value, h])), [handoffs]);
   const resolve = (value?: string): Handoff | undefined => (value ? handoffByValue[value] : undefined);
+  // Shipper id → display name, for the packing paperwork (labels, list, invoices).
+  const carrierLabel = useCallback(
+    (value?: string) => (value ? handoffByValue[value]?.label ?? value : 'Unassigned'),
+    [handoffByValue],
+  );
 
   const groups = useMemo<Group[]>(() => {
     const paid = lots.filter((l) => l.outcome === 'sold' && l.payment_status === 'paid');
@@ -145,6 +160,24 @@ export default function FulfillmentPanel({ companyId, saleName, lots, onChanged 
     run(`ship:${shipFor.key}`, () => shipLots(ids(shipFor), tracking)).then(() => { setShipFor(null); setTracking(''); });
   };
 
+  const printLabels = async () => {
+    setBusy('labels');
+    try {
+      const n = await generateShippingLabels(lots, {
+        saleName,
+        companyName: company?.name,
+        companyPhone: company?.phone,
+        carrierLabel,
+      });
+      if (n === 0) alert('No lots to label — everything sold has already been handed off.');
+    } catch (e) {
+      console.error('Label generation failed:', e);
+      alert('Could not generate labels. See console.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-lg border border-gray-200 p-5">
@@ -156,6 +189,33 @@ export default function FulfillmentPanel({ companyId, saleName, lots, onChanged 
               <Settings className="w-3.5 h-3.5" /> Manage shippers
             </button>
           </div>
+        </div>
+
+        {/* Packing session paperwork — the three things you print before packing. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+          <span className="text-xs text-gray-500 mr-1">Print for packing:</span>
+          <button
+            onClick={() => setShowPackingList(true)}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+            title="Every sold lot with buyer, address and shipper"
+          >
+            <ListOrdered className="w-3.5 h-3.5" /> Packing list
+          </button>
+          <button
+            onClick={() => setInvoicesFor('')}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+            title="One invoice per buyer — hammer, premium, tax, total"
+          >
+            <Receipt className="w-3.5 h-3.5" /> Buyer invoices
+          </button>
+          <button
+            onClick={printLabels}
+            disabled={busy === 'labels'}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            title="One Avery 55163 label per lot, with buyer, address and piece count"
+          >
+            <Tags className="w-3.5 h-3.5" /> {busy === 'labels' ? 'Building…' : 'Lot labels (PDF)'}
+          </button>
         </div>
 
         {groups.length > 0 && (
@@ -255,7 +315,10 @@ export default function FulfillmentPanel({ companyId, saleName, lots, onChanged 
                         <PackageCheck className="w-3.5 h-3.5" /> Delivered
                       </button>
                     )}
-                    <button onClick={() => setInvoiceFor(g)} className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50" title="Packing invoice">
+                    <button onClick={() => setInvoiceFor(g)} className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50" title="Packing slip (contents + signature)">
+                      Slip
+                    </button>
+                    <button onClick={() => setInvoicesFor(g.key)} className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50" title="Buyer invoice (hammer, premium, tax, total)">
                       Invoice
                     </button>
                     <button onClick={() => run(`reset:${g.key}`, () => resetFulfillment(ids(g)))} disabled={busy === `reset:${g.key}`} className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50" title="Reset (unassign)">
@@ -291,6 +354,30 @@ export default function FulfillmentPanel({ companyId, saleName, lots, onChanged 
 
       {showShippers && (
         <ShippersManager companyId={companyId} shippers={shippers} onChanged={loadShippers} onClose={() => setShowShippers(false)} />
+      )}
+
+      {showPackingList && (
+        <AuctionPackingList
+          saleName={saleName}
+          companyName={company?.name}
+          lots={lots}
+          carrierLabel={carrierLabel}
+          onClose={() => setShowPackingList(false)}
+        />
+      )}
+
+      {invoicesFor !== null && (
+        <BuyerInvoices
+          saleId={saleId}
+          saleName={saleName}
+          companyName={company?.name}
+          companyPhone={company?.phone}
+          companyAddress={company?.address}
+          lots={lots}
+          buyerKey={invoicesFor || undefined}
+          carrierLabel={carrierLabel}
+          onClose={() => setInvoicesFor(null)}
+        />
       )}
 
       {manifestFor && (
