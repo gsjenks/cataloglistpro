@@ -342,6 +342,88 @@ export interface ConsignmentFees {
   buyin?: number;
 }
 
+// A buyer's resale / sales-tax exemption certificate. Company-scoped and not tied to a
+// sale, so a returning dealer is recognised automatically. `image_path` is an object in
+// the private `documents` bucket — read it through a signed URL, never a public one.
+export interface TaxExemption {
+  id: string;
+  company_id?: string;
+  contact_id?: string;
+  buyer_key: string;            // buyer email, else name
+  buyer_name?: string;
+  business_name?: string;
+  state?: string;
+  permit_number?: string;
+  issued_on?: string;           // date-only
+  expires_on?: string;          // date-only; absent = no stated expiry
+  image_path?: string;
+  image_name?: string;
+  note?: string;
+  verified_at?: string;
+  verified_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// Shipping, handling and sales tax the AUCTION HOUSE collects from a buyer directly —
+// as opposed to whatever LiveAuctioneers collected (BuyerInvoiceRecord). Only these
+// touch the house's books. One row per buyer per sale; also covers post-sale purchases,
+// which have no LA invoice.
+export interface HouseCharge {
+  id: string;
+  company_id?: string;
+  sale_id?: string;
+  buyer_key: string;            // buyer email, else name
+  buyer_name?: string;
+  shipping: number;
+  handling: number;
+  tax_rate: number;             // percent
+  // False when LA already taxed the lots — only the house's shipping/handling is taxed.
+  tax_includes_goods?: boolean;
+  taxable_base: number;         // (goods, if included) + shipping + handling
+  tax: number;
+  tax_exempt?: boolean;
+  exempt_reason?: string;
+  collected_at?: string;
+  payment_method?: string;
+  note?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// A buyer's invoice as printed by LiveAuctioneers, imported from the end-of-auction
+// invoice PDF. The only source of sales tax, shipping and the online-payments fee —
+// the EOA XML carries hammer + premium alone. Joins to lots on la_invoice_id.
+export interface BuyerInvoiceRecord {
+  id: string;
+  company_id?: string;
+  sale_id?: string;
+  la_invoice_id: string;
+  status?: 'paid' | 'unpaid';
+  buyer_name?: string;
+  buyer_email?: string;
+  buyer_phone?: string;
+  ship_to?: {
+    lines?: string[];
+    address?: string; city?: string; state?: string; zip?: string; country?: string;
+  };
+  shipping_method?: string;
+  hammer_total?: number;
+  premium_total?: number;
+  shipping?: number;
+  online_fee?: number;
+  sales_tax?: number;
+  total?: number;
+  balance_due?: number;
+  payment_method?: string;
+  paid_at_text?: string;
+  lot_numbers?: number[];
+  totals_balance?: boolean;   // false = LA's printed total doesn't add up; review it
+  imported_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 // One consignor's terms + settlement for a sale. A sale pools lots from many
 // consignments; each lot carries consignment_id.
 export interface Consignment {
@@ -355,10 +437,12 @@ export interface Consignment {
   fee_schedule?: ConsignmentFees;
   lead_source?: string;
   // Reconciliation (Stage 7)
-  net_due?: number;
-  settled_at?: string;
+  net_due?: number;             // amount of the payout that was recorded
+  settled_at?: string;          // statement generated / figures locked
   paid_at?: string;
-  payment_method?: string;
+  payment_method?: string;      // check | ach | wire | cash | other
+  payment_reference?: string;   // check #, ACH/wire confirmation
+  payout_note?: string;
   created_at?: string;
   updated_at?: string;
 }

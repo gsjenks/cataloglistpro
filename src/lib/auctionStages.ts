@@ -92,8 +92,8 @@ export const STAGES: Record<SaleStage, StageDef> = {
   reconciliation: {
     stage: 'reconciliation', label: 'Reconciliation',
     items: [
-      { key: 'settlements_generated', label: 'Settlement statement per consignor', required: true },
-      { key: 'consignors_paid', label: 'Each consignor paid', required: true },
+      { key: 'settlements_generated', label: 'Settlement statement per consignor', required: true, derived: true },
+      { key: 'consignors_paid', label: 'Each consignor paid', required: true, derived: true },
       { key: 'unsold_dispositioned', label: 'Unsold lots dispositioned', required: true, derived: true },
       { key: 'accounting_export', label: 'Accounting export', required: false },
     ],
@@ -152,6 +152,9 @@ export function computeDerived(ctx: DerivedContext): Record<string, boolean> {
     nonpaying_resolved: sold.every(l => l.payment_status === 'paid' || l.payment_status === 'defaulted'),
     all_fulfilled: paid.every(l => !!l.shipped_at || l.fulfillment_method === 'pickup'),
     unsold_dispositioned: unsold.every(l => !!l.disposition),
+    // Stage 7 — driven by the payout record on each consignment (ReconciliationPanel).
+    settlements_generated: consignments.length > 0 && consignments.every(c => !!c.settled_at),
+    consignors_paid: consignments.length > 0 && consignments.every(c => !!c.paid_at),
   };
 }
 

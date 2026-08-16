@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck, Banknote } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document, Consignment } from '../types';
@@ -23,6 +23,7 @@ import CatalogueImportModal from './CatalogueImportModal';
 import PaymentsPanel from './PaymentsPanel';
 import UnsoldPanel from './UnsoldPanel';
 import FulfillmentPanel from './FulfillmentPanel';
+import ReconciliationPanel from './ReconciliationPanel';
 import { listConsignments } from '../services/ConsignmentService';
 import { formatContactName } from '../utils/contactName';
 
@@ -610,6 +611,12 @@ export default function SaleDetail() {
       count: lots.filter((l) => l.outcome === 'passed' && !l.disposition).length,
     },
     {
+      id: 'reconciliation',
+      label: 'Reconciliation',
+      icon: <Banknote className="w-4 h-4" />,
+      count: consignments.filter((c) => !c.paid_at).length,
+    },
+    {
       id: 'contacts',
       label: 'Contacts',
       icon: <Users className="w-4 h-4" />,
@@ -837,7 +844,7 @@ export default function SaleDetail() {
         )}
 
         {activeTab === 'payments' && (
-          <PaymentsPanel saleId={saleId!} lots={lots} onChanged={loadLots} />
+          <PaymentsPanel saleId={saleId!} companyId={sale.company_id} lots={lots} onChanged={loadLots} />
         )}
 
         {activeTab === 'fulfillment' && (
@@ -851,6 +858,17 @@ export default function SaleDetail() {
             consignorNames={consignorNames}
             saleName={sale.name}
             onChanged={loadLots}
+          />
+        )}
+
+        {activeTab === 'reconciliation' && (
+          <ReconciliationPanel
+            saleId={saleId!}
+            saleName={sale.name}
+            consignments={consignments}
+            lots={lots}
+            consignorNames={consignorNames}
+            onChanged={loadConsignments}
           />
         )}
 
