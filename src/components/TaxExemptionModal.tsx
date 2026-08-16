@@ -17,13 +17,19 @@ interface Props {
   buyerKey: string;
   buyerName: string;
   existing?: TaxExemption;
+  /** Opened from the certificates list rather than a buyer's row — let the buyer be typed. */
+  allowBuyerEdit?: boolean;
   onSaved: (ex: TaxExemption | null) => void;
   onClose: () => void;
 }
 
 export default function TaxExemptionModal({
-  companyId, buyerKey, buyerName, existing, onSaved, onClose,
+  companyId, buyerKey, buyerName, existing, allowBuyerEdit, onSaved, onClose,
 }: Props) {
+  // The buyer key is an email wherever possible — that's how buyers are matched
+  // everywhere else in the app (LA gives us one on every invoice).
+  const [keyInput, setKeyInput] = useState(existing?.buyer_key ?? buyerKey);
+  const [nameInput, setNameInput] = useState(existing?.buyer_name ?? buyerName);
   const [business, setBusiness] = useState(existing?.business_name ?? '');
   const [state, setState] = useState(existing?.state ?? '');
   const [permit, setPermit] = useState(existing?.permit_number ?? '');
@@ -68,12 +74,16 @@ export default function TaxExemptionModal({
       alert('Enter the permit number or attach a photo of the certificate.');
       return;
     }
+    if (!keyInput.trim()) {
+      alert("Enter the buyer's email (or name, if you have no email for them).");
+      return;
+    }
     setSaving(true);
     try {
       const saved = await saveExemption({
         company_id: companyId,
-        buyer_key: buyerKey,
-        buyer_name: buyerName,
+        buyer_key: keyInput.trim(),
+        buyer_name: nameInput.trim() || undefined,
         business_name: business || undefined,
         state: state.trim().toUpperCase() || undefined,
         permit_number: permit || undefined,
@@ -129,6 +139,26 @@ export default function TaxExemptionModal({
         )}
 
         <div className="space-y-3">
+          {allowBuyerEdit && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Buyer name</label>
+                <input
+                  type="text" value={nameInput} onChange={(e) => setNameInput(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Buyer email *</label>
+                <input
+                  type="email" value={keyInput} onChange={(e) => setKeyInput(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                  placeholder="used to match them later"
+                />
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Business name</label>
             <input

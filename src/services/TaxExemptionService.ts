@@ -7,12 +7,18 @@
 import { supabase } from '../lib/supabase';
 import type { TaxExemption } from '../types';
 
-export async function listExemptions(companyId: string): Promise<TaxExemption[]> {
-  const { data, error } = await supabase
-    .from('tax_exemptions')
-    .select('*')
-    .eq('company_id', companyId)
-    .order('created_at', { ascending: false });
+// Certificates are looked up across EVERY company the signed-in user belongs to, not
+// just the active one: the same dealer buys from Benson Auction Services and Benson
+// Estate Sales, and shouldn't have to hand over the same permit twice. RLS already
+// limits rows to the user's companies, so omitting the filter shares them between
+// sibling companies and nothing wider. company_id still records who collected it.
+//
+// Caveat: sharing follows the VIEWER's memberships. Staff who belong to only one of
+// the companies see only that one's certificates.
+export async function listExemptions(companyId?: string): Promise<TaxExemption[]> {
+  let query = supabase.from('tax_exemptions').select('*');
+  if (companyId) query = query.eq('company_id', companyId);
+  const { data, error } = await query.order('created_at', { ascending: false });
   if (error) throw error;
   return data || [];
 }
@@ -62,6 +68,14 @@ export async function certificateUrl(path: string, seconds = 600): Promise<strin
 }
 
 // ── Validity ─────────────────────────────────────────────────────────────────
+
+/** Days until expiry; null when the certificate states none. Negative = expired. */
+export function daysUntilExpiry(ex: TaxExemption, on: Date = new Date()): number | null {
+  if (!ex.expires_on) return null;
+  const end = new Date(`${ex.expires_on}T00:00:00`);
+  const today = new Date(on.toISOString().slice(0, 10) + 'T00:00:00');
+  return Math.round((end.getTime() - today.getTime()) / 86_400_000);
+}
 
 /** A certificate with no stated expiry stays valid; an expired one never exempts. */
 export function isExpired(ex: TaxExemption, on: Date = new Date()): boolean {

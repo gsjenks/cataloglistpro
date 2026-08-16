@@ -7,7 +7,7 @@
 // See ShipperService, ShippersManager, FulfillmentService.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList, ListOrdered, Receipt, Tags } from 'lucide-react';
+import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList, ListOrdered, Receipt, Tags, BadgeCheck } from 'lucide-react';
 import type { Lot, LotBuyer, Shipper, BuyerInvoiceRecord, HouseCharge } from '../types';
 import { setCarrier, shipLots, markPickedUp, markDelivered, resetFulfillment } from '../services/FulfillmentService';
 import { listShippers } from '../services/ShipperService';
@@ -17,6 +17,7 @@ import HouseChargesModal from './HouseChargesModal';
 import { generateShippingLabels } from '../services/LabelService';
 import { useApp } from '../context/AppContext';
 import ShippersManager from './ShippersManager';
+import TaxExemptionsManager from './TaxExemptionsManager';
 import PackingInvoice from './PackingInvoice';
 import ShipperManifest from './ShipperManifest';
 import AuctionPackingList from './AuctionPackingList';
@@ -80,6 +81,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
   const [tracking, setTracking] = useState('');
   const [shippers, setShippers] = useState<Shipper[]>([]);
   const [showShippers, setShowShippers] = useState(false);
+  const [showCertificates, setShowCertificates] = useState(false);
   const [invoiceFor, setInvoiceFor] = useState<Group | null>(null);
   // Carrier value whose handoff manifest is open (built from ALL its shipments, not
   // the search-filtered view — a sheet someone signs must not silently omit lots).
@@ -231,6 +233,9 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
             <p className="text-sm text-gray-500">{unassigned.length} to assign · {groups.length - unassigned.length} assigned</p>
             <button onClick={() => setShowShippers(true)} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
               <Settings className="w-3.5 h-3.5" /> Manage shippers
+            </button>
+            <button onClick={() => setShowCertificates(true)} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50" title="Resale certificates on file, across your companies">
+              <BadgeCheck className="w-3.5 h-3.5" /> Resale certificates
             </button>
           </div>
         </div>
@@ -422,6 +427,14 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
 
       {showShippers && (
         <ShippersManager companyId={companyId} shippers={shippers} onChanged={loadShippers} onClose={() => setShowShippers(false)} />
+      )}
+
+      {showCertificates && (
+        <TaxExemptionsManager
+          companyId={companyId}
+          onClose={() => setShowCertificates(false)}
+          onChanged={loadBilling}
+        />
       )}
 
       {chargesFor && (

@@ -62,7 +62,8 @@ export default function HouseChargesModal({
   useEffect(() => {
     if (!companyId) return;
     let live = true;
-    listExemptions(companyId)
+    // No company filter: a permit given to the estate-sale side counts here too.
+    listExemptions()
       .then((all) => {
         if (!live) return;
         const found = findForBuyer(all, buyerKey) ?? null;
