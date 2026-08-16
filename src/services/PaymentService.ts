@@ -69,7 +69,21 @@ export async function secondBidderAccepted(
 }
 
 // Buyer defaulted with no (or a declined) second chance → the lot falls to unsold,
-// dropping into the disposition flow (D5).
+// dropping into the disposition flow (D5) where it can be re-sold.
+//
+// It also comes off the buyer's shipment: nothing they haven't paid for should ship.
+// sold_price and la_invoice_id are deliberately KEPT — the price is what the
+// underbidder gets offered, and the invoice link is what lets their invoice show the
+// lot credited back. `outcome: 'passed'` is what stops it counting as a sale
+// (see lib/lotState.ts).
 export async function markDefaulted(lotId: string): Promise<void> {
-  await updateLot(lotId, { payment_status: 'defaulted', outcome: 'passed' });
+  await updateLot(lotId, {
+    payment_status: 'defaulted',
+    outcome: 'passed',
+    fulfillment_carrier: null,
+    fulfillment_method: null,
+    tracking_number: null,
+    shipped_at: null,
+    delivered_at: null,
+  });
 }

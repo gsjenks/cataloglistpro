@@ -6,6 +6,7 @@
 
 import type { Consignment, Lot, HouseCharge, BuyerInvoiceRecord } from '../types';
 import { computeSettlement, type Settlement } from './settlement';
+import { isSoldLot } from './lotState';
 
 export interface ConsignorRow {
   consignment: Consignment;
@@ -82,8 +83,7 @@ export function computeReconciliation(
     })
     .sort((a, b) => b.settlement.net - a.settlement.net);
 
-  const isSold = (l: Lot) => l.outcome === 'sold' || (l.sold_price ?? 0) > 0;
-  const sold = lots.filter(isSold);
+  const sold = lots.filter(isSoldLot);
   const unassignedSold = sold.filter((l) => !l.consignment_id);
 
   const grossHammer = sold.reduce((s, l) => s + (l.sold_price ?? 0), 0);

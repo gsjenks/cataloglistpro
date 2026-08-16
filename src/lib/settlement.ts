@@ -6,6 +6,7 @@
 // rounded. See docs/auction-lifecycle-spec.md.
 
 import type { Consignment, Lot, ConsignmentFees } from '../types';
+import { isSoldLot } from './lotState';
 
 export interface SettlementLine {
   lotNumber: number | string | undefined;
@@ -62,8 +63,9 @@ const lotNum = (v: number | string | undefined) =>
 
 export function computeSettlement(consignment: Consignment, lots: Lot[]): Settlement {
   const mine = lots.filter((l) => l.consignment_id === consignment.id);
-  const sold = mine.filter((l) => l.outcome === 'sold' || (l.sold_price ?? 0) > 0);
-  const unsold = mine.filter((l) => !(l.outcome === 'sold' || (l.sold_price ?? 0) > 0));
+  // A defaulted lot is NOT a sale: the consignor must not be paid out for it.
+  const sold = mine.filter(isSoldLot);
+  const unsold = mine.filter((l) => !isSoldLot(l));
 
   const lines: SettlementLine[] = sold
     .map((l) => ({ lotNumber: l.lot_number, name: l.name, hammer: l.sold_price ?? 0 }))

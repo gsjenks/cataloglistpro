@@ -418,6 +418,8 @@ export interface BuyerInvoiceRecord {
   payment_method?: string;
   paid_at_text?: string;
   lot_numbers?: number[];
+  // Per-lot lines exactly as LA billed them, for crediting a lot that falls off.
+  lines?: { lotNumber: number; title: string; hammer: number; premium: number; price: number }[];
   totals_balance?: boolean;   // false = LA's printed total doesn't add up; review it
   imported_at?: string;
   created_at?: string;

@@ -9,7 +9,7 @@
 import { useMemo, useState } from 'react';
 import { X, Printer } from 'lucide-react';
 import type { Lot, BuyerInvoiceRecord, HouseCharge } from '../types';
-import { buildBuyerInvoices, addressLines, type BuyerInvoice } from '../lib/invoices';
+import { buildBuyerInvoices, addressLines, isSold, type BuyerInvoice } from '../lib/invoices';
 
 interface Props {
   saleId: string;
@@ -27,28 +27,77 @@ interface Props {
   onClose: () => void;
 }
 
+// A lot LiveAuctioneers billed on this invoice that is no longer a completed sale to
+// this buyer — they never paid for it, or it came back. It is credited at LA's own
+// figures, plus that lot's share of the invoice's sales tax.
+interface CreditLine {
+  invoiceId: string;
+  lotNumber: number;
+  title: string;
+  goods: number;   // hammer + premium as billed
+  tax: number;     // proportional share of the invoice's sales tax
+  total: number;
+}
+
 // LA's own figures for a buyer, summed when their lots span more than one invoice.
 interface LaTotals {
   ids: string[];
   shipping: number;
   onlineFee: number;
   salesTax: number;
-  total: number;
+  total: number;         // as LA billed
   balanceDue: number;
   flagged: boolean;
+  credits: CreditLine[];
+  creditTotal: number;
+  adjustedTotal: number; // what the buyer actually owes once credits are applied
 }
 
-function laTotalsFor(inv: BuyerInvoice, byId: Map<string, BuyerInvoiceRecord>): LaTotals | null {
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function laTotalsFor(
+  inv: BuyerInvoice,
+  byId: Map<string, BuyerInvoiceRecord>,
+  soldLotNumbers: Set<number>,
+): LaTotals | null {
   const matches = inv.invoiceIds.map((id) => byId.get(id)).filter((r): r is BuyerInvoiceRecord => !!r);
   if (matches.length === 0) return null;
+
+  // Anything LA billed that this buyer no longer holds as a completed sale.
+  const credits: CreditLine[] = [];
+  for (const m of matches) {
+    const billed = m.lines ?? [];
+    const billedGoods = billed.reduce((s, l) => s + (l.price ?? 0), 0);
+    for (const line of billed) {
+      if (soldLotNumbers.has(line.lotNumber)) continue;
+      const goods = line.price ?? (line.hammer ?? 0) + (line.premium ?? 0);
+      // LA taxes the goods, so the credit carries that lot's share of the tax.
+      const tax = billedGoods > 0 ? round2(((m.sales_tax ?? 0) * goods) / billedGoods) : 0;
+      credits.push({
+        invoiceId: m.la_invoice_id,
+        lotNumber: line.lotNumber,
+        title: line.title,
+        goods: round2(goods),
+        tax,
+        total: round2(goods + tax),
+      });
+    }
+  }
+
+  const total = matches.reduce((s, m) => s + (m.total ?? 0), 0);
+  const creditTotal = round2(credits.reduce((s, c) => s + c.total, 0));
+
   return {
     ids: matches.map((m) => m.la_invoice_id),
     shipping: matches.reduce((s, m) => s + (m.shipping ?? 0), 0),
     onlineFee: matches.reduce((s, m) => s + (m.online_fee ?? 0), 0),
     salesTax: matches.reduce((s, m) => s + (m.sales_tax ?? 0), 0),
-    total: matches.reduce((s, m) => s + (m.total ?? 0), 0),
+    total: round2(total),
     balanceDue: matches.reduce((s, m) => s + (m.balance_due ?? 0), 0),
     flagged: matches.some((m) => m.totals_balance === false),
+    credits,
+    creditTotal,
+    adjustedTotal: round2(total - creditTotal),
   };
 }
 
@@ -83,12 +132,22 @@ export default function BuyerInvoices({
     () => new Map((houseCharges ?? []).map((c) => [c.buyer_key, c])),
     [houseCharges],
   );
-  const laFor = (inv: BuyerInvoice) => laTotalsFor(inv, laById);
+  // Lot numbers still standing as completed sales, so anything LA billed that isn't
+  // here any more shows up as a credit rather than silently inflating the invoice.
+  const soldLotNumbers = useMemo(
+    () => new Set(
+      lots.filter(isSold)
+        .map((l) => (typeof l.lot_number === 'number' ? l.lot_number : parseInt(String(l.lot_number ?? ''), 10)))
+        .filter((n) => Number.isFinite(n)),
+    ),
+    [lots],
+  );
+  const laFor = (inv: BuyerInvoice) => laTotalsFor(inv, laById, soldLotNumbers);
   const houseFor = (inv: BuyerInvoice) => houseByBuyer.get(inv.key) ?? null;
   const houseAdds = (c: HouseCharge | null) =>
     c ? (c.shipping ?? 0) + (c.handling ?? 0) + (c.tax ?? 0) : 0;
   const grand = invoices.reduce(
-    (s, i) => s + (laFor(i)?.total ?? i.total) + houseAdds(houseFor(i)),
+    (s, i) => s + (laFor(i)?.adjustedTotal ?? i.total) + houseAdds(houseFor(i)),
     0,
   );
   // The typed rate is only a fallback for buyers with no imported LA invoice.
@@ -251,10 +310,37 @@ function Invoice({
             {la.shipping > 0 && <Row label="Shipping" value={money(la.shipping)} />}
             {la.onlineFee > 0 && <Row label="Online payments fee" value={money(la.onlineFee)} />}
             <Row label="Sales tax" value={money(la.salesTax)} />
-            <div className="border-t border-gray-300 pt-2 mt-2 flex items-center justify-between">
-              <span className="font-semibold text-gray-900">Total</span>
-              <span className="font-bold text-lg text-gray-900 tabular-nums">{money(la.total)}</span>
+            <div className={`border-t border-gray-300 pt-2 mt-2 flex items-center justify-between ${
+              la.credits.length > 0 ? 'text-gray-500' : ''
+            }`}>
+              <span className={la.credits.length > 0 ? '' : 'font-semibold text-gray-900'}>
+                {la.credits.length > 0 ? 'Invoiced by LiveAuctioneers' : 'Total'}
+              </span>
+              <span className={`tabular-nums ${la.credits.length > 0 ? '' : 'font-bold text-lg text-gray-900'}`}>
+                {money(la.total)}
+              </span>
             </div>
+
+            {/* A lot that fell off this invoice after it was issued. */}
+            {la.credits.map((c) => (
+              <div key={`${c.invoiceId}-${c.lotNumber}`} className="flex items-start justify-between text-amber-700">
+                <span className="text-sm pr-2">
+                  Less lot {c.lotNumber} — not completed
+                  <span className="block text-xs text-amber-600">
+                    {c.title}{c.tax > 0 && ` · incl. ${money(c.tax)} tax`}
+                  </span>
+                </span>
+                <span className="tabular-nums shrink-0">− {money(c.total)}</span>
+              </div>
+            ))}
+
+            {la.credits.length > 0 && (
+              <div className="border-t border-gray-300 pt-2 mt-2 flex items-center justify-between">
+                <span className="font-semibold text-gray-900">Adjusted total</span>
+                <span className="font-bold text-lg text-gray-900 tabular-nums">{money(la.adjustedTotal)}</span>
+              </div>
+            )}
+
             {la.balanceDue > 0 && (
               <div className="flex items-center justify-between text-amber-700">
                 <span className="font-medium">Balance due</span>
@@ -319,6 +405,7 @@ function Invoice({
       {la ? (
         <p className="text-xs text-gray-400">
           Figures from LiveAuctioneers invoice #{la.ids.join(', #')}.
+          {la.credits.length > 0 && ` ${la.credits.length} lot(s) billed on it did not complete and are credited above — settle the difference with LiveAuctioneers.`}
           {house && (
             house.tax_includes_goods === false
               ? ` Shipping, handling and tax on those charges billed by ${companyName || 'the auction house'}; the lots were taxed by LiveAuctioneers.`
