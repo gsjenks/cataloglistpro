@@ -29,6 +29,9 @@ interface Props {
   lots: Lot[];
   onClose: () => void;
   onCompleted?: () => void;
+  // If set, open with this shopper's basket already loaded (handoff from the
+  // Baskets tool "Checkout" button).
+  initialBasketId?: string | null;
 }
 
 const TENDERS: { value: TenderType; label: string; disabled?: boolean; note?: string }[] = [
@@ -88,7 +91,7 @@ interface Receipt {
   buyerName: string;
 }
 
-export default function PointOfSale({ saleId, companyId, saleName, lots, onClose, onCompleted }: Props) {
+export default function PointOfSale({ saleId, companyId, saleName, lots, onClose, onCompleted, initialBasketId }: Props) {
   const [cart, setCart] = useState<PosLineItem[]>([]);
   const [taxRate, setTaxRate] = useState<number>(() => {
     const saved = localStorage.getItem(`pos_taxrate_${saleId}`);
@@ -140,6 +143,15 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     loadSaleBaskets(supabase, saleId).then(setSaleBaskets);
   }, [saleId]);
   useEffect(() => { refreshBaskets(); }, [refreshBaskets, buyerBasketId]);
+
+  // Handoff from the Baskets tool "Checkout": open with this basket loaded.
+  const initialLoadedRef = useRef(false);
+  useEffect(() => {
+    if (initialBasketId && !initialLoadedRef.current) {
+      initialLoadedRef.current = true;
+      loadBuyerBasket(initialBasketId);
+    }
+  }, [initialBasketId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totals = useMemo(() => computeTotals(cart, taxRate), [cart, taxRate]);
 

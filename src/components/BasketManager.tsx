@@ -7,7 +7,7 @@
 // the buyer self-checkout gate.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { X, Search, Trash2, Plus, User, ScanLine, Pencil } from 'lucide-react';
+import { X, Search, Trash2, Plus, User, ScanLine, Pencil, ShoppingCart } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
 import { reclaimExpiredHolds } from '../lib/holds';
@@ -27,6 +27,9 @@ interface Props {
   companyId: string | null;
   onClose: () => void;
   onChanged?: () => void;
+  // Hand this basket off to the register/checkout (closes the tool, opens the
+  // register loaded to this shopper).
+  onCheckout?: (shopperId: string) => void;
 }
 
 interface LotRow {
@@ -63,7 +66,7 @@ const countdown = (expires: number, now: number) => {
   return `${mins}m left`;
 };
 
-export default function BasketManager({ saleId, companyId, onClose, onChanged }: Props) {
+export default function BasketManager({ saleId, companyId, onClose, onChanged, onCheckout }: Props) {
   const [tab, setTab] = useState<'shoppers' | 'items'>('shoppers');
   const [lots, setLots] = useState<LotRow[]>([]);
   const [shopperMap, setShopperMap] = useState<Record<string, Shopper>>({});
@@ -985,7 +988,18 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                     )}
                   </ul>
                 )}
-                <p className="text-right text-sm font-semibold text-gray-900 mb-4">Total: {money(basketTotal)}</p>
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  {onCheckout && (
+                    <button
+                      onClick={() => onCheckout(selected.id)}
+                      disabled={busy}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 disabled:bg-gray-300"
+                    >
+                      <ShoppingCart className="w-4 h-4" /> Checkout
+                    </button>
+                  )}
+                  <p className="text-right text-sm font-semibold text-gray-900 flex-1">Total: {money(basketTotal)}</p>
+                </div>
 
                 {/* Delivery / mover details — shown when any item is for delivery */}
                 {basketItems.some((l) => l.for_delivery) && (

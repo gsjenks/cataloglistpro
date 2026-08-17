@@ -51,6 +51,8 @@ export default function SaleDetail() {
   const [showScanner, setShowScanner] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [showBaskets, setShowBaskets] = useState(false);
+  // Set when handing a basket from the Baskets tool straight to the register.
+  const [checkoutBasketId, setCheckoutBasketId] = useState<string | null>(null);
   
   // Export state
   const [exporting, setExporting] = useState(false);
@@ -937,7 +939,8 @@ export default function SaleDetail() {
           companyId={sale?.company_id ?? null}
           saleName={sale?.name}
           lots={lots}
-          onClose={() => setShowRegister(false)}
+          initialBasketId={checkoutBasketId}
+          onClose={() => { setShowRegister(false); setCheckoutBasketId(null); }}
           onCompleted={loadLots}
         />
       )}
@@ -948,6 +951,11 @@ export default function SaleDetail() {
           companyId={sale?.company_id ?? null}
           onClose={() => setShowBaskets(false)}
           onChanged={loadLots}
+          onCheckout={(shopperId) => {
+            setShowBaskets(false);
+            setCheckoutBasketId(shopperId);
+            setShowRegister(true);
+          }}
         />
       )}
 
