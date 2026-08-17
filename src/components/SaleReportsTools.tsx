@@ -9,22 +9,26 @@ import {
   AlertCircle,
   FileText,
   QrCode,
+  ClipboardList,
 } from "lucide-react";
 import LiveAuctioneersUpload from "./LiveAuctioneersUpload";
 import EOAProcessing from "./EOAProcessing";
 import { QRCodeLabelGenerator } from "./QRCodeLabelGenerator";
+import EstateDispositionReport from "./EstateDispositionReport";
 
 type ToolView =
   | "menu"
   | "la-import"
   | "la-export"
   | "invoice-import"
-  | "qr-labels";
+  | "qr-labels"
+  | "dispo-report";
 
 interface SaleReportsToolsProps {
   saleId: string;
   saleName: string;
   saleType?: 'estate_sale' | 'auction' | 'social';
+  lots?: import('../types').Lot[];
   exporting: boolean;
   exportMessage: { type: "success" | "error" | "info"; text: string } | null;
   exportStats: {
@@ -40,6 +44,7 @@ export default function SaleReportsTools({
   saleId: _saleId,
   saleName,
   saleType,
+  lots = [],
   exporting,
   exportMessage,
   exportStats,
@@ -86,7 +91,21 @@ export default function SaleReportsTools({
       icon: <QrCode className="w-6 h-6 text-indigo-600" />,
       view: "qr-labels" as ToolView,
     },
+    ...(isEstate
+      ? [{
+          id: "dispo-report",
+          title: "Disposition Report",
+          description:
+            "Whole-sale summary of every lot — sold (to whom), returned, charity, cleanout, unsold, and refunds. Printable.",
+          icon: <ClipboardList className="w-6 h-6 text-indigo-600" />,
+          view: "dispo-report" as ToolView,
+        }]
+      : []),
   ].filter((t) => !(isEstate && LA_TOOL_IDS.has(t.id)));
+
+  if (activeView === "dispo-report") {
+    return <EstateDispositionReport saleId={_saleId} saleName={saleName} lots={lots} onBack={() => setActiveView("menu")} />;
+  }
 
   // Render Export View
   if (activeView === "la-export") {

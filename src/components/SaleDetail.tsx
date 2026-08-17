@@ -1009,6 +1009,7 @@ export default function SaleDetail() {
             saleId={saleId!}
             saleName={sale?.name || 'Sale'}
             saleType={sale?.sale_type}
+            lots={lots}
             exporting={exporting}
             exportMessage={exportMessage}
             exportStats={exportStats}
