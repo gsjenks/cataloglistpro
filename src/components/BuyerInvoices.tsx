@@ -7,9 +7,10 @@
 // is entered here and remembered per sale — same convention the POS uses.
 
 import { useMemo, useState } from 'react';
-import { X, Printer, Mail, Copy } from 'lucide-react';
+import { X, Printer, Mail, Copy, FileDown } from 'lucide-react';
 import type { Lot, BuyerInvoiceRecord, HouseCharge } from '../types';
 import { buildBuyerInvoices, addressLines, isSold, type BuyerInvoice } from '../lib/invoices';
+import { downloadInvoicePdf, type InvoicePdfInput } from '../services/InvoicePdfService';
 
 interface Props {
   saleId: string;
@@ -228,6 +229,62 @@ export default function BuyerInvoices({
       + `?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(invoiceText(inv))}`;
   };
 
+  // The PDF is drawn from the same figures as the screen — dueOf() decides the total
+  // in both, so an attached invoice can't disagree with the one you're looking at.
+  const pdfInputFor = (inv: BuyerInvoice): InvoicePdfInput => {
+    const la = laFor(inv);
+    const house = houseFor(inv);
+    const totals: InvoicePdfInput['totals'] = [
+      { label: `Hammer (${inv.lines.length} lot${inv.lines.length === 1 ? '' : 's'})`, value: inv.hammerTotal },
+      { label: "Buyer's premium", value: inv.premiumTotal },
+    ];
+    if (la) {
+      if (la.shipping) totals.push({ label: 'Shipping', value: la.shipping });
+      if (la.onlineFee) totals.push({ label: 'Online payments fee', value: la.onlineFee });
+      totals.push({ label: 'Sales tax', value: la.salesTax });
+    } else if (!house && inv.taxRate > 0) {
+      totals.push({ label: `Sales tax (${inv.taxRate}%)`, value: inv.tax });
+    }
+    if (house) {
+      const by = companyName || 'the auction house';
+      if (house.shipping) totals.push({ label: `Shipping (${by})`, value: house.shipping });
+      if (house.handling) totals.push({ label: 'Handling', value: house.handling });
+      if (!house.tax_exempt) totals.push({ label: `Sales tax (${house.tax_rate ?? 0}%)`, value: house.tax ?? 0 });
+    }
+    return {
+      company: { name: companyName, address: companyAddress, phone: companyPhone },
+      saleName,
+      buyerName: inv.buyerName,
+      buyerAddress: addressLines(inv.buyer),
+      buyerEmail: inv.buyer.email,
+      buyerPhone: inv.buyer.phone,
+      invoiceIds: inv.invoiceIds,
+      lines: inv.lines.map((l) => ({
+        lot: String(l.lotNumber ?? ''), name: l.name, hammer: l.hammer, premium: l.premium, unpaid: !l.paid,
+      })),
+      credits: (la?.credits ?? []).map((c) => ({
+        lot: c.lotNumber, title: c.title, refunded: c.refunded, total: c.total,
+      })),
+      totals,
+      laBilled: la?.total,
+      due: dueOf(inv),
+      unpaidCount: inv.unpaidCount,
+      dueDate: inv.dueAt
+        ? new Date(inv.dueAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        : undefined,
+      handoff: inv.carriers.length ? inv.carriers.map((c) => carrierLabel(c)).join(', ') : undefined,
+    };
+  };
+
+  const savePdf = async (inv: BuyerInvoice) => {
+    try {
+      await downloadInvoicePdf(pdfInputFor(inv));
+    } catch (e) {
+      console.error('Invoice PDF failed:', e);
+      alert('Could not build the PDF. See console.');
+    }
+  };
+
   const copyInvoice = async (inv: BuyerInvoice) => {
     try {
       await navigator.clipboard.writeText(invoiceText(inv));
@@ -283,6 +340,13 @@ export default function BuyerInvoices({
             )}
             {single && (
               <>
+                <button
+                  onClick={() => savePdf(single)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  title="Save the invoice as a PDF to attach to an email"
+                >
+                  <FileDown className="w-4 h-4" /> PDF
+                </button>
                 <button
                   onClick={() => copyInvoice(single)}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
