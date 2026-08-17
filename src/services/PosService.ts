@@ -137,6 +137,9 @@ export async function createTransaction(
           .update({
             inventory_status: 'sold',
             sold_price: round2(Number(i.price) || 0),
+            // Carry the line's fulfillment onto the lot so delivery sales show in
+            // the Fulfillment manifests (which filter on for_delivery).
+            for_delivery: i.fulfillment === 'delivery',
             held_by: null,
             held_until: null,
             updated_at: new Date().toISOString(),
