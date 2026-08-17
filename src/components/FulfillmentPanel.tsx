@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList, ListOrdered, Receipt, Tags, BadgeCheck, Pencil } from 'lucide-react';
 import type { Lot, LotBuyer, Shipper, BuyerInvoiceRecord, HouseCharge } from '../types';
-import { setCarrier, shipLots, markPickedUp, markDelivered, resetFulfillment } from '../services/FulfillmentService';
+import { setCarrier, changeHandoff, shipLots, markPickedUp, markDelivered, resetFulfillment } from '../services/FulfillmentService';
 import { listShippers } from '../services/ShipperService';
 import { listBuyerInvoices } from '../services/BuyerInvoiceImportService';
 import { listHouseCharges } from '../services/HouseChargeService';
@@ -225,6 +225,23 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
     run(`ship:${shipFor.key}`, () => shipLots(ids(shipFor), tracking)).then(() => { setShipFor(null); setTracking(''); });
   };
 
+  // Switch an assigned shipment to a different handoff. Once it has shipped or been
+  // picked up, that record is about to be discarded, so say so first.
+  const switchHandoff = (g: Group, value: string) => {
+    const h = handoffByValue[value];
+    if (!h || value === g.carrier) return;
+    const status = groupStatus(g);
+    if (status !== 'pending') {
+      const was = resolve(g.carrier)?.label ?? g.carrier;
+      const done = status === 'shipped' ? 'shipped' : 'delivered / picked up';
+      if (!confirm(
+        `${g.name}'s ${g.lots.length} lot(s) are already marked ${done} with ${was}.\n\n`
+        + `Moving them to ${h.label} clears that tracking and those dates. Continue?`,
+      )) return;
+    }
+    run(`carrier:${g.key}`, () => changeHandoff(ids(g), h.value, h.ships));
+  };
+
   const openBuyer = (g: Group) => {
     setBuyerFor(g);
     setBuyerDraft({ ...g.buyer, name: g.buyer.name || g.name });
@@ -393,7 +410,30 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
                     <GroupInfo g={g} status={status} pickup={!info.ships} onEditBuyer={() => openBuyer(g)} />
                     {trackingNo && <div className="text-xs text-gray-500 mt-1">Tracking: {trackingNo}</div>}
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+                    {/* Move this buyer to a different handoff without unassigning first. */}
+                    <select
+                      value={g.carrier ?? ''}
+                      onChange={(e) => switchHandoff(g, e.target.value)}
+                      disabled={busy === `carrier:${g.key}`}
+                      title="Change who handles this shipment"
+                      className="border border-gray-300 rounded px-1.5 py-1 text-xs text-gray-700 bg-white max-w-[9rem] disabled:opacity-50"
+                    >
+                      {shippers.filter((s) => s.active !== false).length > 0 && (
+                        <optgroup label="Shippers">
+                          {shippers.filter((s) => s.active !== false).map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      <optgroup label="Handoff">
+                        {BUILTIN.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+                      </optgroup>
+                      {/* A carrier that's no longer in the directory still needs showing. */}
+                      {g.carrier && !handoffByValue[g.carrier] && (
+                        <option value={g.carrier}>{g.carrier}</option>
+                      )}
+                    </select>
                     {status === 'pending' && info.ships && (
                       <button onClick={() => { setShipFor(g); setTracking(''); }} className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700">
                         <Truck className="w-3.5 h-3.5" /> Ship

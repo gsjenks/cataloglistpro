@@ -19,6 +19,20 @@ export async function setCarrier(lotIds: string[], carrier: string, ships: boole
   });
 }
 
+// Move an already-assigned shipment to a different handoff — FedEx → in-house,
+// pickup → a courier, and so on. Any tracking or shipped/delivered stamp belonged to
+// the OLD handoff, so it goes: the parcel hasn't shipped with the new one. Everything
+// else about the buyer (charges, invoice, address) is untouched.
+export async function changeHandoff(lotIds: string[], carrier: string, ships: boolean): Promise<void> {
+  await updateLots(lotIds, {
+    fulfillment_carrier: carrier,
+    fulfillment_method: ships ? 'ship' : 'pickup',
+    tracking_number: null,
+    shipped_at: null,
+    delivered_at: null,
+  });
+}
+
 export async function shipLots(lotIds: string[], tracking: string): Promise<void> {
   await updateLots(lotIds, {
     fulfillment_method: 'ship',
