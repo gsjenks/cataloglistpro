@@ -3,19 +3,26 @@
 // overdue each is past its 72h due date, and drives the resolution actions:
 // mark paid / offer 2nd bidder / (accept|decline) / mark defaulted. See PaymentService.
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, AlertTriangle, UserPlus, X, ChevronRight, ChevronDown, Undo2, FileDown, RotateCcw } from 'lucide-react';
-import type { Lot, LotBuyer } from '../types';
+import type { Lot, LotBuyer, BuyerInvoiceRecord, HouseCharge, Shipper } from '../types';
 import BuyerFields from './BuyerFields';
 import {
   markLotPaid, markLotUnpaid, markAllPaid, offerSecondBidder, secondBidderAccepted, markDefaulted,
   refundLot,
 } from '../services/PaymentService';
 import BuyerInvoiceImportModal from './BuyerInvoiceImportModal';
+import BuyerInvoices from './BuyerInvoices';
+import { useApp } from '../context/AppContext';
+import { listBuyerInvoices } from '../services/BuyerInvoiceImportService';
+import { listHouseCharges } from '../services/HouseChargeService';
+import { listShippers } from '../services/ShipperService';
+import { buyerKeyOf } from '../lib/invoices';
 import type { ImportInvoicesResult } from '../services/BuyerInvoiceImportService';
 
 interface Props {
   saleId: string;
+  saleName: string;
   companyId?: string;
   lots: Lot[];
   onChanged: () => void;
@@ -29,7 +36,30 @@ function overdueDays(due?: string): number | null {
   return Math.floor((Date.now() - new Date(due).getTime()) / 86_400_000);
 }
 
-export default function PaymentsPanel({ saleId, companyId, lots, onChanged }: Props) {
+export default function PaymentsPanel({ saleId, saleName, companyId, lots, onChanged }: Props) {
+  const { currentCompany } = useApp();
+  const company = currentCompany && currentCompany.id === companyId ? currentCompany : null;
+  // An aftersale or second-chance buyer never reaches the Fulfillment board (it lists
+  // paid lots only), so the invoice they need in order to pay is issued from here.
+  const [invoicesFor, setInvoicesFor] = useState<string | null>(null);
+  const [laInvoices, setLaInvoices] = useState<BuyerInvoiceRecord[]>([]);
+  const [houseCharges, setHouseCharges] = useState<HouseCharge[]>([]);
+  const [shippers, setShippers] = useState<Shipper[]>([]);
+
+  const loadBilling = useCallback(() => {
+    listBuyerInvoices(saleId).then(setLaInvoices).catch((e) => console.error('buyer invoices:', e));
+    listHouseCharges(saleId).then(setHouseCharges).catch((e) => console.error('house charges:', e));
+    if (companyId) listShippers(companyId).then(setShippers).catch((e) => console.error('shippers:', e));
+  }, [saleId, companyId]);
+  useEffect(() => { loadBilling(); }, [loadBilling]);
+
+  const carrierLabel = useCallback((value?: string) => {
+    if (!value) return 'Unassigned';
+    if (value === 'pickup') return 'Pickup';
+    if (value === 'store') return 'Store hold';
+    return shippers.find((s) => s.id === value)?.name ?? value;
+  }, [shippers]);
+
   const [busy, setBusy] = useState<string | null>(null);
   const [showInvoiceImport, setShowInvoiceImport] = useState(false);
   const [importResult, setImportResult] = useState<ImportInvoicesResult | null>(null);
@@ -251,6 +281,13 @@ export default function PaymentsPanel({ saleId, companyId, lots, onChanged }: Pr
                         Paid
                       </button>
                       <button
+                        onClick={() => setInvoicesFor(buyerKeyOf(l))}
+                        className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+                        title="Invoice this buyer — what they owe and how to pay"
+                      >
+                        Invoice
+                      </button>
+                      <button
                         onClick={() => { setOfferFor(l); setOfferName(''); setOfferAmount(''); }}
                         className="p-1 text-gray-500 hover:text-blue-600"
                         title="Offer to 2nd bidder"
@@ -317,6 +354,22 @@ export default function PaymentsPanel({ saleId, companyId, lots, onChanged }: Pr
             </ul>
           )}
         </div>
+      )}
+
+      {invoicesFor !== null && (
+        <BuyerInvoices
+          saleId={saleId}
+          saleName={saleName}
+          companyName={company?.name}
+          companyPhone={company?.phone}
+          companyAddress={company?.address}
+          lots={lots}
+          laInvoices={laInvoices}
+          houseCharges={houseCharges}
+          buyerKey={invoicesFor}
+          carrierLabel={carrierLabel}
+          onClose={() => setInvoicesFor(null)}
+        />
       )}
 
       {refundFor && (
