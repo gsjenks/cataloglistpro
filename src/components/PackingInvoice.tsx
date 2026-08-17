@@ -1,6 +1,7 @@
 // src/components/PackingInvoice.tsx
 // Stage 6 — printable packing invoice for one shipment (a buyer's paid lots via a
 // shipper/handoff), with a signature + date/time block to confirm pickup/handoff.
+// Each lot can be ticked "released" as it's handed off (records the handoff).
 
 import { X, Printer } from 'lucide-react';
 import type { Lot, LotBuyer } from '../types';
@@ -12,26 +13,40 @@ interface Props {
   handoffLabel: string;
   lots: Lot[];
   onClose: () => void;
+  onRelease?: (lotIds: string[]) => void;
+  releasing?: boolean;
 }
 
 const money = (n?: number) => (n == null ? '' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
+const handedOff = (l: Lot) => !!l.shipped_at || !!l.delivered_at;
 
 function addressLines(b: LotBuyer): string[] {
   const cityLine = [b.city, b.state, b.zip].filter(Boolean).join(' ');
   return [b.address, cityLine, b.country && b.country !== 'US' ? b.country : ''].filter(Boolean) as string[];
 }
 
-export default function PackingInvoice({ saleName, buyerName, buyer, handoffLabel, lots, onClose }: Props) {
+export default function PackingInvoice({ saleName, buyerName, buyer, handoffLabel, lots, onClose, onRelease, releasing }: Props) {
   const total = lots.reduce((s, l) => s + (l.sold_price ?? 0), 0);
+  const releasedCount = lots.filter(handedOff).length;
+  const pendingIds = lots.filter((l) => !handedOff(l)).map((l) => l.id);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <style>{`@media print { body * { visibility: hidden !important; } #packing-print, #packing-print * { visibility: visible !important; } #packing-print { position: absolute; inset: 0; margin: 0; box-shadow: none; max-height: none; overflow: visible; } .no-print { display: none !important; } }`}</style>
+      <style>{`@media print { body * { visibility: hidden !important; } #packing-print, #packing-print * { visibility: visible !important; } #packing-print { position: absolute; inset: 0; margin: 0; box-shadow: none; max-height: none; overflow: visible; } .no-print { display: none !important; } .print-only { display: inline-block !important; } } .print-only { display: none; }`}</style>
 
       <div id="packing-print" className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between no-print">
           <h3 className="text-lg font-semibold text-gray-900">Packing invoice</h3>
           <div className="flex items-center gap-2">
+            {onRelease && pendingIds.length > 0 && (
+              <button
+                onClick={() => onRelease(pendingIds)}
+                disabled={releasing}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                Mark all released
+              </button>
+            )}
             <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700">
               <Printer className="w-4 h-4" /> Print
             </button>
@@ -66,21 +81,39 @@ export default function PackingInvoice({ saleName, buyerName, buyer, handoffLabe
                   <th className="text-left font-medium px-3 py-2 w-16">Lot</th>
                   <th className="text-left font-medium px-3 py-2">Item</th>
                   <th className="text-right font-medium px-3 py-2 w-28">Price</th>
+                  <th className="text-center font-medium px-3 py-2 w-20">Released</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {lots.map((l) => (
-                  <tr key={l.id}>
-                    <td className="px-3 py-1.5 text-gray-500">{l.lot_number ?? ''}</td>
-                    <td className="px-3 py-1.5">{l.name}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{money(l.sold_price)}</td>
-                  </tr>
-                ))}
+                {lots.map((l) => {
+                  const off = handedOff(l);
+                  return (
+                    <tr key={l.id} className={off ? 'text-gray-400' : undefined}>
+                      <td className="px-3 py-1.5 text-gray-500">{l.lot_number ?? ''}</td>
+                      <td className="px-3 py-1.5">{l.name}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{money(l.sold_price)}</td>
+                      <td className="px-3 py-1.5 text-center">
+                        {onRelease ? (
+                          <input
+                            type="checkbox"
+                            className="no-print w-4 h-4 rounded border-gray-400 accent-green-600"
+                            checked={off}
+                            disabled={off || releasing}
+                            onChange={() => onRelease([l.id])}
+                            aria-label={`Mark lot ${l.lot_number ?? l.name} released`}
+                          />
+                        ) : null}
+                        <span className="print-only w-4 h-4 border border-gray-400 rounded-sm text-center leading-4">{off ? '✓' : ''}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="border-t border-gray-300">
                   <td colSpan={2} className="px-3 py-2 text-right font-medium text-gray-700">{lots.length} item(s) · Total</td>
                   <td className="px-3 py-2 text-right font-bold tabular-nums">{money(total)}</td>
+                  <td className="px-3 py-2 text-center text-xs text-gray-500">{releasedCount}/{lots.length}</td>
                 </tr>
               </tfoot>
             </table>

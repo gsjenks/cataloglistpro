@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auction Training — CatalogListPro</title>
+<style>
+  :root{
+    --bg:#141013; --stage:#1C1519; --stage-2:#241a20; --edge:#3a2a31;
+    --ink:#F3EAE8; --ink-soft:#C8B4B9; --ink-faint:#8f7b81;
+    --accent:#E38A94; --accent-deep:#7A2E39;
+    --serif:Georgia,"Iowan Old Style","Palatino Linotype",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"Cascadia Code","SF Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;}
+  html,body{height:100%;}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    min-height:100vh;padding:2vmin;-webkit-font-smoothing:antialiased;}
+  .stage{width:min(100%,1180px);aspect-ratio:16/9;background:
+    radial-gradient(120% 140% at 15% 0%, var(--stage-2), var(--stage) 60%);
+    border:1px solid var(--edge);border-radius:16px;position:relative;overflow:hidden;
+    display:flex;flex-direction:column;}
+  .bar{height:4px;background:var(--edge);}
+  .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent-deep),var(--accent));
+    transition:width .4s ease;}
+  .slide{flex:1;display:flex;flex-direction:column;justify-content:center;
+    padding:clamp(1.2rem,4.5vmin,3.4rem);gap:clamp(.6rem,1.6vmin,1.2rem);}
+  .kicker{font-family:var(--mono);font-size:clamp(11px,1.5vmin,14px);letter-spacing:.22em;
+    text-transform:uppercase;color:var(--accent);}
+  .title{font-family:var(--serif);font-weight:600;line-height:1.03;text-wrap:balance;
+    font-size:clamp(1.7rem,6.2vmin,3.7rem);letter-spacing:-.01em;}
+  .caps{display:flex;flex-direction:column;gap:.5rem;margin-top:.4rem;}
+  .cap{font-size:clamp(1rem,2.7vmin,1.55rem);color:var(--ink-soft);display:flex;gap:.7rem;align-items:baseline;}
+  .cap::before{content:"";width:.5rem;height:.5rem;border-radius:50%;background:var(--accent);flex:none;transform:translateY(-.2em);}
+  .stagenums{position:absolute;bottom:clamp(.8rem,2.4vmin,1.6rem);left:clamp(1.2rem,4.5vmin,3.4rem);
+    font-family:var(--mono);font-size:clamp(10px,1.4vmin,13px);color:var(--ink-faint);letter-spacing:.1em;}
+  .brand{position:absolute;bottom:clamp(.8rem,2.4vmin,1.6rem);right:clamp(1.2rem,4.5vmin,3.4rem);
+    font-family:var(--mono);font-size:clamp(10px,1.4vmin,13px);color:var(--ink-faint);letter-spacing:.14em;text-transform:uppercase;}
+
+  /* Cover */
+  .cover{position:absolute;inset:0;background:rgba(16,11,14,.86);backdrop-filter:blur(2px);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2rem;text-align:center;padding:2rem;z-index:5;}
+  .cover h1{font-family:var(--serif);font-weight:600;font-size:clamp(1.8rem,6vmin,3.2rem);}
+  .cover p{color:var(--ink-soft);max-width:46ch;font-size:clamp(.95rem,2.2vmin,1.15rem);}
+  .play{font-family:var(--sans);font-size:1.05rem;font-weight:600;color:#fff;
+    background:var(--accent-deep);border:none;border-radius:999px;padding:.85rem 2.2rem;cursor:pointer;
+    display:inline-flex;gap:.6rem;align-items:center;}
+  .play:hover{filter:brightness(1.08);}
+  .cover small{color:var(--ink-faint);font-family:var(--mono);font-size:12px;}
+
+  .controls{width:min(100%,1180px);margin-top:1rem;display:flex;flex-wrap:wrap;gap:.6rem;
+    align-items:center;justify-content:center;}
+  .controls button{font-family:var(--sans);font-size:.9rem;color:var(--ink);background:var(--stage);
+    border:1px solid var(--edge);border-radius:999px;padding:.5rem 1.05rem;cursor:pointer;
+    display:inline-flex;gap:.45rem;align-items:center;}
+  .controls button:hover{border-color:var(--accent);color:var(--accent);}
+  .controls .primary{background:var(--accent-deep);color:#fff;border-color:transparent;}
+  .controls .primary:hover{color:#fff;filter:brightness(1.08);}
+  .controls .spacer{flex:1;}
+  .count{font-family:var(--mono);font-size:.82rem;color:var(--ink-faint);min-width:5ch;text-align:center;}
+  .hint{width:min(100%,1180px);margin-top:.6rem;text-align:center;color:var(--ink-faint);
+    font-family:var(--mono);font-size:11px;letter-spacing:.03em;}
+  @media (prefers-reduced-motion:reduce){.bar > i{transition:none;}}
+</style>
+</head>
+<body>
+  <div class="stage" id="stage">
+    <div class="bar"><i id="bar"></i></div>
+    <div class="slide" id="slide" aria-live="polite"></div>
+    <div class="stagenums" id="nums"></div>
+    <div class="brand">CatalogListPro · Auction</div>
+    <div class="cover" id="cover">
+      <h1>Running a LiveAuctioneers Auction</h1>
+      <p>A narrated walkthrough — the app reads each scene aloud and advances on its own.
+        Turn your sound on.</p>
+      <button class="play" id="startBtn">▶ Play training</button>
+      <small>Best in Chrome or Edge · press F for full screen · to make an MP4, screen-record this playing</small>
+    </div>
+  </div>
+
+  <div class="controls" aria-label="Playback controls">
+    <button id="prevBtn" title="Previous (←)">◀ Prev</button>
+    <button id="playBtn" class="primary" title="Play / pause (space)">▶ Play</button>
+    <button id="nextBtn" title="Next (→)">Next ▶</button>
+    <span class="count" id="count">— / —</span>
+    <span class="spacer"></span>
+    <button id="restartBtn" title="Restart">↺ Restart</button>
+    <button id="fsBtn" title="Full screen (F)">⛶ Full screen</button>
+  </div>
+  <div class="hint" id="hint">Narration uses your browser's built-in voice. If you hear nothing, it will still auto-advance by reading time.</div>
+
+<script>
+(function(){
+  var SCENES = [
+    { k:"CatalogListPro", t:"Running a LiveAuctioneers Auction, start to finish",
+      c:["The bidding happens on LiveAuctioneers","Everything around it happens in this app"],
+      n:"This is how you run a consignment auction through LiveAuctioneers in CatalogListPro. The bidding happens on LiveAuctioneers. Everything around it, from intake to payouts, happens right here. Let's walk the whole sale." },
+    { k:"Scene 1 · The map", t:"Eight stages, one banner",
+      c:["Intake → Setup → Listed → Live","Settlement → Fulfillment → Reconciliation → Closed","The tabs are your worklists"],
+      n:"Every sale moves through eight stages, shown in a banner at the top. It gates each step until the required items are done, and you can override with a reason if you need to. The tabs across the sale, Setup, Items, Payments, Fulfillment, Unsold, Reconciliation, are where each stage's work lives, and the badge counts are your to-do lists." },
+    { k:"Scene 2 · Intake", t:"Log the consignor and their terms",
+      c:["Upload the contract → Contract on file","Commission · buyer's premium · fees"],
+      n:"First, intake. Add the consignor, upload their signed agreement and mark it as a contract. The sale now shows Contract on file. Then, under Consignments, record their terms: commission, buyer's premium, and any fees. Get these right now and the payout math at the end just adds up." },
+    { k:"Scene 3 · Cataloging", t:"Build each lot",
+      c:["Lot numbers fill in automatically","Set the primary photo","AI enrich drafts a description — then edit"],
+      n:"Now build your lots. Each new lot gets the next number automatically. Add photos and set the primary; that becomes image one in the export. Fill in the title, description, and estimate. Short on time? A I enrich drafts a description, category, and keywords from the lead photo. Always give it a quick edit before you trust it. Do this for every lot." },
+    { k:"Scene 4 · Export", t:"Export the catalog to LiveAuctioneers",
+      c:["Reports & Tools → LiveAuctioneers Export","CSV, or CSV plus a photos ZIP","You upload the files to LA yourself"],
+      n:"When the catalog is ready, go to Reports and Tools, LiveAuctioneers Export. Pick CSV, or CSV plus a photos ZIP with everything named the way L A expects. The check flags any lot missing a title, description, or estimate. Fix those first. Download the files, then upload them to LiveAuctioneers yourself. There's no automatic link. The app builds the files, you do the upload." },
+    { k:"Scene 5 · Live on LA", t:"The auction runs on LiveAuctioneers",
+      c:["Nothing to do here during bidding","Come back with LA's result files"],
+      n:"The auction goes live on LiveAuctioneers. While bidding happens, there's nothing to do in the app. When the sale closes, LiveAuctioneers gives you the results, an end of auction file and buyer invoices. That's what we bring back." },
+    { k:"Scene 6 · Import results", t:"Bring the results back in",
+      c:["Dashboard → EOA Import → LA's XML","Creates the sale, buyers, and unpaid lots","A 72-hour payment clock starts"],
+      n:"Back in the app, use E O A Import from the dashboard and load LA's results X M L. It builds the sale, the consignor, and every sold lot, each marked unpaid with a payment clock started, usually seventy-two hours. There's also an Excel path that just updates prices, but the X M L import is the one that sets up payments, so use it." },
+    { k:"Scene 7 · Buyer invoices", t:"Import LA's buyer invoices",
+      c:["Payments tab → import buyer invoices","Real tax, shipping, and fees, from LA","Marks lots paid where the balance is zero"],
+      n:"Next, import LiveAuctioneers' buyer invoices. On the Payments tab, load the invoice P D F from LA's partner site. The app reads each buyer's lots, tax, shipping, and fees, matches them to your sale, and can mark lots paid where LA shows a zero balance. This is your source of truth for tax and shipping." },
+    { k:"Scene 8 · Payments", t:"Work the 72-hour clock",
+      c:["Paid · 2nd bidder · Default · Refund","Invoice → builds a PDF → Email opens Gmail","Attach the saved PDF and send"],
+      n:"The Payments tab shows every unpaid lot and how overdue it is. Mark them paid as money comes in. If someone doesn't pay, offer the lot to the second bidder or default it. To bill a buyer, hit Invoice. The app builds a P D F with hammer, premium, tax, and shipping, then Email opens a pre-filled Gmail message. Attach the saved P D F and send." },
+    { k:"Scene 9 · Fulfillment", t:"Ship the goods",
+      c:["Fulfillment tab — one shipment per buyer","Assign a shipper → tracking → shipped","Print labels, packing lists, manifests"],
+      n:"Now ship. The Fulfillment tab groups paid lots by buyer. Assign each buyer a shipper, or mark it pickup or store hold. Add tracking and mark it shipped, then delivered. Print what you need: Avery labels, a master packing list, and a one-page manifest each shipper signs when they take their load." },
+    { k:"Scene 10 · Reconciliation", t:"Settle up",
+      c:["House revenue vs. money held for others","Pay each consignor → record it","Export the accounting CSV"],
+      n:"Finally, settle up. The Reconciliation tab shows the whole picture: hammer, premium, commission, fees, and what's house revenue versus money you're holding for others, like tax. Work down the consignor payout list, record each payment with a reference, print their statement, and export the accounting C S V for your bookkeeper." },
+    { k:"Scene 11 · Close", t:"Unsold, close, and wrap",
+      c:["Unsold → aftersale, return, or dispose","Advance the sale to Closed","Keep the CSV and statements as the record"],
+      n:"Anything that didn't sell lives on the Unsold tab: sell it after the fact, return it, or dispose of it. Once buyers are paid, everything's shipped, and consignors are settled, advance the sale to Closed. Keep your accounting C S V and statements as the record. That's a full auction, intake to closed. Thanks for watching." }
+  ];
+
+  var i = 0, playing = false, timer = null;
+  var slide = document.getElementById('slide');
+  var bar = document.getElementById('bar');
+  var nums = document.getElementById('nums');
+  var count = document.getElementById('count');
+  var cover = document.getElementById('cover');
+  var playBtn = document.getElementById('playBtn');
+  var hasTTS = 'speechSynthesis' in window;
+
+  function render(){
+    var s = SCENES[i];
+    slide.innerHTML = '<div class="kicker">'+s.k+'</div><div class="title">'+s.t+'</div>'+
+      '<div class="caps">'+s.c.map(function(x){return '<div class="cap">'+x+'</div>';}).join('')+'</div>';
+    nums.textContent = String(i+1).padStart(2,'0')+' / '+String(SCENES.length).padStart(2,'0');
+    count.textContent = (i+1)+' / '+SCENES.length;
+    bar.style.width = ((i)/(SCENES.length-1)*100)+'%';
+  }
+  function estMs(text){ return Math.max(3500, Math.round(text.split(/\s+/).length/165*60000) + 800); }
+  function clearTimers(){ if(timer){clearTimeout(timer); timer=null;} if(hasTTS){ try{speechSynthesis.cancel();}catch(e){} } }
+
+  function speakAndAdvance(){
+    clearTimers();
+    var s = SCENES[i];
+    var advanced = false;
+    function go(){ if(advanced) return; advanced = true; if(!playing) return;
+      if(i < SCENES.length-1){ i++; render(); speakAndAdvance(); } else { stop(); } }
+    if(hasTTS){
+      try{
+        var u = new SpeechSynthesisUtterance(s.n);
+        u.rate = 1; u.pitch = 1;
+        u.onend = go;
+        u.onerror = function(){ if(!advanced){ timer = setTimeout(go, 400); } };
+        speechSynthesis.speak(u);
+        // safety net in case onend never fires
+        timer = setTimeout(function(){ if(!advanced){ go(); } }, estMs(s.n)+4000);
+      }catch(e){ timer = setTimeout(go, estMs(s.n)); }
+    } else {
+      timer = setTimeout(go, estMs(s.n));
+    }
+  }
+  function play(){ if(playing) return; playing = true; cover.style.display='none';
+    playBtn.textContent='❚❚ Pause'; if(hasTTS && speechSynthesis.paused){ speechSynthesis.resume(); } else { speakAndAdvance(); } }
+  function pause(){ playing = false; playBtn.textContent='▶ Play';
+    if(hasTTS){ try{ speechSynthesis.pause(); }catch(e){} } if(timer){ clearTimeout(timer); timer=null; } }
+  function stop(){ playing=false; playBtn.textContent='▶ Play'; clearTimers(); bar.style.width='100%'; }
+  function goto(n){ i = Math.max(0, Math.min(SCENES.length-1, n)); render(); if(playing){ speakAndAdvance(); } }
+
+  document.getElementById('startBtn').onclick = function(){ i=0; render(); play(); };
+  playBtn.onclick = function(){ if(cover.style.display!=='none'){ i=0; render(); play(); return; } playing ? pause() : play(); };
+  document.getElementById('nextBtn').onclick = function(){ goto(i+1); };
+  document.getElementById('prevBtn').onclick = function(){ goto(i-1); };
+  document.getElementById('restartBtn').onclick = function(){ clearTimers(); playing=false; i=0; render(); cover.style.display='flex'; playBtn.textContent='▶ Play'; bar.style.width='0%'; };
+  document.getElementById('fsBtn').onclick = function(){ var el=document.getElementById('stage');
+    if(!document.fullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen||function(){}).call(el); }
+    else { (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document); } };
+
+  document.addEventListener('keydown', function(e){
+    if(e.key===' '){ e.preventDefault(); playBtn.click(); }
+    else if(e.key==='ArrowRight'){ goto(i+1); }
+    else if(e.key==='ArrowLeft'){ goto(i-1); }
+    else if(e.key==='f'||e.key==='F'){ document.getElementById('fsBtn').click(); }
+  });
+
+  if(!hasTTS){ document.getElementById('hint').textContent='Your browser has no speech voice, so this plays as a silent captioned slideshow that advances by reading time.'; }
+  render();
+})();
+</script>
+</body>
+</html>

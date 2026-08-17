@@ -23,6 +23,8 @@ interface Props {
   email?: string;
   shipments: ManifestShipment[];
   onClose: () => void;
+  onRelease?: (lotIds: string[]) => void;
+  releasing?: boolean;
 }
 
 const money = (n?: number) => (n == null ? '' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
@@ -35,11 +37,12 @@ function destination(b: LotBuyer): string {
 }
 
 export default function ShipperManifest({
-  saleName, shipperLabel, shipperKind, phone, email, shipments, onClose,
+  saleName, shipperLabel, shipperKind, phone, email, shipments, onClose, onRelease, releasing,
 }: Props) {
   // Default to what is actually being handed over now; anything already shipped or
   // delivered is history and shouldn't be on a sheet someone signs for today.
   const [pendingOnly, setPendingOnly] = useState(true);
+  const [confirmAll, setConfirmAll] = useState(false);
 
   const rows = useMemo(
     () =>
@@ -52,6 +55,7 @@ export default function ShipperManifest({
 
   const lotCount = rows.reduce((n, s) => n + s.lots.length, 0);
   const total = rows.reduce((n, s) => n + s.lots.reduce((m, l) => m + (l.sold_price ?? 0), 0), 0);
+  const pendingIds = rows.flatMap((s) => s.lots).filter((l) => !handedOff(l)).map((l) => l.id);
   const printedAt = new Date().toLocaleString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
   });
@@ -66,7 +70,9 @@ export default function ShipperManifest({
         .shipment-block { break-inside: avoid; page-break-inside: avoid; }
         .sign-block { break-inside: avoid; page-break-inside: avoid; }
         thead { display: table-header-group; }
-      }`}</style>
+        .print-only { display: inline-block !important; }
+      }
+      .print-only { display: none; }`}</style>
 
       <div id="manifest-print" className="bg-white rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between gap-3 no-print">
@@ -81,6 +87,15 @@ export default function ShipperManifest({
               />
               Not yet handed off only
             </label>
+            {onRelease && pendingIds.length > 0 && (
+              <button
+                onClick={() => setConfirmAll(true)}
+                disabled={releasing}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                Mark all handed off
+              </button>
+            )}
             <button
               onClick={() => window.print()}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700"
@@ -90,6 +105,31 @@ export default function ShipperManifest({
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
           </div>
         </div>
+
+        {/* Confirm the whole-group handoff. */}
+        {confirmAll && (
+          <div className="no-print bg-amber-50 border-b border-amber-200 px-6 py-4">
+            <p className="text-sm text-amber-900">
+              Choosing this option will confirm all {pendingIds.length} lot(s) have been handed off
+              to buyers for this group.
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => { onRelease?.(pendingIds); setConfirmAll(false); }}
+                disabled={releasing}
+                className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {releasing ? 'Marking…' : 'Yes, mark all handed off'}
+              </button>
+              <button
+                onClick={() => setConfirmAll(false)}
+                className="px-3 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="p-6 space-y-5 text-sm text-gray-800">
           <div className="flex items-start justify-between gap-4">
@@ -149,16 +189,29 @@ export default function ShipperManifest({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
-                        {s.lots.map((l) => (
-                          <tr key={l.id}>
-                            <td className="px-3 py-1.5 text-gray-500">{l.lot_number ?? ''}</td>
-                            <td className="px-3 py-1.5">{l.name}</td>
-                            <td className="px-3 py-1.5 text-right tabular-nums">{money(l.sold_price)}</td>
-                            <td className="px-3 py-1.5">
-                              <div className="mx-auto w-4 h-4 border border-gray-400 rounded-sm" />
-                            </td>
-                          </tr>
-                        ))}
+                        {s.lots.map((l) => {
+                          const off = handedOff(l);
+                          return (
+                            <tr key={l.id} className={off ? 'text-gray-400' : undefined}>
+                              <td className="px-3 py-1.5 text-gray-500">{l.lot_number ?? ''}</td>
+                              <td className="px-3 py-1.5">{l.name}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums">{money(l.sold_price)}</td>
+                              <td className="px-3 py-1.5 text-center">
+                                {onRelease ? (
+                                  <input
+                                    type="checkbox"
+                                    className="no-print w-4 h-4 rounded border-gray-400 accent-green-600"
+                                    checked={off}
+                                    disabled={off || releasing}
+                                    onChange={() => onRelease([l.id])}
+                                    aria-label={`Mark lot ${l.lot_number ?? l.name} handed off`}
+                                  />
+                                ) : null}
+                                <span className="print-only w-4 h-4 border border-gray-400 rounded-sm text-center leading-4">{off ? '✓' : ''}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

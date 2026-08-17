@@ -220,6 +220,16 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
 
   const ids = (g: Group) => g.lots.map((l) => l.id);
 
+  // Record a physical release / handoff of specific lots (ticked on a slip or the
+  // manifest). Pickup-kind handoffs mark picked up; everything else marks delivered.
+  // Both land the lot as "handed off".
+  const releaseLots = (lotIds: string[], pickup: boolean) => {
+    if (!lotIds.length) return;
+    return run(`release:${lotIds[0]}:${lotIds.length}`, () =>
+      pickup ? markPickedUp(lotIds) : markDelivered(lotIds));
+  };
+  const releasing = !!busy && busy.startsWith('release:');
+
   const submitShip = () => {
     if (!shipFor) return;
     run(`ship:${shipFor.key}`, () => shipLots(ids(shipFor), tracking)).then(() => { setShipFor(null); setTracking(''); });
@@ -614,20 +624,28 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
           phone={resolve(manifestFor)?.phone}
           email={resolve(manifestFor)?.email}
           shipments={groups.filter((g) => g.carrier === manifestFor)}
+          releasing={releasing}
+          onRelease={(lotIds) => releaseLots(lotIds, !(resolve(manifestFor)?.ships ?? true))}
           onClose={() => setManifestFor(null)}
         />
       )}
 
-      {invoiceFor && (
-        <PackingInvoice
-          saleName={saleName}
-          buyerName={invoiceFor.name}
-          buyer={invoiceFor.buyer}
-          handoffLabel={resolve(invoiceFor.carrier)?.label ?? 'Unassigned'}
-          lots={invoiceFor.lots}
-          onClose={() => setInvoiceFor(null)}
-        />
-      )}
+      {invoiceFor && (() => {
+        // Use the freshly-derived group so released ticks reflect immediately.
+        const g = groups.find((x) => x.key === invoiceFor.key) ?? invoiceFor;
+        return (
+          <PackingInvoice
+            saleName={saleName}
+            buyerName={g.name}
+            buyer={g.buyer}
+            handoffLabel={resolve(g.carrier)?.label ?? 'Unassigned'}
+            lots={g.lots}
+            releasing={releasing}
+            onRelease={(lotIds) => releaseLots(lotIds, !(resolve(g.carrier)?.ships ?? true))}
+            onClose={() => setInvoiceFor(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
