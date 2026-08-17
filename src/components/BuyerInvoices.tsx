@@ -183,6 +183,7 @@ export default function BuyerInvoices({
   // a mailto: link will reliably carry.
   const single = buyerKey && invoices.length === 1 ? invoices[0] : null;
   const [copied, setCopied] = useState(false);
+  const [drafted, setDrafted] = useState(false);
 
   const invoiceText = (inv: BuyerInvoice): string => {
     const la = laFor(inv);
@@ -223,10 +224,28 @@ export default function BuyerInvoices({
     return L.join('\n');
   };
 
-  const mailtoFor = (inv: BuyerInvoice): string => {
-    const subject = `${companyName || 'Auction'} invoice — ${saleName}`;
-    return `mailto:${encodeURIComponent(inv.buyer.email ?? '')}`
-      + `?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(invoiceText(inv))}`;
+  const subjectFor = () => `${companyName || 'Auction'} invoice — ${saleName}`;
+
+  // Gmail's compose window, opened in the browser where the house is already signed
+  // in. A mailto: link hands off to whatever the OS treats as the default mail app,
+  // which for a webmail user is usually the wrong one — or nothing at all.
+  const gmailComposeUrl = (inv: BuyerInvoice): string =>
+    'https://mail.google.com/mail/?view=cm&fs=1'
+    + `&to=${encodeURIComponent(inv.buyer.email ?? '')}`
+    + `&su=${encodeURIComponent(subjectFor())}`
+    + `&body=${encodeURIComponent(`Your invoice is attached.\n\n${invoiceText(inv)}`)}`;
+
+  // No browser lets a page attach a file to a compose window, so the PDF is saved
+  // first and the draft opens beside it, ready to attach.
+  const emailInvoice = async (inv: BuyerInvoice) => {
+    if (!inv.buyer.email) {
+      alert('No email address on file for this buyer — add one from the Fulfillment tab, or use Copy and send it yourself.');
+      return;
+    }
+    await savePdf(inv);
+    window.open(gmailComposeUrl(inv), '_blank', 'noopener');
+    setDrafted(true);
+    setTimeout(() => setDrafted(false), 6000);
   };
 
   // The PDF is drawn from the same figures as the screen — dueOf() decides the total
@@ -354,18 +373,19 @@ export default function BuyerInvoices({
                 >
                   <Copy className="w-4 h-4" /> {copied ? 'Copied' : 'Copy'}
                 </button>
-                <a
-                  href={single.buyer.email ? mailtoFor(single) : undefined}
-                  onClick={(e) => { if (!single.buyer.email) { e.preventDefault(); alert('No email address on file for this buyer — add one from the Fulfillment tab, or copy the text and send it yourself.'); } }}
+                <button
+                  onClick={() => emailInvoice(single)}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md border ${
                     single.buyer.email
                       ? 'border-gray-300 text-gray-700 hover:bg-gray-50'
                       : 'border-gray-200 text-gray-400'
                   }`}
-                  title={single.buyer.email ? `Draft an email to ${single.buyer.email}` : 'No email on file for this buyer'}
+                  title={single.buyer.email
+                    ? `Save the PDF and open a Gmail draft to ${single.buyer.email}`
+                    : 'No email on file for this buyer'}
                 >
-                  <Mail className="w-4 h-4" /> Email
-                </a>
+                  <Mail className="w-4 h-4" /> {drafted ? 'Attach the PDF' : 'Email'}
+                </button>
               </>
             )}
             <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700">
