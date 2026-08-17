@@ -205,6 +205,30 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
 
   const addLot = async (lot: Lot) => {
     if (cartLotIds.has(lot.id)) return;
+
+    // Respect a live hold in another customer's basket. Check the DB fresh (the
+    // in-memory lot can be stale) so we never silently steal a held item —
+    // overriding requires a deliberate staff confirmation with a warning.
+    const { data: cur } = await supabase
+      .from('lots')
+      .select('inventory_status, held_by, held_until')
+      .eq('id', lot.id)
+      .maybeSingle();
+    const c = cur as { inventory_status: string | null; held_by: string | null; held_until: string | null } | null;
+    const heldLive = !!c && c.inventory_status === 'held' && !!c.held_until && new Date(c.held_until).getTime() > Date.now();
+    if (heldLive && c!.held_by && c!.held_by !== buyerBasketIdRef.current) {
+      let who = 'another customer';
+      const { data: h } = await supabase.from('shoppers').select('name').eq('id', c!.held_by).maybeSingle();
+      if ((h as { name?: string } | null)?.name) who = (h as { name: string }).name;
+      const mins = Math.max(0, Math.floor((new Date(c!.held_until as string).getTime() - Date.now()) / 60000));
+      const ok = window.confirm(
+        `⚠ Override hold\n\n` +
+        `#${lot.lot_number ?? '—'} ${lot.name} is held in ${who}'s basket (${mins}m left).\n\n` +
+        `Adding it here removes it from their basket. Override the hold?`,
+      );
+      if (!ok) return;
+    }
+
     setCart((prev) => [
       ...prev,
       {

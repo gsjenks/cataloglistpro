@@ -408,6 +408,25 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     await load(); setBusy(false); onChanged?.();
   };
 
+  // Add/hold an item into the open basket. A live hold in ANOTHER shopper's
+  // basket must stand until it expires — taking it requires a deliberate staff
+  // override, with a warning naming whose hold is being broken.
+  const addOrOverrideHold = async (l: LotRow) => {
+    if (!selected) return;
+    if (isHeld(l) && l.held_by && l.held_by !== selected.id) {
+      const left = l.held_until ? ` (${countdown(new Date(l.held_until).getTime(), now)})` : '';
+      const ok = window.confirm(
+        `⚠ Override hold\n\n` +
+        `#${l.lot_number ?? '—'} ${l.name} is currently held in ${holderLabel(l)}'s basket${left}.\n\n` +
+        `Taking it removes it from their basket and holds it for ${selected.name} instead.\n\n` +
+        `Override the hold?`,
+      );
+      if (!ok) return;
+    }
+    await staffHold(l.id, selected.id);
+    searchAddable(addSearch);
+  };
+
   // Floor: edit a basket item's name / price in place (e.g. re-price on the
   // spot, fix a label). Writes straight to the lot.
   const saveLotEdit = async () => {
@@ -1019,18 +1038,21 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                 </p>
                 <ul className="border border-gray-200 rounded-md bg-white max-h-56 overflow-auto">
                   {addResults.map((l) => {
-                    const heldElsewhere = isHeld(l);
+                    const heldElsewhere = isHeld(l) && l.held_by !== selected.id;
+                    const left = heldElsewhere && l.held_until ? countdown(new Date(l.held_until).getTime(), now) : '';
                     return (
                       <li key={l.id}>
                         <button
-                          onClick={async () => { await staffHold(l.id, selected.id); searchAddable(addSearch); }}
+                          onClick={() => addOrOverrideHold(l)}
                           disabled={busy}
-                          className="w-full flex items-center justify-between px-3 py-2 text-sm text-left hover:bg-gray-50"
+                          className={`w-full flex items-center justify-between px-3 py-2 text-sm text-left ${heldElsewhere ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-gray-50'}`}
                         >
                           <span className="truncate pr-2">
                             #{l.lot_number ?? '—'} {l.name}
                             {heldElsewhere && (
-                              <span className="text-xs text-amber-600"> · held by {holderLabel(l)}</span>
+                              <span className="block text-xs text-amber-700">
+                                🔒 Held by {holderLabel(l)}{left ? ` · ${left}` : ''} — tap to override
+                              </span>
                             )}
                           </span>
                           <span className="text-gray-500 whitespace-nowrap">{money(l.starting_bid)}</span>
