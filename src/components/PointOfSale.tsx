@@ -18,6 +18,7 @@ import {
   emptyDelivery,
   SHOPPER_DELIVERY_COLS,
 } from '../lib/delivery';
+import { renewBasketHolds } from '../lib/holds';
 import QRScanner from './QRScanner';
 
 const STAFF_HOLD_MS = 30 * 60 * 1000;
@@ -297,6 +298,8 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       if (error || !data?.length) {
         setError(`Couldn't hold "${lot.name}" to the customer — try again.`);
       }
+      // Adding an item is basket activity — reset the whole basket's timer.
+      await renewBasketHolds(supabase, saleId, cid);
     }
   };
 
@@ -327,6 +330,8 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       setError('Could not create item: ' + (error?.message ?? ''));
       return;
     }
+    // Basket activity — reset the whole basket's timer, including this new item.
+    if (cid) await renewBasketHolds(supabase, saleId, cid);
     setCart((prev) => [
       ...prev,
       {

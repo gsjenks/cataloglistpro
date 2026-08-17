@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { X, Search, Trash2, Plus, User, ScanLine, Pencil, ShoppingCart } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
-import { reclaimExpiredHolds } from '../lib/holds';
+import { reclaimExpiredHolds, renewBasketHolds } from '../lib/holds';
 import {
   type DeliveryDetails,
   emptyDelivery,
@@ -403,6 +403,8 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
       inventory_status: 'held', held_by: shopperId,
       held_until: new Date(Date.now() + HOLD_MS).toISOString(), updated_at: new Date().toISOString(),
     }).eq('id', lotId);
+    // Adding an item is basket activity — reset the timer on the whole basket.
+    await renewBasketHolds(supabase, saleId, shopperId);
     await load(); setBusy(false); onChanged?.();
   };
   const staffRelease = async (lotId: string) => {
@@ -650,6 +652,8 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
         /* photo is optional */
       }
     }
+    // Basket activity — reset the timer on the whole basket, including this item.
+    await renewBasketHolds(supabase, saleId, selected.id);
     setBusy(false);
     setNewItem({ name: '', price: '' });
     setNewItemPhoto(null);

@@ -6,6 +6,37 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const HOLD_MINUTES = 30;
+export const HOLD_MS = HOLD_MINUTES * 60 * 1000;
+
+/**
+ * Renew EVERY live hold in a basket to a fresh timer. Called on any basket
+ * activity (adding an item) so a shopper's whole basket resets together — one
+ * item shouldn't expire while they're still actively adding others. Best-effort;
+ * only touches lots currently held by this basket in this sale (staff client,
+ * which can write lots). Returns the number of holds renewed.
+ */
+export async function renewBasketHolds(
+  client: SupabaseClient,
+  saleId: string,
+  basketId: string | null | undefined,
+): Promise<number> {
+  if (!saleId || !basketId) return 0;
+  try {
+    const { data } = await client
+      .from('lots')
+      .update({
+        held_until: new Date(Date.now() + HOLD_MS).toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('sale_id', saleId)
+      .eq('held_by', basketId)
+      .eq('inventory_status', 'held')
+      .select('id');
+    return data?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
 
 export type HoldError =
   | 'not_found'
