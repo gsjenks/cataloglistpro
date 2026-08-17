@@ -22,20 +22,42 @@ export default function SalesList({ sales, onRefresh, salesWithContract }: Sales
   const handleDelete = async (sale: Sale) => {
     if (
       !confirm(
-        `Delete sale "${sale.name}"? This will also delete all lots, contacts, and documents associated with this sale.`,
+        `Delete sale "${sale.name}"? This permanently removes all of its lots, photos, contacts, documents, and records. This cannot be undone.`,
       )
     ) {
       return;
     }
 
     try {
-      const { error } = await supabase.from("sales").delete().eq("id", sale.id);
+      // Remove the actual image/document FILES from storage first — the rows are
+      // gone once delete_sale runs, so gather their paths now. Best-effort.
+      try {
+        const { data: lotRows } = await supabase.from("lots").select("id").eq("sale_id", sale.id);
+        const lotIds = ((lotRows ?? []) as { id: string }[]).map((l) => l.id);
+        if (lotIds.length) {
+          const { data: photoRows } = await supabase.from("photos").select("file_path").in("lot_id", lotIds);
+          const paths = ((photoRows ?? []) as { file_path: string | null }[])
+            .map((p) => p.file_path)
+            .filter((p): p is string => !!p);
+          if (paths.length) await supabase.storage.from("photos").remove(paths);
+        }
+        const { data: docRows } = await supabase.from("documents").select("file_path").eq("sale_id", sale.id);
+        const docPaths = ((docRows ?? []) as { file_path: string | null }[])
+          .map((d) => d.file_path)
+          .filter((p): p is string => !!p);
+        if (docPaths.length) await supabase.storage.from("documents").remove(docPaths);
+      } catch (storageErr) {
+        console.warn("Storage cleanup during sale delete (non-fatal):", storageErr);
+      }
 
+      // Remove every child row + the sale itself, in order, so nothing is orphaned.
+      const { error } = await supabase.rpc("delete_sale", { p_sale_id: sale.id });
       if (error) throw error;
       onRefresh();
     } catch (error) {
       console.error("Error deleting sale:", error);
-      alert("Failed to delete sale");
+      const msg = error instanceof Error ? error.message : (error as { message?: string })?.message ?? "Unknown error";
+      alert("Failed to delete sale: " + msg);
     }
   };
 
