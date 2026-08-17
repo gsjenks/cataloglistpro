@@ -104,6 +104,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   const [pickerExpanded, setPickerExpanded] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerResults, setPickerResults] = useState<Lot[]>([]);
+  const [newLotName, setNewLotName] = useState('');
   const [newLotPrice, setNewLotPrice] = useState('');
   const [newLotDelivery, setNewLotDelivery] = useState(false);
   const [creatingItem, setCreatingItem] = useState(false);
@@ -339,6 +340,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     if (forDelivery) setDeliveryConfirmed(false);
     setError(null);
     setPickerSearch('');
+    setNewLotName('');
     setNewLotPrice('');
     setNewLotDelivery(false);
   };
@@ -972,45 +974,54 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             </>
           )}
 
-          {/* Create a missing / uncatalogued item on the spot */}
-          {pickerSearch.trim() && (
-            <div className="mt-2 pt-2 border-t border-gray-100">
-              <p className="text-xs text-gray-500 mb-1.5">
-                Not in the sale? Add “{pickerSearch.trim()}” as a new item:
-              </p>
-              <div className="flex gap-2">
-                <div className="relative w-28 shrink-0">
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={newLotPrice}
-                    onChange={(e) => setNewLotPrice(e.target.value)}
-                    placeholder="Price"
-                    className="w-full pl-5 pr-2 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-                  />
-                </div>
-                <button
-                  onClick={() => createAndAddItem(pickerSearch, newLotPrice, newLotDelivery)}
-                  disabled={creatingItem}
-                  className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300"
-                >
-                  <Plus className="w-4 h-4" /> {creatingItem ? 'Adding…' : 'Add new item'}
-                </button>
-              </div>
-              <label className="mt-1.5 inline-flex items-center gap-2 cursor-pointer select-none">
+          {/* Create a brand-new item (not a catalogued lot) on the spot */}
+          {(() => {
+            const itemName = (newLotName.trim() || pickerSearch.trim());
+            return (
+              <div className="mt-2 pt-2 border-t border-gray-100">
+                <p className="text-xs font-medium text-gray-600 mb-1.5">
+                  Add a new item (not in the sale)
+                </p>
                 <input
-                  type="checkbox"
-                  checked={newLotDelivery}
-                  onChange={(e) => setNewLotDelivery(e.target.checked)}
-                  className="w-4 h-4 accent-amber-500"
+                  value={newLotName}
+                  onChange={(e) => setNewLotName(e.target.value)}
+                  placeholder={pickerSearch.trim() ? `Item name (e.g. “${pickerSearch.trim()}”)` : 'Item name'}
+                  className="w-full mb-2 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
                 />
-                <span className={`text-xs font-medium ${newLotDelivery ? 'text-amber-700' : 'text-gray-500'}`}>
-                  For delivery
-                </span>
-              </label>
-            </div>
-          )}
+                <div className="flex gap-2">
+                  <div className="relative w-28 shrink-0">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={newLotPrice}
+                      onChange={(e) => setNewLotPrice(e.target.value)}
+                      placeholder="Price"
+                      className="w-full pl-5 pr-2 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                    />
+                  </div>
+                  <button
+                    onClick={() => createAndAddItem(itemName, newLotPrice, newLotDelivery)}
+                    disabled={creatingItem || !itemName}
+                    className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300"
+                  >
+                    <Plus className="w-4 h-4" /> {creatingItem ? 'Adding…' : 'Add new item'}
+                  </button>
+                </div>
+                <label className="mt-1.5 inline-flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={newLotDelivery}
+                    onChange={(e) => setNewLotDelivery(e.target.checked)}
+                    className="w-4 h-4 accent-amber-500"
+                  />
+                  <span className={`text-xs font-medium ${newLotDelivery ? 'text-amber-700' : 'text-gray-500'}`}>
+                    For delivery
+                  </span>
+                </label>
+              </div>
+            );
+          })()}
         </div>
       )}
 
