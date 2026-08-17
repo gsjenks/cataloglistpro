@@ -21,6 +21,7 @@ interface Props {
   contacts: Contact[];
   lots: Lot[];
   saleName: string;
+  saleType?: 'estate_sale' | 'auction' | 'social';
   onChanged: () => void;
 }
 
@@ -51,7 +52,8 @@ const num = (s: string): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-export default function ConsignmentsManager({ saleId, companyId, consignments, contacts, lots, saleName, onChanged }: Props) {
+export default function ConsignmentsManager({ saleId, companyId, consignments, contacts, lots, saleName, saleType, onChanged }: Props) {
+  const isEstate = saleType === 'estate_sale';
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Consignment | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -194,7 +196,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                 </div>
                 <div className="text-xs text-gray-500 flex flex-wrap gap-x-3">
                   {c.commission_rate != null && <span>Commission {c.commission_rate}%</span>}
-                  {c.buyers_premium_rate != null && <span>BP {c.buyers_premium_rate}%</span>}
+                  {!isEstate && c.buyers_premium_rate != null && <span>BP {c.buyers_premium_rate}%</span>}
                   <span>Reserve: {c.reserve_policy ?? 'none'}</span>
                   {c.lead_source && <span>Source: {c.lead_source}</span>}
                 </div>
@@ -266,14 +268,16 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                     className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="e.g. 20"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Buyer's premium %</label>
-                  <input
-                    type="number" inputMode="decimal" value={form.buyers_premium_rate}
-                    onChange={(e) => setForm({ ...form, buyers_premium_rate: e.target.value })}
-                    className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="e.g. 18"
-                  />
-                </div>
+                {!isEstate && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Buyer's premium %</label>
+                    <input
+                      type="number" inputMode="decimal" value={form.buyers_premium_rate}
+                      onChange={(e) => setForm({ ...form, buyers_premium_rate: e.target.value })}
+                      className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="e.g. 18"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

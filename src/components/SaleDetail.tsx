@@ -845,6 +845,7 @@ export default function SaleDetail() {
               contacts={contacts}
               lots={lots}
               saleName={sale.name}
+              saleType={sale?.sale_type}
               onChanged={loadConsignments}
             />
             {!isEstate && (

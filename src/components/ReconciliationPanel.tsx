@@ -160,6 +160,24 @@ export default function ReconciliationPanel({
           <Stat label={isEstate ? 'Consignor / owner payouts' : 'Consignor payouts'} value={money(recon.payoutsDue)} />
         </div>
 
+        {/* Unassigned money — sold lots not tied to any consignor never split into
+            commission/fees/payout, so the totals look "wrong" until they're assigned. */}
+        {recon.unassignedSoldCount > 0 && (
+          <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-4 flex items-start gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-sm text-amber-900">
+              <p className="font-semibold">
+                {money(recon.unassignedHammer)} across {recon.unassignedSoldCount} sold lot{recon.unassignedSoldCount === 1 ? '' : 's'} isn’t assigned to {isEstate ? 'an owner' : 'a consignor'}.
+              </p>
+              <p className="text-amber-800 mt-0.5">
+                That money can’t split into commission, fees, or a payout until it’s assigned. Open
+                <span className="font-medium"> Setup → {isEstate ? 'Client / Estate' : 'Consignors'}</span> and use
+                <span className="font-medium"> “Assign lots”</span> to tie them to {isEstate ? 'the owner' : 'a consignor'}.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Money that passes through the house without ever being its own. Kept out
             of House revenue above — sales tax is owed to the state, and anything
             LiveAuctioneers collected never reaches the house's books at all. */}
