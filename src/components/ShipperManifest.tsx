@@ -43,6 +43,8 @@ export default function ShipperManifest({
   // delivered is history and shouldn't be on a sheet someone signs for today.
   const [pendingOnly, setPendingOnly] = useState(true);
   const [confirmAll, setConfirmAll] = useState(false);
+  // Pickup/Store hold go to the buyer; a real shipper collects the whole load.
+  const isPickup = shipperKind === 'pickup';
 
   const rows = useMemo(
     () =>
@@ -93,7 +95,7 @@ export default function ShipperManifest({
                 disabled={releasing}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
               >
-                Mark all handed off
+                {isPickup ? 'Mark all handed off' : 'Shipper picked up — mark all shipped'}
               </button>
             )}
             <button
@@ -110,8 +112,9 @@ export default function ShipperManifest({
         {confirmAll && (
           <div className="no-print bg-amber-50 border-b border-amber-200 px-6 py-4">
             <p className="text-sm text-amber-900">
-              Choosing this option will confirm all {pendingIds.length} lot(s) have been handed off
-              to buyers for this group.
+              {isPickup
+                ? `Choosing this option will confirm all ${pendingIds.length} lot(s) have been handed off to buyers for this group.`
+                : `Confirm ${shipperLabel} has picked up all ${pendingIds.length} lot(s) on this manifest. They'll all be marked shipped at once.`}
             </p>
             <div className="mt-3 flex items-center gap-2">
               <button
@@ -119,7 +122,7 @@ export default function ShipperManifest({
                 disabled={releasing}
                 className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
               >
-                {releasing ? 'Marking…' : 'Yes, mark all handed off'}
+                {releasing ? 'Marking…' : isPickup ? 'Yes, mark all handed off' : 'Yes, shipper picked up all'}
               </button>
               <button
                 onClick={() => setConfirmAll(false)}
