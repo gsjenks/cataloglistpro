@@ -362,12 +362,14 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
     }
     setAddError(null);
     // Exclude sold + items already in this basket. Treat a null status as
-    // available so lots without an explicit status still appear.
-    setAddResults(
-      ((data as LotRow[] | null) || []).filter(
-        (l) => (l.inventory_status ?? 'available') !== 'sold' && l.held_by !== selected?.id,
-      ),
+    // available so lots without an explicit status still appear. Show available
+    // items first, then those held in other baskets (stable within each group,
+    // so lot-number order is preserved).
+    const filtered = ((data as LotRow[] | null) || []).filter(
+      (l) => (l.inventory_status ?? 'available') !== 'sold' && l.held_by !== selected?.id,
     );
+    filtered.sort((a, b) => Number(isHeld(a)) - Number(isHeld(b)));
+    setAddResults(filtered);
   };
 
   // Show the sale's available inventory to browse the moment a basket is open,
