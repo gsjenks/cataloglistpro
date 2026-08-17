@@ -80,6 +80,17 @@ export default function SaleDetail() {
     reports: ''
   });
 
+  // Items: multi-select inventory-status filter (empty = show all). Any
+  // combination of Available / Held / Sold.
+  type InvStatus = 'available' | 'held' | 'sold';
+  const [statusFilter, setStatusFilter] = useState<Set<InvStatus>>(new Set());
+  const toggleStatusFilter = (s: InvStatus) =>
+    setStatusFilter((prev) => {
+      const next = new Set(prev);
+      next.has(s) ? next.delete(s) : next.add(s);
+      return next;
+    });
+
   // Sort state - track active sort for each tab (default: lot-desc = last lot first)
   // Load from localStorage for persistence
   const [activeSorts, setActiveSorts] = useState<Record<string, string>>(() => {
@@ -477,7 +488,12 @@ export default function SaleDetail() {
     if (filter) {
       filtered = filtered.filter(lot => lot.category?.toLowerCase() === filter.toLowerCase());
     }
-    
+
+    // Apply inventory-status filter (any combination of Available/Held/Sold).
+    if (statusFilter.size > 0) {
+      filtered = filtered.filter(lot => statusFilter.has((lot.inventory_status ?? 'available') as InvStatus));
+    }
+
     // Apply sort
     const sort = activeSorts.items;
     if (sort) {
@@ -823,6 +839,36 @@ export default function SaleDetail() {
         )}
         {activeTab === 'items' && (
           <>
+            {/* Inventory-status filter: tap any combination of Available/Held/Sold */}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <span className="text-xs font-medium text-gray-500 mr-1">Status:</span>
+              {([
+                { key: 'available' as InvStatus, label: 'Available', on: 'bg-green-600 text-white border-green-600', off: 'bg-white text-green-700 border-green-300 hover:bg-green-50' },
+                { key: 'held' as InvStatus, label: 'Held', on: 'bg-amber-500 text-white border-amber-500', off: 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50' },
+                { key: 'sold' as InvStatus, label: 'Sold', on: 'bg-gray-700 text-white border-gray-700', off: 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50' },
+              ]).map(({ key, label, on, off }) => {
+                const active = statusFilter.has(key);
+                const count = lots.filter((l) => (l.inventory_status ?? 'available') === key).length;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => toggleStatusFilter(key)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${active ? on : off}`}
+                  >
+                    {label} <span className="opacity-70">({count})</span>
+                  </button>
+                );
+              })}
+              {statusFilter.size > 0 && (
+                <button
+                  onClick={() => setStatusFilter(new Set())}
+                  className="text-xs text-gray-500 hover:text-indigo-600 underline ml-1"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
             <LotsList
               lots={filteredLots}
               saleId={saleId!}
@@ -832,13 +878,15 @@ export default function SaleDetail() {
               consignorNames={consignorNames}
             />
             
-            {/* Show "No results" message when searching */}
-            {searchQueries.items && filteredLots.length === 0 && lots.length > 0 && (
+            {/* Show "No results" message when a search/filter hides everything */}
+            {(searchQueries.items || statusFilter.size > 0 || activeFilters.items) && filteredLots.length === 0 && lots.length > 0 && (
               <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
                 <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-500 text-lg mb-2">No items found</p>
                 <p className="text-gray-400 text-sm">
-                  No items match your search for "{searchQueries.items}"
+                  {searchQueries.items
+                    ? `No items match your search for "${searchQueries.items}"`
+                    : 'No items match the current filters.'}
                 </p>
               </div>
             )}
