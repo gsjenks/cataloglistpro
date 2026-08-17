@@ -240,8 +240,11 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
             file_url: urlData.publicUrl,
             file_size: file.size,
             document_type: formData.document_type,
-            company_id: companyId,
-            sale_id: saleId || null
+            // A document attaches to EXACTLY ONE of a sale or a company (a check
+            // constraint, like contacts). Uploading to a sale must not also set
+            // company_id, or the insert 400s.
+            company_id: saleId ? null : (companyId ?? null),
+            sale_id: saleId || null,
           }]);
 
         if (dbError) throw dbError;
