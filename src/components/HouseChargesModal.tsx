@@ -23,6 +23,9 @@ interface Props {
   laTax?: number;
   /** LA already collected shipping (their "Arranged by LiveAuctioneers" invoices). */
   laShipping?: number;
+  /** Lots refunded to this buyer — their shipping/tax isn't reversed automatically. */
+  refundedCount?: number;
+  refundedAmount?: number;
   defaultTaxRate?: number;
   onSaved: () => void;
   onClose: () => void;
@@ -38,7 +41,7 @@ const certReason = (c: TaxExemption) =>
 
 export default function HouseChargesModal({
   saleId, companyId, buyerKey, buyerName, goods, existing, laTax = 0, laShipping = 0,
-  defaultTaxRate = 0, onSaved, onClose,
+  refundedCount = 0, refundedAmount = 0, defaultTaxRate = 0, onSaved, onClose,
 }: Props) {
   const [shipping, setShipping] = useState(String(existing?.shipping ?? ''));
   const [handling, setHandling] = useState(String(existing?.handling ?? ''));
@@ -158,6 +161,17 @@ export default function HouseChargesModal({
               {laTax > 0 && laShipping > 0 && ' and'}
               {laTax > 0 && <> {money(laTax)} sales tax</>}. Only add what the house
               collects itself.
+            </span>
+          </div>
+        )}
+
+        {refundedCount > 0 && (
+          <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              {refundedCount} lot(s) refunded to this buyer ({money(refundedAmount)}). Refunds
+              don't reverse these charges — if you returned their shipping or sales tax too,
+              reduce it here.
             </span>
           </div>
         )}

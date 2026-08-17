@@ -382,12 +382,24 @@ export default function PaymentsPanel({ saleId, companyId, lots, onChanged }: Pr
                 />
               </div>
 
-              {refundFor.la_invoice_id && (
-                <p className="text-xs text-gray-400">
-                  Sales tax and shipping on this lot were collected by LiveAuctioneers —
-                  refund those through them.
+              {/* Refunding a lot deliberately doesn't touch the charges around it —
+                  which portion of a buyer-level shipping or tax charge to reverse is a
+                  judgement call, not arithmetic. Say so, here, where it matters. */}
+              <div className="rounded-md border border-gray-200 bg-gray-50 p-2.5 text-xs text-gray-600 space-y-1">
+                {refundFor.la_invoice_id && (
+                  <p>
+                    Sales tax and shipping on this lot were collected by
+                    <span className="font-medium text-gray-800"> LiveAuctioneers</span> — refund
+                    those through them.
+                  </p>
+                )}
+                <p>
+                  Anything <span className="font-medium text-gray-800">the house</span> collected
+                  from this buyer — shipping, handling, sales tax — stays as recorded.
+                  Adjust it by hand under <span className="font-medium text-gray-800">Charges</span> on
+                  the Fulfillment tab.
                 </p>
-              )}
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 mt-4">

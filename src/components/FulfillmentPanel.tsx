@@ -144,6 +144,19 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
   const goodsFor = (g: Group) =>
     Math.round(g.lots.reduce((s, l) => s + (l.sold_price ?? 0) + (l.buyers_premium ?? 0), 0) * 100) / 100;
 
+  // Refunded lots have left the group (it lists only sold + paid), so they're found
+  // across the whole sale — a refund doesn't reverse this buyer's house charges, and
+  // the charges form says so.
+  const refundsFor = (g: Group) => {
+    const mine = lots.filter(
+      (l) => l.payment_status === 'refunded' && (l.buyer?.email || l.buyer?.name || 'unknown') === g.key,
+    );
+    return {
+      count: mine.length,
+      amount: Math.round(mine.reduce((s, l) => s + (l.refund_amount ?? 0), 0) * 100) / 100,
+    };
+  };
+
   const handoffs = useMemo<Handoff[]>(
     () => [
       ...shippers
@@ -519,6 +532,8 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
           existing={chargeByBuyer.get(chargesFor.key)}
           laTax={laBilledFor(chargesFor).tax}
           laShipping={laBilledFor(chargesFor).shipping}
+          refundedCount={refundsFor(chargesFor).count}
+          refundedAmount={refundsFor(chargesFor).amount}
           defaultTaxRate={houseCharges[0]?.tax_rate}
           onSaved={() => { setChargesFor(null); loadBilling(); }}
           onClose={() => setChargesFor(null)}
