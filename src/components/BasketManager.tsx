@@ -107,6 +107,12 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
     address?: string | null; date?: string | null; estimate?: string | null;
     company?: string | null; phone?: string | null; email?: string | null;
   } | null>(null);
+  // Item Lookup → "Add to a basket": assign the looked-up lot to a customer.
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignQuery, setAssignQuery] = useState('');
+  const [assignResults, setAssignResults] = useState<Shopper[]>([]);
+  const [assignNewOpen, setAssignNewOpen] = useState(false);
+  const [assignNew, setAssignNew] = useState({ name: '', phone: '', email: '' });
 
   const load = useCallback(async () => {
     // Return any timed-out holds to available first, so expired items leave
@@ -229,6 +235,10 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
     setLotBuyer(null);
     setLotFulfillment(null);
     setLotDelivery(null);
+    setAssignOpen(false);
+    setAssignQuery('');
+    setAssignResults([]);
+    setAssignNewOpen(false);
 
     const { data: photos } = await supabase
       .from('photos')
@@ -606,6 +616,53 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
     setNewShopper({ name: '', phone: '', email: '' });
     setShopperResults([]);
     setShopperQuery('');
+  };
+
+  // Item Lookup: find a customer to hold the looked-up lot for.
+  const searchAssign = async (q: string) => {
+    setAssignQuery(q);
+    if (q.trim().length < 1) { setAssignResults([]); return; }
+    let query = supabase.from('shoppers').select('id, name, email, phone');
+    if (companyId) query = query.eq('company_id', companyId);
+    const term = `%${q.trim()}%`;
+    query = query.or(`name.ilike.${term},email.ilike.${term},phone.ilike.${term}`);
+    const { data } = await query.limit(20);
+    setAssignResults((data as Shopper[] | null) || []);
+  };
+
+  // Hold the looked-up lot for a customer (from Item Lookup). staffHold renews
+  // the basket + reloads; we also flip the open detail card to "Held by …".
+  const assignLotToShopper = async (shopper: Shopper) => {
+    if (!selectedLot) return;
+    await staffHold(selectedLot.id, shopper.id);
+    touchSaleBasket(supabase, saleId, shopper.id, companyId);
+    setShopperMap((m) => ({ ...m, [shopper.id]: shopper }));
+    setSelectedLot((prev) =>
+      prev ? { ...prev, inventory_status: 'held', held_by: shopper.id, held_until: new Date(Date.now() + HOLD_MS).toISOString() } : prev,
+    );
+    setAssignOpen(false);
+    setAssignQuery('');
+    setAssignResults([]);
+    setAssignNewOpen(false);
+  };
+
+  // Create a new customer and hold the looked-up lot for them in one step.
+  const createAndAssign = async () => {
+    const name = assignNew.name.trim();
+    const email = assignNew.email.trim();
+    const phone = assignNew.phone.trim();
+    if (!name) return alert('Enter a name.');
+    if (!email && !phone) return alert('Enter a phone or email.');
+    setBusy(true);
+    const { data, error } = await supabase
+      .from('shoppers')
+      .insert({ company_id: companyId, name, email: email || null, phone: phone || null })
+      .select('id, name, email, phone')
+      .single();
+    setBusy(false);
+    if (error || !data) return alert('Failed to create customer: ' + (error?.message ?? ''));
+    setAssignNew({ name: '', phone: '', email: '' });
+    await assignLotToShopper(data as Shopper);
   };
 
   // Quick-add an item (name + price, optional photo) → creates the lot and holds
@@ -1194,6 +1251,85 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                         <p className="text-xs text-gray-500 mb-1">Description</p>
                         <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedLot.description}</p>
                       </div>
+                    )}
+
+                    {/* Add an available item to a customer's basket */}
+                    {statusOf(selectedLot) === 'available' && (
+                      !assignOpen ? (
+                        <button
+                          onClick={() => { setAssignOpen(true); setAssignQuery(''); setAssignResults([]); setAssignNewOpen(false); }}
+                          disabled={busy}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-md hover:bg-indigo-700 disabled:bg-gray-300"
+                        >
+                          <Plus className="w-4 h-4" /> Add to a basket
+                        </button>
+                      ) : (
+                        <div className="border border-gray-200 rounded-md p-3 bg-gray-50 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium text-gray-700">Hold this item for…</p>
+                            <button onClick={() => setAssignOpen(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                          </div>
+
+                          {!assignNewOpen && (
+                            <>
+                              <div className="relative">
+                                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                                <input
+                                  value={assignQuery}
+                                  onChange={(e) => searchAssign(e.target.value)}
+                                  placeholder="Search a customer — name, email, or phone…"
+                                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                                />
+                              </div>
+                              {assignResults.length > 0 && (
+                                <ul className="border border-gray-200 rounded-md bg-white divide-y divide-gray-100 max-h-44 overflow-auto">
+                                  {assignResults.map((s) => (
+                                    <li key={s.id}>
+                                      <button
+                                        onClick={() => assignLotToShopper(s)}
+                                        disabled={busy}
+                                        className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
+                                      >
+                                        <User className="w-4 h-4 text-gray-400 shrink-0" />
+                                        <span className="min-w-0">
+                                          <span className="block text-sm font-medium text-gray-800 truncate">{s.name}</span>
+                                          <span className="block text-xs text-gray-500 truncate">{s.phone || s.email || 'No contact info'}</span>
+                                        </span>
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              {assignQuery.trim() && assignResults.length === 0 && (
+                                <p className="text-xs text-gray-500">No customer matches — create a new one below.</p>
+                              )}
+                              <button onClick={() => setAssignNewOpen(true)} className="text-sm text-indigo-600 hover:underline">
+                                + New customer basket
+                              </button>
+                            </>
+                          )}
+
+                          {assignNewOpen && (
+                            <div className="space-y-2">
+                              <p className="text-sm font-medium text-gray-700">New customer</p>
+                              <input value={assignNew.name} onChange={(e) => setAssignNew({ ...assignNew, name: e.target.value })} placeholder="Name" className={inputCls} />
+                              <div className="flex gap-2">
+                                <input value={assignNew.phone} onChange={(e) => setAssignNew({ ...assignNew, phone: e.target.value })} placeholder="Phone" className={inputCls} />
+                                <input value={assignNew.email} onChange={(e) => setAssignNew({ ...assignNew, email: e.target.value })} placeholder="Email" className={inputCls} />
+                              </div>
+                              <p className="text-xs text-gray-400">Name required; phone or email required.</p>
+                              <div className="flex gap-2">
+                                <button onClick={createAndAssign} disabled={busy} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300">
+                                  Create &amp; hold item
+                                </button>
+                                <button onClick={() => setAssignNewOpen(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+                                  Back
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
                     )}
 
                     {statusOf(selectedLot) === 'held' && (
