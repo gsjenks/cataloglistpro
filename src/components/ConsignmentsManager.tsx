@@ -4,8 +4,9 @@
 // (later) settlement. Consignor is picked from the sale's Contacts.
 
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, UserPlus, X, FileText } from 'lucide-react';
+import { Plus, Pencil, Trash2, UserPlus, X, FileText, Layers } from 'lucide-react';
 import type { Consignment, Contact, ConsignmentFees, Lot } from '../types';
+import { supabase } from '../lib/supabase';
 import {
   createConsignment, updateConsignment, deleteConsignment,
 } from '../services/ConsignmentService';
@@ -55,6 +56,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
   const [editing, setEditing] = useState<Consignment | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [busyAssign, setBusyAssign] = useState<string | null>(null);
   const [statementFor, setStatementFor] = useState<Consignment | null>(null);
 
   const contactById = (id?: string) => contacts.find((c) => c.id === id);
@@ -142,6 +144,26 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
     }
   };
 
+  // Lots in this sale not yet tied to any consignor. Until they are, reconciliation
+  // has nothing to split them against (their gross shows but no commission/payout).
+  const unassignedCount = lots.filter((l) => !l.consignment_id).length;
+
+  // Bulk-assign every unassigned lot to one consignor — the fast path for a
+  // single-owner estate sale.
+  const assignUnassignedTo = async (c: Consignment) => {
+    if (unassignedCount === 0) return;
+    if (!confirm(`Assign ${unassignedCount} unassigned lot(s) to ${formatContactName(contactById(c.contact_id))}?`)) return;
+    setBusyAssign(c.id);
+    const { error } = await supabase
+      .from('lots')
+      .update({ consignment_id: c.id, updated_at: new Date().toISOString() })
+      .eq('sale_id', saleId)
+      .is('consignment_id', null);
+    setBusyAssign(null);
+    if (error) { alert('Could not assign lots: ' + error.message); return; }
+    onChanged();
+  };
+
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-5">
       <div className="flex items-center justify-between">
@@ -178,6 +200,16 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                {unassignedCount > 0 && (
+                  <button
+                    onClick={() => assignUnassignedTo(c)}
+                    disabled={busyAssign === c.id}
+                    className="inline-flex items-center gap-1 px-2 py-1 mr-1 rounded-md text-xs font-medium border border-indigo-300 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                    title="Assign all unassigned lots in this sale to this consignor"
+                  >
+                    <Layers className="w-3.5 h-3.5" /> {busyAssign === c.id ? 'Assigning…' : `Assign ${unassignedCount} lot${unassignedCount === 1 ? '' : 's'}`}
+                  </button>
+                )}
                 <button onClick={() => setStatementFor(c)} className="p-1.5 text-gray-500 hover:text-green-600" aria-label="Settlement statement" title="Settlement statement">
                   <FileText className="w-4 h-4" />
                 </button>
