@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { Check, ChevronRight, AlertTriangle } from 'lucide-react';
 import type { Sale, Lot, Consignment, Document } from '../types';
 import {
-  STAGE_ORDER, STAGES, stageIndex, gateStatus, computeDerived, nextStage,
+  STAGE_ORDER, stageIndex, gateStatus, computeDerived, nextStage, stageLabel,
 } from '../lib/auctionStages';
 import { advanceStage } from '../services/SaleStageService';
 
@@ -23,7 +23,7 @@ interface Props {
 export default function StageBanner({ sale, lots, consignments, documents, onChanged, onOpenSetup }: Props) {
   const current = sale.stage || 'intake';
   const derived = computeDerived({ lots, consignments, documents });
-  const gate = gateStatus(current, sale.stage_progress, derived);
+  const gate = gateStatus(current, sale.stage_progress, derived, sale.sale_type);
   const target = nextStage(current);
 
   const [showOverride, setShowOverride] = useState(false);
@@ -70,7 +70,7 @@ export default function StageBanner({ sale, lots, consignments, documents, onCha
                 }`}
               >
                 {isPast && <Check className="w-3 h-3" />}
-                {STAGES[s].label}
+                {stageLabel(s, sale.sale_type)}
               </span>
               {i < STAGE_ORDER.length - 1 && <ChevronRight className="w-3 h-3 text-gray-300" />}
             </div>
@@ -81,7 +81,7 @@ export default function StageBanner({ sale, lots, consignments, documents, onCha
       {/* Gate progress + advance */}
       <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
         <div className="text-sm text-gray-600">
-          <span className="font-medium text-gray-900">{STAGES[current].label}</span>
+          <span className="font-medium text-gray-900">{stageLabel(current, sale.sale_type)}</span>
           {' — '}
           {gate.requiredDone}/{gate.requiredTotal} required complete
           {gate.satisfied ? (
@@ -107,7 +107,7 @@ export default function StageBanner({ sale, lots, consignments, documents, onCha
             }`}
           >
             {!gate.satisfied && <AlertTriangle className="w-3.5 h-3.5" />}
-            Advance to {STAGES[target].label}
+            Advance to {stageLabel(target, sale.sale_type)}
           </button>
         )}
       </div>
@@ -118,7 +118,7 @@ export default function StageBanner({ sale, lots, consignments, documents, onCha
           <div className="bg-white rounded-lg p-5 w-full max-w-md">
             <h3 className="text-lg font-semibold text-gray-900">Advance early?</h3>
             <p className="text-sm text-gray-600 mt-1">
-              {gate.openRequired.length} required item(s) still open in {STAGES[current].label}.
+              {gate.openRequired.length} required item(s) still open in {stageLabel(current, sale.sale_type)}.
               Advancing now records an override on this sale.
             </p>
             <textarea

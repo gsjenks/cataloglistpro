@@ -107,6 +107,48 @@ export const STAGES: Record<SaleStage, StageDef> = {
   },
 };
 
+// ── Estate-sale checklist overrides ──────────────────────────────────────────
+// Estate sales don't touch LiveAuctioneers and settle at the register, so a few
+// stages carry auction-only items (LA export/approval, EOA import, buyer
+// invoices, non-paying resolution). Replace those stages' items — and their
+// auction-flavored labels — with estate equivalents. Other stages are shared.
+export const ESTATE_STAGE_ITEMS: Partial<Record<SaleStage, ChecklistItem[]>> = {
+  listed: [
+    { key: 'sale_scheduled', label: 'Sale dates scheduled', required: true },
+    { key: 'pricing_set', label: 'Items priced & tagged', required: true, derived: true },
+    { key: 'marketing_started', label: 'Advertising / signage up', required: false },
+    { key: 'floor_ready', label: 'Floor staged & set', required: false },
+  ],
+  live: [
+    { key: 'sale_open', label: 'Sale open to shoppers', required: false },
+    { key: 'sale_ended', label: 'Sale days complete', required: true },
+  ],
+  settlement: [
+    { key: 'payments_collected', label: 'All sales rung up & paid', required: true },
+    { key: 'refunds_handled', label: 'Refunds / voids handled', required: false },
+  ],
+};
+
+export const ESTATE_STAGE_LABELS: Partial<Record<SaleStage, string>> = {
+  listed: 'Scheduled',
+  live: 'Sale open',
+  settlement: 'Checkout',
+};
+
+const isEstateType = (saleType?: string) => saleType === 'estate_sale';
+
+// The checklist items for a stage, adjusted for the sale type.
+export function stageItems(stage: SaleStage, saleType?: string): ChecklistItem[] {
+  const override = ESTATE_STAGE_ITEMS[stage];
+  return isEstateType(saleType) && override ? override : STAGES[stage].items;
+}
+
+// The display label for a stage, adjusted for the sale type.
+export function stageLabel(stage: SaleStage, saleType?: string): string {
+  const override = ESTATE_STAGE_LABELS[stage];
+  return isEstateType(saleType) && override ? override : STAGES[stage].label;
+}
+
 // ── Ordering helpers ─────────────────────────────────────────────────────────
 
 export function stageIndex(stage: SaleStage): number {
@@ -186,9 +228,9 @@ export function gateStatus(
   stage: SaleStage,
   progress: StageProgress | undefined,
   derived: Record<string, boolean> = {},
+  saleType?: string,
 ): GateStatus {
-  const def = STAGES[stage];
-  const items: ItemStatus[] = def.items.map(it => ({
+  const items: ItemStatus[] = stageItems(stage, saleType).map(it => ({
     ...it,
     done: itemDone(it, progress, derived),
     note: progress?.items?.[it.key]?.note,

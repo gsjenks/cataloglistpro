@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { Check, Square, CheckSquare, Lock } from 'lucide-react';
 import type { Sale, Lot, Consignment, Document } from '../types';
-import { STAGES, gateStatus, computeDerived } from '../lib/auctionStages';
+import { gateStatus, computeDerived, stageLabel } from '../lib/auctionStages';
 import { setSaleChecklistItem } from '../services/SaleStageService';
 
 interface Props {
@@ -20,7 +20,7 @@ interface Props {
 export default function SaleSetupTab({ sale, lots, consignments, documents, onChanged }: Props) {
   const current = sale.stage || 'intake';
   const derived = computeDerived({ lots, consignments, documents });
-  const gate = gateStatus(current, sale.stage_progress, derived);
+  const gate = gateStatus(current, sale.stage_progress, derived, sale.sale_type);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const overrides = sale.stage_progress?.overrides ?? [];
@@ -41,7 +41,7 @@ export default function SaleSetupTab({ sale, lots, consignments, documents, onCh
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-5">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-lg font-semibold text-gray-900">{STAGES[current].label} checklist</h2>
+        <h2 className="text-lg font-semibold text-gray-900">{stageLabel(current, sale.sale_type)} checklist</h2>
         <span className="text-sm text-gray-500">{gate.requiredDone}/{gate.requiredTotal} required</span>
       </div>
 
