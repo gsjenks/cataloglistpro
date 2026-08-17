@@ -258,9 +258,18 @@ export default function DocumentsList({ documents, companyId, saleId, onRefresh 
       onRefresh();
     } catch (error: unknown) {
       console.error('Error saving document:', error);
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message.includes('storage')) {
-        alert('Storage bucket not found. Please set up the "documents" storage bucket in Supabase first.');
+      // Supabase storage/postgrest errors are plain objects, not Error instances,
+      // so pull the message out of their actual shape instead of falling back to
+      // a useless "Unknown error".
+      const e = error as { message?: string; error?: string; details?: string; hint?: string } | null;
+      const message =
+        (e && (e.message || e.error || e.details)) ||
+        (error instanceof Error ? error.message : '') ||
+        'Unknown error';
+      if (/bucket not found/i.test(message)) {
+        alert('The "documents" storage bucket is missing in Supabase. Create it first.');
+      } else if (/row-level security|violates|permission|not authorized/i.test(message)) {
+        alert('Not permitted to save this document (storage/table policy). Details: ' + message);
       } else {
         alert('Failed to save document: ' + message);
       }
