@@ -5,6 +5,7 @@
 // floor control no longer un-sells it directly.
 
 import { supabase } from '../lib/supabase';
+import type { Lot } from '../types';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -14,7 +15,23 @@ export interface RefundResult {
   error?: string;
 }
 
-export async function refundLotSale(lotId: string): Promise<RefundResult> {
+export interface RefundRecord {
+  id: string;
+  lot_name: string | null;
+  lot_number: string | null;
+  amount: number;
+  buyer_name: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface RefundOptions {
+  companyId?: string | null;
+  reason?: string | null;
+}
+
+export async function refundLotSale(lot: Lot, opts: RefundOptions = {}): Promise<RefundResult> {
+  const lotId = lot.id;
   // The line item(s) that sold this lot.
   const { data: items, error: itemErr } = await supabase
     .from('sales_transaction_items')
@@ -23,6 +40,17 @@ export async function refundLotSale(lotId: string): Promise<RefundResult> {
   if (itemErr) return { success: false, refunded: 0, error: itemErr.message };
 
   const line = (items as { id: string; transaction_id: string; price: number }[] | null)?.[0];
+
+  // Capture the buyer for the audit record before we touch the transaction.
+  let buyerName: string | null = null;
+  if (line?.transaction_id) {
+    const { data: t } = await supabase
+      .from('sales_transactions')
+      .select('buyer_name')
+      .eq('id', line.transaction_id)
+      .maybeSingle();
+    buyerName = (t as { buyer_name?: string } | null)?.buyer_name ?? null;
+  }
 
   // Always return the lot to the floor.
   const { error: lotErr } = await supabase
@@ -37,8 +65,30 @@ export async function refundLotSale(lotId: string): Promise<RefundResult> {
     .eq('id', lotId);
   if (lotErr) return { success: false, refunded: 0, error: lotErr.message };
 
-  // No POS line (e.g. a legacy hand-marked "sold") — nothing to reverse.
-  if (!line) return { success: true, refunded: 0 };
+  const logRefund = async (amount: number) => {
+    // Best-effort audit record; never fail the refund over it.
+    try {
+      await supabase.from('refunds').insert({
+        sale_id: lot.sale_id,
+        company_id: opts.companyId ?? null,
+        lot_id: lotId,
+        lot_name: lot.name ?? null,
+        lot_number: lot.lot_number != null ? String(lot.lot_number) : null,
+        amount: round2(amount),
+        buyer_name: buyerName,
+        transaction_id: line?.transaction_id ?? null,
+        reason: opts.reason?.trim() || null,
+      });
+    } catch { /* audit is non-fatal */ }
+  };
+
+  // No POS line (e.g. a legacy hand-marked "sold") — nothing to reverse, but the
+  // amount given back is the lot's sold price. Still log it.
+  if (!line) {
+    const amt = Number(lot.sold_price) || 0;
+    await logRefund(amt);
+    return { success: true, refunded: amt };
+  }
 
   const refunded = Number(line.price) || 0;
 
@@ -74,5 +124,21 @@ export async function refundLotSale(lotId: string): Promise<RefundResult> {
     await supabase.from('sales_transactions').update({ subtotal, tax, total }).eq('id', line.transaction_id);
   }
 
+  await logRefund(refunded);
   return { success: true, refunded };
+}
+
+// Refund history for a sale (newest first). Returns [] if the table isn't
+// migrated yet, so callers degrade gracefully.
+export async function getRefunds(saleId: string): Promise<RefundRecord[]> {
+  try {
+    const { data } = await supabase
+      .from('refunds')
+      .select('id, lot_name, lot_number, amount, buyer_name, reason, created_at')
+      .eq('sale_id', saleId)
+      .order('created_at', { ascending: false });
+    return (data as RefundRecord[] | null) ?? [];
+  } catch {
+    return [];
+  }
 }

@@ -298,13 +298,14 @@ export default function SaleDetail() {
   const handleRefundLot = useCallback(async (lot: Lot) => {
     const price = lot.sold_price != null ? ` ($${lot.sold_price.toLocaleString()})` : '';
     if (!confirm(`Refund #${lot.lot_number ?? '—'} ${lot.name}${price}? This reverses the sale and returns the item to Available.`)) return;
-    const res = await refundLotSale(lot.id);
+    const reason = window.prompt('Reason for the refund (optional):') ?? '';
+    const res = await refundLotSale(lot, { companyId: sale?.company_id ?? null, reason });
     if (!res.success) {
       alert('Refund failed: ' + (res.error ?? 'unknown error'));
       return;
     }
     loadLots();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sale?.company_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Staff mark a lot Available / Held / Sold. Optimistic update + write-back;
   // realtime echoes the change to other devices.

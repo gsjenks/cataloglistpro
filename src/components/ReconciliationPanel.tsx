@@ -12,6 +12,7 @@ import { listHouseCharges } from '../services/HouseChargeService';
 import { listBuyerInvoices } from '../services/BuyerInvoiceImportService';
 import { computeReconciliation, downloadAccountingCsv, type ConsignorRow } from '../lib/reconciliation';
 import { recordPayout, clearPayout, markSettled } from '../services/ConsignmentService';
+import { getRefunds, type RefundRecord } from '../services/RefundService';
 import SettlementStatement from './SettlementStatement';
 
 interface Props {
@@ -56,6 +57,7 @@ export default function ReconciliationPanel({
   // Money the house billed buyers directly, and what LA collected on its own side.
   const [houseCharges, setHouseCharges] = useState<HouseCharge[]>([]);
   const [laInvoices, setLaInvoices] = useState<BuyerInvoiceRecord[]>([]);
+  const [refunds, setRefunds] = useState<RefundRecord[]>([]);
   useEffect(() => {
     let live = true;
     listHouseCharges(saleId)
@@ -64,8 +66,15 @@ export default function ReconciliationPanel({
     listBuyerInvoices(saleId)
       .then((rows) => { if (live) setLaInvoices(rows); })
       .catch((e) => console.error('Failed to load buyer invoices:', e));
+    getRefunds(saleId)
+      .then((rows) => { if (live) setRefunds(rows); })
+      .catch((e) => console.error('Failed to load refunds:', e));
     return () => { live = false; };
   }, [saleId]);
+
+  const refundsTotal = refunds.reduce((s, r) => s + (r.amount ?? 0), 0);
+  const shortDateTime = (iso: string) =>
+    new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 
   const recon = useMemo(
     () => computeReconciliation(consignments, lots, consignorNames, houseCharges, laInvoices),
@@ -175,6 +184,34 @@ export default function ReconciliationPanel({
                 <span className="font-medium"> “Assign lots”</span> to tie them to {isEstate ? 'the owner' : 'a consignor'}.
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Refund audit trail */}
+        {refunds.length > 0 && (
+          <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-gray-500">
+                <Undo2 className="w-3.5 h-3.5" /> Refunds ({refunds.length})
+              </div>
+              <span className="text-sm font-semibold text-gray-900">{money(refundsTotal)} refunded</span>
+            </div>
+            <ul className="mt-2 divide-y divide-gray-100">
+              {refunds.map((r) => (
+                <li key={r.id} className="py-2 flex items-start justify-between gap-3 text-sm">
+                  <div className="min-w-0">
+                    <div className="text-gray-900 truncate">
+                      {r.lot_number ? `#${r.lot_number} ` : ''}{r.lot_name || 'Item'}
+                      {r.buyer_name && <span className="text-gray-500"> · {r.buyer_name}</span>}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {shortDateTime(r.created_at)}{r.reason ? ` · ${r.reason}` : ''}
+                    </div>
+                  </div>
+                  <span className="text-gray-900 font-medium whitespace-nowrap">− {money(r.amount)}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
