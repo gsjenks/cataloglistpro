@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { MessageCircle, X, ArrowUp, Sparkles } from 'lucide-react';
+import { MessageCircle, X, ArrowUp, Sparkles, Maximize2, Minimize2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 interface Msg { role: 'assistant' | 'user'; text: string }
@@ -43,8 +43,41 @@ export default function HelpAssistant() {
   const [messages, setMessages] = useState<Msg[]>([WELCOME]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [size, setSize] = useState<{ w: number; h: number }>(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('help_size') || '');
+      if (s && s.w && s.h) return s;
+    } catch { /* default below */ }
+    return { w: 380, h: 540 };
+  });
   const scrollRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
+
+  const clamp = (w: number, h: number) => ({
+    w: Math.max(300, Math.min(window.innerWidth * 0.96, w)),
+    h: Math.max(240, Math.min(window.innerHeight * 0.92, h)),
+  });
+  const saveSize = (s: { w: number; h: number }) => {
+    setSize(s);
+    try { localStorage.setItem('help_size', JSON.stringify(s)); } catch { /* ignore */ }
+  };
+  // Drag the top-left corner to resize (panel is docked bottom-right, so growing
+  // means dragging up and to the left).
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY, startW = size.w, startH = size.h;
+    const move = (ev: PointerEvent) => setSize(clamp(startW + (startX - ev.clientX), startH + (startY - ev.clientY)));
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setSize((s) => { try { localStorage.setItem('help_size', JSON.stringify(s)); } catch { /* ignore */ } return s; });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const isTall = size.h >= window.innerHeight * 0.7;
+  const toggleSize = () =>
+    saveSize(isTall ? clamp(380, 420) : clamp(Math.max(size.w, 460), window.innerHeight * 0.9));
 
   useEffect(() => {
     if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -90,13 +123,33 @@ export default function HelpAssistant() {
   }
 
   return (
-    <div className="fixed bottom-0 right-0 sm:bottom-5 sm:right-5 z-50 w-full sm:w-[380px] h-[70vh] sm:h-[540px] flex flex-col bg-white border border-gray-200 rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 bg-indigo-600 text-white shrink-0">
+    <div
+      style={{ width: size.w, height: size.h, maxWidth: '96vw', maxHeight: '92vh' }}
+      className="fixed bottom-0 right-0 sm:bottom-5 sm:right-5 z-50 flex flex-col bg-white border border-gray-200 rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden"
+    >
+      {/* Drag this corner to resize */}
+      <div
+        onPointerDown={startResize}
+        title="Drag to resize"
+        className="absolute top-0 left-0 w-6 h-6 z-20 cursor-nwse-resize touch-none"
+      >
+        <span className="absolute top-1.5 left-1.5 w-2.5 h-2.5 border-t-2 border-l-2 border-white/70 rounded-tl-sm" />
+      </div>
+
+      <div className="flex items-center gap-2 px-4 py-3 pl-7 bg-indigo-600 text-white shrink-0">
         <Sparkles className="w-5 h-5" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold leading-tight">CatalogListPro help</p>
           <p className="text-[11px] text-indigo-100 leading-tight">How-to answers · not your live data</p>
         </div>
+        <button
+          onClick={toggleSize}
+          className="p-1 rounded-full hover:bg-white/15"
+          aria-label={isTall ? 'Contract window' : 'Expand window'}
+          title={isTall ? 'Contract' : 'Expand'}
+        >
+          {isTall ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+        </button>
         <button onClick={() => setOpen(false)} className="p-1 rounded-full hover:bg-white/15" aria-label="Close">
           <X className="w-5 h-5" />
         </button>
