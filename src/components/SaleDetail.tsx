@@ -598,6 +598,9 @@ export default function SaleDetail() {
   const filteredDocuments = getFilteredDocuments();
 
   // Define tabs with filtered counts
+  // Estate sales don't use the LiveAuctioneers settlement pipeline; payments are
+  // taken at the register, so the auction Payments tab is hidden for them.
+  const isEstate = sale?.sale_type === 'estate_sale';
   const tabs = [
     {
       id: 'setup',
@@ -651,7 +654,7 @@ export default function SaleDetail() {
       label: 'Reports & Tools',
       icon: <BarChart3 className="w-4 h-4" />,
     },
-  ];
+  ].filter((t) => !(isEstate && t.id === 'payments'));
 
   // Define filters for each tab
   const tabFilters = {
@@ -893,7 +896,7 @@ export default function SaleDetail() {
           </>
         )}
 
-        {activeTab === 'payments' && (
+        {activeTab === 'payments' && !isEstate && (
           <PaymentsPanel saleId={saleId!} saleName={sale.name} companyId={sale.company_id} lots={lots} onChanged={loadLots} />
         )}
 
@@ -969,6 +972,7 @@ export default function SaleDetail() {
           <SaleReportsTools
             saleId={saleId!}
             saleName={sale?.name || 'Sale'}
+            saleType={sale?.sale_type}
             exporting={exporting}
             exportMessage={exportMessage}
             exportStats={exportStats}

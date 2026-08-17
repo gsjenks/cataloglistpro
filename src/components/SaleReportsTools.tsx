@@ -24,6 +24,7 @@ type ToolView =
 interface SaleReportsToolsProps {
   saleId: string;
   saleName: string;
+  saleType?: 'estate_sale' | 'auction' | 'social';
   exporting: boolean;
   exportMessage: { type: "success" | "error" | "info"; text: string } | null;
   exportStats: {
@@ -38,12 +39,18 @@ interface SaleReportsToolsProps {
 export default function SaleReportsTools({
   saleId: _saleId,
   saleName,
+  saleType,
   exporting,
   exportMessage,
   exportStats,
   onExportCSV,
 }: SaleReportsToolsProps) {
   const [activeView, setActiveView] = useState<ToolView>("menu");
+
+  // Estate sales don't touch LiveAuctioneers — hide the LA export/import and EOA
+  // (end-of-auction) tools; the QR price-tag tool still applies.
+  const isEstate = saleType === "estate_sale";
+  const LA_TOOL_IDS = new Set(["la-export", "la-import", "invoice-import"]);
 
   // Tool menu items
   const tools = [
@@ -79,7 +86,7 @@ export default function SaleReportsTools({
       icon: <QrCode className="w-6 h-6 text-indigo-600" />,
       view: "qr-labels" as ToolView,
     },
-  ];
+  ].filter((t) => !(isEstate && LA_TOOL_IDS.has(t.id)));
 
   // Render Export View
   if (activeView === "la-export") {
