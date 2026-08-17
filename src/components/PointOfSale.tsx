@@ -8,6 +8,7 @@ import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2, ShoppingBaske
 import type { Lot, TenderType } from '../types';
 import { supabase } from '../lib/supabase';
 import { searchTokens, tokenOrClause } from '../lib/lotSearch';
+import { touchSaleBasket } from '../lib/saleBaskets';
 import { createTransaction, computeTotals, type PosLineItem } from '../services/PosService';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
 import {
@@ -189,6 +190,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setBuyerContact({ name: data.name, phone: data.phone, email: data.email });
     setBuyerName(data.name);
     setCustomerResults([]);
+    touchSaleBasket(supabase, saleId, data.id, companyId); // list this basket under the sale
     return data.id;
   };
 
@@ -327,6 +329,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     buyerBasketIdRef.current = bId;
     setBuyerBasketId(bId);
     setError(null);
+    touchSaleBasket(supabase, saleId, bId, companyId); // list this basket under the sale
 
     // Pull the shopper's contact + delivery details (staff can read shoppers) so
     // the register shows who this basket belongs to and pre-fills the mover info

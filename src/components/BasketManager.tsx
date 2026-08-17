@@ -19,6 +19,7 @@ import {
   SHOPPER_DELIVERY_COLS,
 } from '../lib/delivery';
 import { searchTokens, tokenOrClause, lotMatchesTokens } from '../lib/lotSearch';
+import { touchSaleBasket } from '../lib/saleBaskets';
 import QRScanner from './QRScanner';
 
 interface Props {
@@ -66,6 +67,10 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [tab, setTab] = useState<'shoppers' | 'items'>('shoppers');
   const [lots, setLots] = useState<LotRow[]>([]);
   const [shopperMap, setShopperMap] = useState<Record<string, Shopper>>({});
+  // Every shopper whose basket is associated with THIS sale (even if empty now),
+  // plus the buyer names that have checked out, for the "baskets for this sale" list.
+  const [saleShoppers, setSaleShoppers] = useState<Shopper[]>([]);
+  const [checkedOutNames, setCheckedOutNames] = useState<Set<string>>(new Set());
   const [shopperQuery, setShopperQuery] = useState('');
   const [shopperResults, setShopperResults] = useState<Shopper[]>([]);
   const [selected, setSelected] = useState<Shopper | null>(null);
@@ -119,6 +124,31 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     } else {
       setShopperMap({});
     }
+
+    // Baskets associated with this sale (incl. empty ones) — from sale_baskets.
+    const { data: assoc } = await supabase.from('sale_baskets').select('shopper_id').eq('sale_id', saleId);
+    const assocIds = [...new Set(((assoc as { shopper_id: string }[] | null) || []).map((a) => a.shopper_id))];
+    if (assocIds.length) {
+      const { data: shs2 } = await supabase.from('shoppers').select('id, name, email, phone').in('id', assocIds);
+      setSaleShoppers((shs2 as Shopper[] | null) || []);
+    } else {
+      setSaleShoppers([]);
+    }
+
+    // Buyer names that completed a sale here — best-effort "checked out" status
+    // (the POS records buyer_name as text, not a shopper_id).
+    const { data: txns } = await supabase
+      .from('sales_transactions')
+      .select('buyer_name')
+      .eq('sale_id', saleId)
+      .eq('status', 'completed');
+    setCheckedOutNames(
+      new Set(
+        ((txns as { buyer_name: string | null }[] | null) || [])
+          .map((t) => (t.buyer_name || '').trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    );
   }, [saleId]);
 
   useEffect(() => { load(); }, [load]);
@@ -138,6 +168,10 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
       setDeliverySaved(false);
       return;
     }
+    // Opening a basket associates it with this sale so it stays listed here even
+    // once it's empty. Optimistically add it to the list too.
+    touchSaleBasket(supabase, saleId, selected.id, companyId);
+    setSaleShoppers((prev) => (prev.some((s) => s.id === selected.id) ? prev : [...prev, selected]));
     supabase
       .from('shoppers')
       .select(SHOPPER_DELIVERY_COLS)
@@ -254,33 +288,54 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
 
   const heldItems = useMemo(() => lots.filter(isHeld), [lots, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Every basket with live holds: group held lots by their holder (shopper).
-  // Track each basket's soonest-expiring hold so staff can act before it lapses.
-  const openBaskets = useMemo(() => {
-    const map = new Map<string, { shopper: Shopper; count: number; total: number; expires: number }>();
+  // Every basket associated with THIS sale, with its live status. Combines the
+  // tracked associations (sale_baskets) with anyone currently holding a lot (in
+  // case they haven't been stamped yet). Status: holding / checked out / empty.
+  type BasketRow = {
+    shopper: Shopper; count: number; total: number;
+    expires: number | null; status: 'holding' | 'checkedout' | 'empty';
+  };
+  const allBaskets = useMemo<BasketRow[]>(() => {
+    // Live holds per shopper in this sale.
+    const held = new Map<string, { count: number; total: number; expires: number }>();
     for (const l of lots) {
       if (!l.held_by || !isHeld(l)) continue;
-      const sh = shopperMap[l.held_by];
-      if (!sh) continue;
       const exp = new Date(l.held_until as string).getTime();
-      const e = map.get(l.held_by) ?? { shopper: sh, count: 0, total: 0, expires: exp };
+      const e = held.get(l.held_by) ?? { count: 0, total: 0, expires: exp };
       e.count += 1;
       e.total += l.starting_bid || 0;
       e.expires = Math.min(e.expires, exp);
-      map.set(l.held_by, e);
+      held.set(l.held_by, e);
     }
-    // Most urgent first (soonest hold to lapse at top).
-    return [...map.values()].sort((a, b) => a.expires - b.expires);
-  }, [lots, shopperMap, now]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Union of associated shoppers and any current holders.
+    const byId = new Map<string, Shopper>();
+    saleShoppers.forEach((s) => byId.set(s.id, s));
+    Object.values(shopperMap).forEach((s) => { if (!byId.has(s.id)) byId.set(s.id, s); });
 
-  // Roll-up across all live baskets for the section header.
-  const openSummary = useMemo(
-    () => ({
-      items: openBaskets.reduce((s, b) => s + b.count, 0),
-      total: openBaskets.reduce((s, b) => s + b.total, 0),
-    }),
-    [openBaskets],
-  );
+    const rows: BasketRow[] = [...byId.values()].map((s) => {
+      const h = held.get(s.id);
+      if (h) return { shopper: s, count: h.count, total: h.total, expires: h.expires, status: 'holding' };
+      const checkedOut = checkedOutNames.has((s.name || '').trim().toLowerCase());
+      return { shopper: s, count: 0, total: 0, expires: null, status: checkedOut ? 'checkedout' : 'empty' };
+    });
+
+    const rank = (st: BasketRow['status']) => (st === 'holding' ? 0 : st === 'checkedout' ? 1 : 2);
+    return rows.sort((a, b) =>
+      rank(a.status) - rank(b.status) ||
+      (a.expires != null && b.expires != null ? a.expires - b.expires : 0) ||
+      a.shopper.name.localeCompare(b.shopper.name),
+    );
+  }, [saleShoppers, shopperMap, lots, checkedOutNames, now]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Roll-up across baskets currently holding items, for the section header.
+  const openSummary = useMemo(() => {
+    const holding = allBaskets.filter((b) => b.status === 'holding');
+    return {
+      holding: holding.length,
+      items: holding.reduce((s, b) => s + b.count, 0),
+      total: holding.reduce((s, b) => s + b.total, 0),
+    };
+  }, [allBaskets]);
 
   const LOT_COLS =
     'id, lot_number, name, description, category, condition, height, width, depth, dimension_unit, starting_bid, sold_price, inventory_status, held_by, held_until, for_delivery';
@@ -651,24 +706,24 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                   <p className="text-sm text-gray-400 text-center py-4">No shoppers match.</p>
                 )}
 
-                {/* All open baskets (customers currently holding items) */}
+                {/* Every basket associated with this sale (any status) */}
                 {!shopperQuery.trim() && (
                   <div className="mt-1">
                     <div className="flex items-baseline justify-between mb-2">
                       <p className="text-xs font-medium text-gray-500">
-                        Open baskets{openBaskets.length ? ` (${openBaskets.length})` : ''}
+                        Baskets for this sale{allBaskets.length ? ` (${allBaskets.length})` : ''}
                       </p>
-                      {openBaskets.length > 0 && (
+                      {openSummary.holding > 0 && (
                         <p className="text-xs text-gray-400">
                           {openSummary.items} item{openSummary.items === 1 ? '' : 's'} held · {money(openSummary.total)}
                         </p>
                       )}
                     </div>
-                    {openBaskets.length === 0 ? (
-                      <p className="text-sm text-gray-400 text-center py-4">No open baskets yet.</p>
+                    {allBaskets.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-4">No baskets yet for this sale.</p>
                     ) : (
-                      openBaskets.map(({ shopper: s, count, total, expires }) => {
-                        const urgent = expires - now < 5 * 60 * 1000;
+                      allBaskets.map(({ shopper: s, count, total, expires, status }) => {
+                        const urgent = expires != null && expires - now < 5 * 60 * 1000;
                         return (
                           <button
                             key={s.id}
@@ -681,12 +736,20 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                               <span className="block text-xs text-gray-500 truncate">{s.phone || s.email || 'No contact info'}</span>
                             </span>
                             <span className="flex flex-col items-end shrink-0">
-                              <span className="text-xs text-gray-500 whitespace-nowrap">
-                                {count} item{count === 1 ? '' : 's'} · {money(total)}
-                              </span>
-                              <span className={`text-[11px] font-medium whitespace-nowrap ${urgent ? 'text-red-600' : 'text-amber-600'}`}>
-                                {countdown(expires, now)}
-                              </span>
+                              {status === 'holding' ? (
+                                <>
+                                  <span className="text-xs text-gray-500 whitespace-nowrap">
+                                    {count} item{count === 1 ? '' : 's'} · {money(total)}
+                                  </span>
+                                  <span className={`text-[11px] font-medium whitespace-nowrap ${urgent ? 'text-red-600' : 'text-amber-600'}`}>
+                                    {countdown(expires as number, now)}
+                                  </span>
+                                </>
+                              ) : status === 'checkedout' ? (
+                                <span className="text-[11px] font-medium whitespace-nowrap text-green-600">Checked out</span>
+                              ) : (
+                                <span className="text-[11px] font-medium whitespace-nowrap text-gray-400">Empty</span>
+                              )}
                             </span>
                           </button>
                         );
