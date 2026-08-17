@@ -13,7 +13,7 @@ interface Props {
   handoffLabel: string;
   lots: Lot[];
   onClose: () => void;
-  onRelease?: (lotIds: string[]) => void;
+  onRelease?: (lotIds: string[], released: boolean) => void;
   releasing?: boolean;
 }
 
@@ -40,7 +40,7 @@ export default function PackingInvoice({ saleName, buyerName, buyer, handoffLabe
           <div className="flex items-center gap-2">
             {onRelease && pendingIds.length > 0 && (
               <button
-                onClick={() => onRelease(pendingIds)}
+                onClick={() => onRelease(pendingIds, true)}
                 disabled={releasing}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
               >
@@ -98,8 +98,8 @@ export default function PackingInvoice({ saleName, buyerName, buyer, handoffLabe
                             type="checkbox"
                             className="no-print w-4 h-4 rounded border-gray-400 accent-green-600"
                             checked={off}
-                            disabled={off || releasing}
-                            onChange={() => onRelease([l.id])}
+                            disabled={releasing}
+                            onChange={(e) => onRelease([l.id], e.target.checked)}
                             aria-label={`Mark lot ${l.lot_number ?? l.name} released`}
                           />
                         ) : null}

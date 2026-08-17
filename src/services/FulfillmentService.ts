@@ -52,6 +52,12 @@ export async function markDelivered(lotIds: string[]): Promise<void> {
   await updateLots(lotIds, { delivered_at: new Date().toISOString() });
 }
 
+// Undo a release/handoff without unassigning the handoff: clears the
+// shipped/delivered stamps but keeps the carrier and method.
+export async function clearHandoffStamps(lotIds: string[]): Promise<void> {
+  await updateLots(lotIds, { shipped_at: null, delivered_at: null });
+}
+
 // Undo — back to pending fulfillment.
 export async function resetFulfillment(lotIds: string[]): Promise<void> {
   await updateLots(lotIds, {

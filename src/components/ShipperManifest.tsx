@@ -23,7 +23,7 @@ interface Props {
   email?: string;
   shipments: ManifestShipment[];
   onClose: () => void;
-  onRelease?: (lotIds: string[]) => void;
+  onRelease?: (lotIds: string[], released: boolean) => void;
   releasing?: boolean;
 }
 
@@ -115,7 +115,7 @@ export default function ShipperManifest({
             </p>
             <div className="mt-3 flex items-center gap-2">
               <button
-                onClick={() => { onRelease?.(pendingIds); setConfirmAll(false); }}
+                onClick={() => { onRelease?.(pendingIds, true); setConfirmAll(false); }}
                 disabled={releasing}
                 className="px-3 py-1.5 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
               >
@@ -202,8 +202,8 @@ export default function ShipperManifest({
                                     type="checkbox"
                                     className="no-print w-4 h-4 rounded border-gray-400 accent-green-600"
                                     checked={off}
-                                    disabled={off || releasing}
-                                    onChange={() => onRelease([l.id])}
+                                    disabled={releasing}
+                                    onChange={(e) => onRelease([l.id], e.target.checked)}
                                     aria-label={`Mark lot ${l.lot_number ?? l.name} handed off`}
                                   />
                                 ) : null}

@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Truck, PackageCheck, MapPin, X, Undo2, CheckCircle2, Settings, Phone, Mail, ClipboardList, ListOrdered, Receipt, Tags, BadgeCheck, Pencil } from 'lucide-react';
 import type { Lot, LotBuyer, Shipper, BuyerInvoiceRecord, HouseCharge } from '../types';
-import { setCarrier, changeHandoff, shipLots, markPickedUp, markDelivered, resetFulfillment } from '../services/FulfillmentService';
+import { setCarrier, changeHandoff, shipLots, markPickedUp, markDelivered, clearHandoffStamps, resetFulfillment } from '../services/FulfillmentService';
 import { listShippers } from '../services/ShipperService';
 import { listBuyerInvoices } from '../services/BuyerInvoiceImportService';
 import { listHouseCharges } from '../services/HouseChargeService';
@@ -220,13 +220,13 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
 
   const ids = (g: Group) => g.lots.map((l) => l.id);
 
-  // Record a physical release / handoff of specific lots (ticked on a slip or the
-  // manifest). Pickup-kind handoffs mark picked up; everything else marks delivered.
-  // Both land the lot as "handed off".
-  const releaseLots = (lotIds: string[], pickup: boolean) => {
+  // Tick / untick a physical release/handoff (on a slip or the manifest). Pickup
+  // handoffs mark picked up; shippers mark shipped — both satisfy the stage's
+  // "every paid lot shipped or picked up" gate. Unticking clears the stamps.
+  const toggleRelease = (lotIds: string[], pickup: boolean, released: boolean) => {
     if (!lotIds.length) return;
     return run(`release:${lotIds[0]}:${lotIds.length}`, () =>
-      pickup ? markPickedUp(lotIds) : markDelivered(lotIds));
+      released ? (pickup ? markPickedUp(lotIds) : shipLots(lotIds, '')) : clearHandoffStamps(lotIds));
   };
   const releasing = !!busy && busy.startsWith('release:');
 
@@ -625,7 +625,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
           email={resolve(manifestFor)?.email}
           shipments={groups.filter((g) => g.carrier === manifestFor)}
           releasing={releasing}
-          onRelease={(lotIds) => releaseLots(lotIds, !(resolve(manifestFor)?.ships ?? true))}
+          onRelease={(lotIds, released) => toggleRelease(lotIds, !(resolve(manifestFor)?.ships ?? true), released)}
           onClose={() => setManifestFor(null)}
         />
       )}
@@ -641,7 +641,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
             handoffLabel={resolve(g.carrier)?.label ?? 'Unassigned'}
             lots={g.lots}
             releasing={releasing}
-            onRelease={(lotIds) => releaseLots(lotIds, !(resolve(g.carrier)?.ships ?? true))}
+            onRelease={(lotIds, released) => toggleRelease(lotIds, !(resolve(g.carrier)?.ships ?? true), released)}
             onClose={() => setInvoiceFor(null)}
           />
         );
