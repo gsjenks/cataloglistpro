@@ -24,9 +24,10 @@ export interface UnsoldLine {
 }
 
 export interface FeeLine {
-  key: keyof ConsignmentFees;
+  key: keyof ConsignmentFees | 'custom';
   label: string;
   amount: number;
+  note?: string;
 }
 
 export interface Settlement {
@@ -53,7 +54,11 @@ export const FEE_LABELS: Record<keyof ConsignmentFees, string> = {
   insurance: 'Insurance',
   storage: 'Storage',
   buyin: 'Buy-in',
+  custom: 'Other fees',
 };
+
+// Suggested labels for ad-hoc consignor fees (free-form; not exhaustive).
+export const CUSTOM_FEE_SUGGESTIONS = ['Cleanout', 'Parking', 'Gate', 'Setup', 'Other'];
 
 export const DEFAULT_BUYIN_RATE = 3; // percent of reserve, on unsold lots
 
@@ -101,6 +106,12 @@ export function computeSettlement(consignment: Consignment, lots: Lot[]): Settle
   })).filter((f) => f.amount > 0);
   if (buyinTotal > 0) {
     fees.push({ key: 'buyin', label: `Buy-in (${buyinRate}% of reserves)`, amount: buyinTotal });
+  }
+  // Ad-hoc consignor fees (cleanout, parking, gate, setup, other…).
+  for (const cf of schedule.custom ?? []) {
+    const amount = Number(cf.amount) || 0;
+    if (amount === 0) continue;
+    fees.push({ key: 'custom', label: cf.label?.trim() || 'Other fee', amount, note: cf.note?.trim() || undefined });
   }
   const feesTotal = fees.reduce((s, f) => s + f.amount, 0);
 

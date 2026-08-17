@@ -11,7 +11,7 @@ import {
 } from '../services/ConsignmentService';
 import { formatContactName } from '../utils/contactName';
 import SettlementStatement from './SettlementStatement';
-import { FLAT_FEE_KEYS, FEE_LABELS, DEFAULT_BUYIN_RATE } from '../lib/settlement';
+import { FLAT_FEE_KEYS, FEE_LABELS, DEFAULT_BUYIN_RATE, CUSTOM_FEE_SUGGESTIONS } from '../lib/settlement';
 
 interface Props {
   saleId: string;
@@ -23,13 +23,16 @@ interface Props {
   onChanged: () => void;
 }
 
+type CustomFeeForm = { label: string; amount: string; note: string };
+
 type FormState = {
   contact_id: string;
   commission_rate: string;
   buyers_premium_rate: string;
   reserve_policy: 'none' | 'per_lot' | 'blanket';
   lead_source: string;
-  fees: Record<keyof ConsignmentFees, string>;
+  fees: Record<Exclude<keyof ConsignmentFees, 'custom'>, string>;
+  custom: CustomFeeForm[];
 };
 
 const emptyForm: FormState = {
@@ -39,6 +42,7 @@ const emptyForm: FormState = {
   reserve_policy: 'none',
   lead_source: '',
   fees: { photography: '', cataloging: '', insurance: '', storage: '', buyin: String(DEFAULT_BUYIN_RATE) },
+  custom: [],
 };
 
 const num = (s: string): number | undefined => {
@@ -76,6 +80,11 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
         storage: c.fee_schedule?.storage?.toString() ?? '',
         buyin: c.fee_schedule?.buyin?.toString() ?? String(DEFAULT_BUYIN_RATE),
       },
+      custom: (c.fee_schedule?.custom ?? []).map((f) => ({
+        label: f.label ?? '',
+        amount: f.amount != null ? String(f.amount) : '',
+        note: f.note ?? '',
+      })),
     });
     setShowModal(true);
   };
@@ -88,10 +97,15 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
     setSaving(true);
     try {
       const fee_schedule: ConsignmentFees = {};
-      (Object.keys(form.fees) as (keyof ConsignmentFees)[]).forEach((k) => {
+      (Object.keys(form.fees) as (keyof Omit<ConsignmentFees, 'custom'>)[]).forEach((k) => {
         const v = num(form.fees[k]);
         if (v !== undefined) fee_schedule[k] = v;
       });
+      // Ad-hoc consignor fees: keep any line that has a label or a non-zero amount.
+      const custom = form.custom
+        .map((c) => ({ label: c.label.trim(), amount: num(c.amount) ?? 0, note: c.note.trim() || undefined }))
+        .filter((c) => c.label !== '' || c.amount !== 0);
+      if (custom.length) fee_schedule.custom = custom;
       const payload = {
         company_id: companyId,
         sale_id: saleId,
@@ -276,6 +290,64 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                   onChange={(e) => setForm({ ...form, fees: { ...form.fees, buyin: e.target.value } })}
                   className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="3"
                 />
+              </div>
+
+              {/* Other fees — ad-hoc consignor charges (cleanout, parking, gate, setup…) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Other fees ($)</label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Extra charges billed to the consignor beyond the flat fees — e.g. estate
+                  cleanout, parking, gate, setup. Add a line, name it, set the amount, and note
+                  what it&apos;s for. These are deducted from the payout at settlement.
+                </p>
+                <datalist id="custom-fee-labels">
+                  {CUSTOM_FEE_SUGGESTIONS.map((s) => <option key={s} value={s} />)}
+                </datalist>
+                {form.custom.length > 0 && (
+                  <div className="space-y-2 mb-2">
+                    {form.custom.map((cf, i) => (
+                      <div key={i} className="flex gap-2 items-start">
+                        <input
+                          list="custom-fee-labels"
+                          value={cf.label}
+                          onChange={(e) => setForm({ ...form, custom: form.custom.map((c, j) => j === i ? { ...c, label: e.target.value } : c) })}
+                          placeholder="Fee (e.g. Cleanout)"
+                          className="flex-1 min-w-0 border border-gray-300 rounded-md p-1.5 text-sm"
+                        />
+                        <div className="relative w-24 shrink-0">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                          <input
+                            type="number" inputMode="decimal" value={cf.amount}
+                            onChange={(e) => setForm({ ...form, custom: form.custom.map((c, j) => j === i ? { ...c, amount: e.target.value } : c) })}
+                            placeholder="0"
+                            className="w-full pl-5 pr-2 py-1.5 border border-gray-300 rounded-md text-sm"
+                          />
+                        </div>
+                        <input
+                          value={cf.note}
+                          onChange={(e) => setForm({ ...form, custom: form.custom.map((c, j) => j === i ? { ...c, note: e.target.value } : c) })}
+                          placeholder="Comment (optional)"
+                          className="flex-1 min-w-0 border border-gray-300 rounded-md p-1.5 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, custom: form.custom.filter((_, j) => j !== i) })}
+                          className="p-1.5 text-gray-400 hover:text-red-600 shrink-0"
+                          aria-label="Remove fee"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, custom: [...form.custom, { label: '', amount: '', note: '' }] })}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add a fee line
+                </button>
               </div>
 
               <div className="rounded-md bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600 space-y-1">

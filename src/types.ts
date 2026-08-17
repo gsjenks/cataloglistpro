@@ -339,12 +339,23 @@ export interface StageProgress {
   overrides?: StageOverride[];
 }
 
+// A free-form consignor fee line (e.g. cleanout, parking, gate, setup, other),
+// with an optional comment explaining the charge.
+export interface CustomFee {
+  label: string;
+  amount: number;
+  note?: string;
+}
+
 export interface ConsignmentFees {
   photography?: number;
   cataloging?: number;
   insurance?: number;
   storage?: number;
   buyin?: number;
+  // Extra ad-hoc fees charged to the consignor (estate cleanout, parking, gate,
+  // setup, or anything else). Each carries a label + amount + optional comment.
+  custom?: CustomFee[];
 }
 
 // A buyer's resale / sales-tax exemption certificate. Company-scoped and not tied to a

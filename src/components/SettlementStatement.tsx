@@ -82,8 +82,8 @@ export default function SettlementStatement({ consignment, consignorName, saleNa
           <div className="ml-auto w-full max-w-sm space-y-1.5">
             <Row label={`Gross (${s.soldCount} sold)`} value={money(s.gross)} />
             <Row label={`Commission (${s.commissionRate}%)`} value={`− ${money(s.commission)}`} />
-            {s.fees.map((f) => (
-              <Row key={f.key} label={`${f.label} fee`} value={`− ${money(f.amount)}`} />
+            {s.fees.map((f, i) => (
+              <Row key={`${f.key}-${i}`} label={`${f.label}${f.note ? ` (${f.note})` : ''} fee`} value={`− ${money(f.amount)}`} />
             ))}
             {s.fees.length === 0 && <Row label="Fees" value={money(0)} muted />}
             <div className="border-t border-gray-300 pt-2 mt-2 flex items-center justify-between">
