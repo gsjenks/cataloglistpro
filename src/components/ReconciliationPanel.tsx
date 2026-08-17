@@ -269,6 +269,7 @@ export default function ReconciliationPanel({
                     key={r.consignment.id}
                     row={r}
                     busy={busy}
+                    isEstate={isEstate}
                     onStatement={() => setStatementFor(r)}
                     onPay={() => openPayout(r)}
                     onSettle={() => run(`settle:${r.consignment.id}`, () => markSettled(r.consignment.id, r.settlement.net))}
@@ -438,10 +439,11 @@ export default function ReconciliationPanel({
 }
 
 function PayoutRow({
-  row, busy, onStatement, onPay, onSettle,
+  row, busy, isEstate, onStatement, onPay, onSettle,
 }: {
   row: ConsignorRow;
   busy: string | null;
+  isEstate: boolean;
   onStatement: () => void;
   onPay: () => void;
   onSettle: () => void;
