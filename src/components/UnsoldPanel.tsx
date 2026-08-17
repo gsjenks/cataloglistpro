@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { RotateCcw, Archive, Heart, Trash2, X, Undo2, Printer, Pencil, ChevronRight, ChevronDown } from 'lucide-react';
 import type { Lot, LotDisposition, LotBuyer } from '../types';
+import { isSoldLot } from '../lib/lotState';
 import { sellAftersale, setDisposition, updateDispositionNote, clearDisposition } from '../services/DispositionService';
 import DispositionPrintList from './DispositionPrintList';
 import BuyerFields from './BuyerFields';
@@ -54,7 +55,17 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, saleType, 
   const [dispoModal, setDispoModal] = useState<{ lot: Lot; disposition: LotDisposition; edit: boolean } | null>(null);
   const [note, setNote] = useState('');
 
-  const passed = lots.filter((l) => l.outcome === 'passed');
+  // What needs a disposition. Auctions: lots that passed at the block. Estate
+  // sales have no auction outcome, so "unsold" = anything not sold and not still
+  // actively held (a live basket hold is in play, not yet unsold). Lots that
+  // already carry a disposition stay in the set so they show in their section.
+  const now = Date.now();
+  const isLiveHeld = (l: Lot) =>
+    l.inventory_status === 'held' && !!l.held_until && new Date(l.held_until).getTime() > now;
+  const soldish = (l: Lot) => isSoldLot(l) || l.inventory_status === 'sold';
+  const passed = isEstate
+    ? lots.filter((l) => (!soldish(l) && !isLiveHeld(l)) || !!l.disposition)
+    : lots.filter((l) => l.outcome === 'passed');
   const pending = passed.filter((l) => !l.disposition);
   const returned = passed.filter((l) => l.disposition === 'returned');
   const held = passed.filter((l) => l.disposition === 'hold_relist');
@@ -118,9 +129,17 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, saleType, 
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <h2 className="text-lg font-semibold text-gray-900">Unsold — to disposition</h2>
         <p className="text-sm text-gray-500">{pending.length} lot(s) awaiting a decision.</p>
+        {isEstate && (
+          <p className="mt-1 text-xs text-gray-400">
+            Everything not sold (and not currently held) — typically worked at the end of the
+            sale. Send each to the owner, charity, or the cleanout.
+          </p>
+        )}
 
         {pending.length === 0 ? (
-          <div className="mt-4 text-center py-6 text-gray-400 text-sm">Nothing pending.</div>
+          <div className="mt-4 text-center py-6 text-gray-400 text-sm">
+            {isEstate ? 'Nothing unsold — everything sold or dispositioned.' : 'Nothing pending.'}
+          </div>
         ) : (
           <ul className="mt-3 divide-y divide-gray-100">
             {pending.map((l) => (

@@ -6,6 +6,7 @@ import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document, Consignment } from '../types';
 import { useLotInventoryRealtime } from '../hooks/useLotInventoryRealtime';
 import { reclaimExpiredHolds } from '../lib/holds';
+import { isSoldLot } from '../lib/lotState';
 import type { ScannedLot } from '../services/ScannerService';
 import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
@@ -629,7 +630,10 @@ export default function SaleDetail() {
       id: 'unsold',
       label: 'Unsold',
       icon: <PackageX className="w-4 h-4" />,
-      count: lots.filter((l) => l.outcome === 'passed' && !l.disposition).length,
+      count: isEstate
+        ? lots.filter((l) => !l.disposition && !isSoldLot(l) && l.inventory_status !== 'sold'
+            && !(l.inventory_status === 'held' && !!l.held_until && new Date(l.held_until).getTime() > Date.now())).length
+        : lots.filter((l) => l.outcome === 'passed' && !l.disposition).length,
     },
     {
       id: 'reconciliation',
