@@ -32,6 +32,8 @@ export interface BuyerInvoice {
   total: number;
   paidCount: number;
   unpaidCount: number;
+  /** Earliest payment due date across this buyer's unpaid lots. */
+  dueAt?: string;
   carriers: string[];        // distinct handoff values across the buyer's lots
 }
 
@@ -66,6 +68,7 @@ export function buildBuyerInvoices(lots: Lot[], taxRate: number): BuyerInvoice[]
         total: 0,
         paidCount: 0,
         unpaidCount: 0,
+        dueAt: undefined,
         carriers: [],
       });
     }
@@ -82,7 +85,11 @@ export function buildBuyerInvoices(lots: Lot[], taxRate: number): BuyerInvoice[]
     });
     inv.hammerTotal += l.sold_price ?? 0;
     inv.premiumTotal += l.buyers_premium ?? 0;
-    paid ? inv.paidCount++ : inv.unpaidCount++;
+    if (paid) inv.paidCount++;
+    else {
+      inv.unpaidCount++;
+      if (l.payment_due_at && (!inv.dueAt || l.payment_due_at < inv.dueAt)) inv.dueAt = l.payment_due_at;
+    }
     if (l.la_invoice_id && !inv.invoiceIds.includes(l.la_invoice_id)) inv.invoiceIds.push(l.la_invoice_id);
     if (l.fulfillment_carrier && !inv.carriers.includes(l.fulfillment_carrier)) inv.carriers.push(l.fulfillment_carrier);
   }

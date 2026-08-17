@@ -7,7 +7,7 @@
 // is entered here and remembered per sale — same convention the POS uses.
 
 import { useMemo, useState } from 'react';
-import { X, Printer } from 'lucide-react';
+import { X, Printer, Mail, Copy } from 'lucide-react';
 import type { Lot, BuyerInvoiceRecord, HouseCharge } from '../types';
 import { buildBuyerInvoices, addressLines, isSold, type BuyerInvoice } from '../lib/invoices';
 
@@ -157,12 +157,87 @@ export default function BuyerInvoices({
   const houseFor = (inv: BuyerInvoice) => houseByBuyer.get(inv.key) ?? null;
   const houseAdds = (c: HouseCharge | null) =>
     c ? (c.shipping ?? 0) + (c.handling ?? 0) + (c.tax ?? 0) : 0;
-  const grand = invoices.reduce(
-    (s, i) => s + (laFor(i)?.adjustedTotal ?? i.total) + houseAdds(houseFor(i)),
-    0,
-  );
+
+  // The one figure this buyer owes, and the only one anything should quote. When the
+  // house is billing the tax, the typed fallback rate must NOT also apply — that
+  // double-taxes the lots, which is exactly what the printed body avoids.
+  const dueOf = (inv: BuyerInvoice): number => {
+    const la = laFor(inv);
+    const house = houseFor(inv);
+    const base = la
+      ? la.adjustedTotal
+      : house
+        ? round2(inv.hammerTotal + inv.premiumTotal)
+        : inv.total;
+    return round2(base + houseAdds(house));
+  };
+
+  const grand = invoices.reduce((s, i) => s + dueOf(i), 0);
   // The typed rate is only a fallback for buyers with no imported LA invoice.
   const needsFallbackTax = invoices.some((i) => !laFor(i));
+
+  // Sending one buyer their invoice. A post-sale buyer has to be told what they owe
+  // before they can pay, and there's no mail server here — so we hand the text to
+  // whatever mail client they use, and offer the clipboard for anything longer than
+  // a mailto: link will reliably carry.
+  const single = buyerKey && invoices.length === 1 ? invoices[0] : null;
+  const [copied, setCopied] = useState(false);
+
+  const invoiceText = (inv: BuyerInvoice): string => {
+    const la = laFor(inv);
+    const house = houseFor(inv);
+    const due = dueOf(inv);
+    const L: string[] = [];
+    L.push(`${companyName || 'Auction invoice'} — ${saleName}`);
+    L.push('');
+    L.push(`Invoice for ${inv.buyerName}`);
+    if (inv.invoiceIds.length) L.push(`LiveAuctioneers invoice ${inv.invoiceIds.join(', ')}`);
+    L.push('');
+    inv.lines.forEach((l) => {
+      L.push(`Lot ${l.lotNumber ?? ''} — ${l.name}: ${money(l.hammer)}${l.premium ? ` + ${money(l.premium)} premium` : ''}`);
+    });
+    la?.credits.forEach((c) => {
+      L.push(`Less lot ${c.lotNumber} (${c.refunded ? 'refunded' : 'not completed'}): -${money(c.total)}`);
+    });
+    L.push('');
+    L.push(`Hammer: ${money(inv.hammerTotal)}`);
+    if (inv.premiumTotal) L.push(`Buyer's premium: ${money(inv.premiumTotal)}`);
+    if (la) {
+      if (la.shipping) L.push(`Shipping: ${money(la.shipping)}`);
+      if (la.salesTax) L.push(`Sales tax: ${money(la.salesTax)}`);
+    } else if (!house && inv.tax) {
+      L.push(`Sales tax: ${money(inv.tax)}`);
+    }
+    if (house) {
+      if (house.shipping) L.push(`Shipping (${companyName || 'auction house'}): ${money(house.shipping)}`);
+      if (house.handling) L.push(`Handling: ${money(house.handling)}`);
+      if (house.tax) L.push(`Sales tax: ${money(house.tax)}`);
+    }
+    L.push('');
+    L.push(`AMOUNT DUE: ${money(due)}`);
+    if (inv.dueAt) L.push(`Due by ${new Date(inv.dueAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`);
+    L.push('');
+    L.push(`Please remit to ${companyName || 'the auction house'}${companyPhone ? ` · ${companyPhone}` : ''}.`);
+    L.push('Lots are released once payment clears.');
+    return L.join('\n');
+  };
+
+  const mailtoFor = (inv: BuyerInvoice): string => {
+    const subject = `${companyName || 'Auction'} invoice — ${saleName}`;
+    return `mailto:${encodeURIComponent(inv.buyer.email ?? '')}`
+      + `?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(invoiceText(inv))}`;
+  };
+
+  const copyInvoice = async (inv: BuyerInvoice) => {
+    try {
+      await navigator.clipboard.writeText(invoiceText(inv));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      console.error('Clipboard write failed:', e);
+      alert('Could not copy. Print instead, or select the text on screen.');
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -206,6 +281,29 @@ export default function BuyerInvoices({
                 Unpaid only
               </label>
             )}
+            {single && (
+              <>
+                <button
+                  onClick={() => copyInvoice(single)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  title="Copy the invoice as text"
+                >
+                  <Copy className="w-4 h-4" /> {copied ? 'Copied' : 'Copy'}
+                </button>
+                <a
+                  href={single.buyer.email ? mailtoFor(single) : undefined}
+                  onClick={(e) => { if (!single.buyer.email) { e.preventDefault(); alert('No email address on file for this buyer — add one from the Fulfillment tab, or copy the text and send it yourself.'); } }}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm rounded-md border ${
+                    single.buyer.email
+                      ? 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      : 'border-gray-200 text-gray-400'
+                  }`}
+                  title={single.buyer.email ? `Draft an email to ${single.buyer.email}` : 'No email on file for this buyer'}
+                >
+                  <Mail className="w-4 h-4" /> Email
+                </a>
+              </>
+            )}
             <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700">
               <Printer className="w-4 h-4" /> Print
             </button>
@@ -221,6 +319,7 @@ export default function BuyerInvoices({
               <Invoice
                 key={inv.key}
                 inv={inv}
+                due={dueOf(inv)}
                 la={laFor(inv)}
                 house={houseFor(inv)}
                 saleName={saleName}
@@ -238,9 +337,10 @@ export default function BuyerInvoices({
 }
 
 function Invoice({
-  inv, la, house, saleName, companyName, companyPhone, companyAddress, carrierLabel,
+  inv, due, la, house, saleName, companyName, companyPhone, companyAddress, carrierLabel,
 }: {
   inv: BuyerInvoice;
+  due: number;
   la: LaTotals | null;
   house: HouseCharge | null;
   saleName: string;
@@ -250,6 +350,12 @@ function Invoice({
   carrierLabel: (value?: string) => string;
 }) {
   const fullyPaid = inv.unpaidCount === 0;
+  // Computed once by the parent (dueOf) so the printed total, the amount-due block,
+  // the emailed text and the header all quote the same number.
+  const amountDue = due;
+  const dueDate = inv.dueAt
+    ? new Date(inv.dueAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '';
   return (
     <div className="invoice-page p-6 space-y-5 text-sm text-gray-800">
       <div className="flex items-start justify-between gap-4">
@@ -399,8 +505,7 @@ function Invoice({
             <div className="border-t border-gray-300 pt-2 mt-2 flex items-center justify-between">
               <span className="font-semibold text-gray-900">Total</span>
               <span className="font-bold text-lg text-gray-900 tabular-nums">
-                {money((la?.total ?? inv.hammerTotal + inv.premiumTotal)
-                  + (house.shipping ?? 0) + (house.handling ?? 0) + (house.tax ?? 0))}
+                {money(due)}
               </span>
             </div>
             {house.collected_at && (
@@ -412,6 +517,26 @@ function Invoice({
           </>
         )}
       </div>
+
+      {/* Unpaid means this sheet is a bill, not a record. Say what's owed and by when. */}
+      {inv.unpaidCount > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 flex items-start justify-between gap-4">
+          <div>
+            <div className="font-semibold text-amber-900">Amount due</div>
+            <div className="text-xs text-amber-800 mt-0.5">
+              {inv.unpaidCount} of {inv.lines.length} lot(s) unpaid
+              {dueDate && <> · due {dueDate}</>}
+            </div>
+            <div className="text-xs text-amber-800 mt-1">
+              Please remit to {companyName || 'the auction house'}
+              {companyPhone && <> · {companyPhone}</>}. Lots are released once payment clears.
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            <div className="text-2xl font-bold text-amber-900 tabular-nums">{money(amountDue)}</div>
+          </div>
+        </div>
+      )}
 
       {la ? (
         <p className="text-xs text-gray-400">
