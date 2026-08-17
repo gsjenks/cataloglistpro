@@ -1,46 +1,59 @@
 // src/components/InventoryStatusControl.tsx
-// Estate-sale floor control: staff mark a lot Available / Held / Sold at any
-// time. This is independent of the online self-checkout delay (see
-// src/lib/estateSale.ts) — staff are never gated.
+// Estate-sale floor control (Available / Held / Sold):
+//  • Available — release the lot back to the floor.
+//  • Held      — put the lot in a customer's basket (opens a picker via onHold);
+//                a hold is never a plain status flip, it always names a customer.
+//  • Sold      — read-only. A lot only becomes Sold when it's paid at checkout,
+//                so staff can't set it by hand here.
 
 import { memo } from 'react';
 import type { Lot } from '../types';
 
 type InventoryStatus = NonNullable<Lot['inventory_status']>;
 
-const OPTIONS: { value: InventoryStatus; label: string; active: string }[] = [
-  { value: 'available', label: 'Available', active: 'bg-green-600 text-white border-green-600' },
-  { value: 'held', label: 'Held', active: 'bg-amber-500 text-white border-amber-500' },
-  { value: 'sold', label: 'Sold', active: 'bg-gray-700 text-white border-gray-700' },
-];
-
 interface Props {
   status: InventoryStatus;
-  onChange: (status: InventoryStatus) => void;
+  onChange: (status: InventoryStatus) => void; // used for Available (release)
+  onHold?: () => void;                         // Held → assign to a basket
   disabled?: boolean;
 }
 
-function InventoryStatusControl({ status, onChange, disabled }: Props) {
+function InventoryStatusControl({ status, onChange, onHold, disabled }: Props) {
+  const btn = (active: boolean, activeCls: string, interactive: boolean) =>
+    `px-2.5 py-1 text-xs font-medium transition-colors ` +
+    (active ? activeCls : 'bg-white text-gray-600 ') +
+    (interactive ? 'hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed ' : 'cursor-default ');
+
   return (
     <div className="inline-flex rounded-md border border-gray-200 overflow-hidden" role="group">
-      {OPTIONS.map((opt) => {
-        const isActive = status === opt.value;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            disabled={disabled}
-            aria-pressed={isActive}
-            onClick={() => !isActive && onChange(opt.value)}
-            className={
-              `px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ` +
-              (isActive ? opt.active : 'bg-white text-gray-600 hover:bg-gray-50')
-            }
-          >
-            {opt.label}
-          </button>
-        );
-      })}
+      <button
+        type="button"
+        disabled={disabled}
+        aria-pressed={status === 'available'}
+        onClick={() => status !== 'available' && onChange('available')}
+        className={btn(status === 'available', 'bg-green-600 text-white', true)}
+      >
+        Available
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-pressed={status === 'held'}
+        onClick={() => (onHold ? onHold() : onChange('held'))}
+        title="Put this item in a customer's basket"
+        className={btn(status === 'held', 'bg-amber-500 text-white', true)}
+      >
+        Held
+      </button>
+      <button
+        type="button"
+        disabled
+        aria-pressed={status === 'sold'}
+        title="Set automatically when the item is paid for at checkout"
+        className={btn(status === 'sold', 'bg-gray-700 text-white', false)}
+      >
+        Sold
+      </button>
     </div>
   );
 }

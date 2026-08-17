@@ -20,6 +20,8 @@ interface LotsListProps {
   // Estate sales show the Available/Held/Sold floor control per lot.
   saleType?: Sale['sale_type'];
   onInventoryChange?: (lotId: string, status: InventoryStatus) => void;
+  // Held → put the lot in a customer's basket (opens a picker in the parent).
+  onHoldLot?: (lot: Lot) => void;
   // consignment_id -> consignor display name, for the card's Consignor line.
   consignorNames?: Record<string, string>;
 }
@@ -101,6 +103,7 @@ const LotCard = memo(({
   refreshKey,
   showInventory,
   onInventoryChange,
+  onHold,
   saleId,
   consignorName
 }: {
@@ -112,6 +115,7 @@ const LotCard = memo(({
   refreshKey: number;
   showInventory: boolean;
   onInventoryChange?: (lotId: string, status: InventoryStatus) => void;
+  onHold?: () => void;
   saleId: string;
   consignorName?: string;
 }) => {
@@ -236,6 +240,7 @@ const LotCard = memo(({
                 <InventoryStatusControl
                   status={lot.inventory_status ?? 'available'}
                   onChange={(s) => onInventoryChange(lot.id, s)}
+                  onHold={onHold}
                 />
               </div>
             )}
@@ -283,7 +288,7 @@ const LotCard = memo(({
 
 LotCard.displayName = 'LotCard';
 
-export default function LotsList({ lots, saleId, onRefresh, saleType, onInventoryChange, consignorNames }: LotsListProps) {
+export default function LotsList({ lots, saleId, onRefresh, saleType, onInventoryChange, onHoldLot, consignorNames }: LotsListProps) {
   const showInventory = saleType === 'estate_sale';
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -419,6 +424,7 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
           refreshKey={refreshKey}
           showInventory={showInventory}
           onInventoryChange={onInventoryChange}
+          onHold={onHoldLot ? () => onHoldLot(lot) : undefined}
           saleId={saleId}
           consignorName={lot.consignment_id ? consignorNames?.[lot.consignment_id] : undefined}
         />

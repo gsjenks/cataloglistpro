@@ -10,6 +10,7 @@ import { isSoldLot } from '../lib/lotState';
 import type { ScannedLot } from '../services/ScannerService';
 import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
+import AssignToBasketModal from './AssignToBasketModal';
 import QRScanner from './QRScanner';
 import PointOfSale from './PointOfSale';
 import BasketManager from './BasketManager';
@@ -54,6 +55,8 @@ export default function SaleDetail() {
   const [showBaskets, setShowBaskets] = useState(false);
   // Set when handing a basket from the Baskets tool straight to the register.
   const [checkoutBasketId, setCheckoutBasketId] = useState<string | null>(null);
+  // The lot being put into a customer's basket via the item-list "Held" control.
+  const [assignLot, setAssignLot] = useState<Lot | null>(null);
   
   // Export state
   const [exporting, setExporting] = useState(false);
@@ -882,6 +885,7 @@ export default function SaleDetail() {
               onRefresh={loadLots}
               saleType={sale?.sale_type}
               onInventoryChange={handleInventoryChange}
+              onHoldLot={setAssignLot}
               consignorNames={consignorNames}
             />
             
@@ -1013,6 +1017,16 @@ export default function SaleDetail() {
             setCheckoutBasketId(shopperId);
             setShowRegister(true);
           }}
+        />
+      )}
+
+      {assignLot && (
+        <AssignToBasketModal
+          saleId={saleId!}
+          companyId={sale?.company_id ?? null}
+          lot={assignLot}
+          onClose={() => setAssignLot(null)}
+          onAssigned={loadLots}
         />
       )}
 
