@@ -113,12 +113,35 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, onChanged 
             {pending.map((l) => (
               <li key={l.id} className="py-3 flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-gray-900">#{l.lot_number} {l.name}</div>
+                  <div className="text-sm font-medium text-gray-900 flex items-center gap-2 flex-wrap">
+                    #{l.lot_number} {l.name}
+                    {/* Why it's here: never passed at all, the buyer walked, or it came back. */}
+                    {l.payment_status === 'refunded' && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                        Refunded
+                      </span>
+                    )}
+                    {l.payment_status === 'defaulted' && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
+                        Buyer defaulted
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-gray-500 flex flex-wrap gap-x-3">
                     {(l.estimate_low || l.estimate_high) && (
                       <span>Est. {money(l.estimate_low)}{l.estimate_high ? `–${money(l.estimate_high)}` : ''}</span>
                     )}
                     {consignorOf(l) && <span>{consignorOf(l)}</span>}
+                    {l.payment_status === 'refunded' && (
+                      <span className="text-amber-600">
+                        {money(l.refund_amount)} refunded
+                        {l.buyer?.name ? ` to ${l.buyer.name}` : ''}
+                        {l.refund_reason ? ` — ${l.refund_reason}` : ''}
+                      </span>
+                    )}
+                    {(l.payment_status === 'defaulted' || l.payment_status === 'refunded') && (l.sold_price ?? 0) > 0 && (
+                      <span>was {money(l.sold_price)}</span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">

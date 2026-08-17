@@ -34,6 +34,7 @@ interface CreditLine {
   invoiceId: string;
   lotNumber: number;
   title: string;
+  refunded: boolean;   // paid then given back, vs never completed
   goods: number;   // hammer + premium as billed
   tax: number;     // proportional share of the invoice's sales tax
   total: number;
@@ -59,6 +60,7 @@ function laTotalsFor(
   inv: BuyerInvoice,
   byId: Map<string, BuyerInvoiceRecord>,
   soldLotNumbers: Set<number>,
+  refundedLotNumbers: Set<number>,
 ): LaTotals | null {
   const matches = inv.invoiceIds.map((id) => byId.get(id)).filter((r): r is BuyerInvoiceRecord => !!r);
   if (matches.length === 0) return null;
@@ -77,6 +79,7 @@ function laTotalsFor(
         invoiceId: m.la_invoice_id,
         lotNumber: line.lotNumber,
         title: line.title,
+        refunded: refundedLotNumbers.has(line.lotNumber),
         goods: round2(goods),
         tax,
         total: round2(goods + tax),
@@ -142,7 +145,15 @@ export default function BuyerInvoices({
     ),
     [lots],
   );
-  const laFor = (inv: BuyerInvoice) => laTotalsFor(inv, laById, soldLotNumbers);
+  const refundedLotNumbers = useMemo(
+    () => new Set(
+      lots.filter((l) => l.payment_status === 'refunded')
+        .map((l) => (typeof l.lot_number === 'number' ? l.lot_number : parseInt(String(l.lot_number ?? ''), 10)))
+        .filter((n) => Number.isFinite(n)),
+    ),
+    [lots],
+  );
+  const laFor = (inv: BuyerInvoice) => laTotalsFor(inv, laById, soldLotNumbers, refundedLotNumbers);
   const houseFor = (inv: BuyerInvoice) => houseByBuyer.get(inv.key) ?? null;
   const houseAdds = (c: HouseCharge | null) =>
     c ? (c.shipping ?? 0) + (c.handling ?? 0) + (c.tax ?? 0) : 0;
@@ -325,7 +336,7 @@ function Invoice({
             {la.credits.map((c) => (
               <div key={`${c.invoiceId}-${c.lotNumber}`} className="flex items-start justify-between text-amber-700">
                 <span className="text-sm pr-2">
-                  Less lot {c.lotNumber} — not completed
+                  Less lot {c.lotNumber} — {c.refunded ? 'refunded' : 'not completed'}
                   <span className="block text-xs text-amber-600">
                     {c.title}{c.tax > 0 && ` · incl. ${money(c.tax)} tax`}
                   </span>
@@ -405,7 +416,7 @@ function Invoice({
       {la ? (
         <p className="text-xs text-gray-400">
           Figures from LiveAuctioneers invoice #{la.ids.join(', #')}.
-          {la.credits.length > 0 && ` ${la.credits.length} lot(s) billed on it did not complete and are credited above — settle the difference with LiveAuctioneers.`}
+          {la.credits.length > 0 && ` ${la.credits.length} lot(s) billed on it were refunded or did not complete and are credited above — settle the difference with LiveAuctioneers.`}
           {house && (
             house.tax_includes_goods === false
               ? ` Shipping, handling and tax on those charges billed by ${companyName || 'the auction house'}; the lots were taxed by LiveAuctioneers.`

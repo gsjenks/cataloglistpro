@@ -68,6 +68,44 @@ export async function secondBidderAccepted(
   });
 }
 
+export interface RefundInput {
+  amount: number;
+  method: string;          // cash | check | card | la | other
+  reason?: string;
+  refundedAt?: string;     // ISO; defaults to now
+}
+
+// The buyer paid and then gave the lot back. Money went OUT, so it's recorded rather
+// than inferred, and the lot returns to unsold (outcome 'passed') where it can be
+// re-sold, returned to the consignor or donated.
+//
+// sold_price and la_invoice_id are kept: the price is the natural asking price on a
+// re-offer, and the invoice link is what credits the lot on the buyer's invoice.
+// Shipment fields are kept too — a refunded lot often did ship, and that's history.
+// It leaves the fulfillment board regardless, which lists only sold AND paid lots.
+export async function refundLot(lotId: string, refund: RefundInput): Promise<void> {
+  await updateLot(lotId, {
+    payment_status: 'refunded',
+    outcome: 'passed',
+    refund_amount: refund.amount,
+    refunded_at: refund.refundedAt || new Date().toISOString(),
+    refund_method: refund.method,
+    refund_reason: refund.reason?.trim() || null,
+  });
+}
+
+// Undo a refund recorded in error: back to sold + paid, refund record cleared.
+export async function undoRefund(lotId: string): Promise<void> {
+  await updateLot(lotId, {
+    payment_status: 'paid',
+    outcome: 'sold',
+    refund_amount: null,
+    refunded_at: null,
+    refund_method: null,
+    refund_reason: null,
+  });
+}
+
 // Buyer defaulted with no (or a declined) second chance → the lot falls to unsold,
 // dropping into the disposition flow (D5) where it can be re-sold.
 //
