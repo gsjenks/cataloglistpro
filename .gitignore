@@ -43,3 +43,6 @@ supabase/.temp/
 # keys and tokens, and this repository is public.
 .claude/*
 !.claude/launch.json
+
+# Stray generated training artifact (kept on disk, not tracked)
+/auction-training-video-player.html
