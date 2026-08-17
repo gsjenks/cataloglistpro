@@ -26,6 +26,7 @@ import CatalogueImportModal from './CatalogueImportModal';
 import PaymentsPanel from './PaymentsPanel';
 import UnsoldPanel from './UnsoldPanel';
 import FulfillmentPanel from './FulfillmentPanel';
+import EstateFulfillmentPanel from './EstateFulfillmentPanel';
 import ReconciliationPanel from './ReconciliationPanel';
 import { listConsignments } from '../services/ConsignmentService';
 import { formatContactName } from '../utils/contactName';
@@ -641,7 +642,9 @@ export default function SaleDetail() {
       id: 'fulfillment',
       label: 'Fulfillment',
       icon: <Truck className="w-4 h-4" />,
-      count: lots.filter((l) => l.outcome === 'sold' && l.payment_status === 'paid' && !l.shipped_at && !l.delivered_at).length,
+      count: isEstate
+        ? lots.filter((l) => l.inventory_status === 'sold' && l.for_delivery).length
+        : lots.filter((l) => l.outcome === 'sold' && l.payment_status === 'paid' && !l.shipped_at && !l.delivered_at).length,
     },
     {
       id: 'unsold',
@@ -924,7 +927,11 @@ export default function SaleDetail() {
         )}
 
         {activeTab === 'fulfillment' && (
-          <FulfillmentPanel saleId={saleId!} companyId={sale.company_id} saleName={sale.name} lots={lots} onChanged={loadLots} />
+          isEstate ? (
+            <EstateFulfillmentPanel saleId={saleId!} saleName={sale.name} lots={lots} onChanged={loadLots} />
+          ) : (
+            <FulfillmentPanel saleId={saleId!} companyId={sale.company_id} saleName={sale.name} lots={lots} onChanged={loadLots} />
+          )
         )}
 
         {activeTab === 'unsold' && (
