@@ -42,17 +42,86 @@ export async function offerSecondBidder(lotId: string, contact: string, amount: 
 }
 
 // The underbidder accepted: the sale price + buyer become theirs, lot is paid.
-export async function secondBidderAccepted(lotId: string, contact: string, amount: number): Promise<void> {
-  const buyer: LotBuyer = { name: contact };
+//
+// Everything the ORIGINAL buyer left on the lot has to go with them. The lot is no
+// longer on their LiveAuctioneers invoice (LA never billed this sale — it's a house
+// transaction), and it must not travel on the shipment that was assigned for them.
+// Leaving those behind is how a second-chance lot ends up shipping to the wrong
+// address and printing someone else's invoice totals.
+export async function secondBidderAccepted(
+  lotId: string,
+  buyer: LotBuyer,
+  amount: number,
+  buyersPremium?: number,
+): Promise<void> {
   await updateLot(lotId, {
     payment_status: 'paid',
     sold_price: amount,
     buyer,
+    buyers_premium: buyersPremium ?? null,
+    la_invoice_id: null,
+    fulfillment_carrier: null,
+    fulfillment_method: null,
+    tracking_number: null,
+    shipped_at: null,
+    delivered_at: null,
+  });
+}
+
+export interface RefundInput {
+  amount: number;
+  method: string;          // cash | check | card | la | other
+  reason?: string;
+  refundedAt?: string;     // ISO; defaults to now
+}
+
+// The buyer paid and then gave the lot back. Money went OUT, so it's recorded rather
+// than inferred, and the lot returns to unsold (outcome 'passed') where it can be
+// re-sold, returned to the consignor or donated.
+//
+// sold_price and la_invoice_id are kept: the price is the natural asking price on a
+// re-offer, and the invoice link is what credits the lot on the buyer's invoice.
+// Shipment fields are kept too — a refunded lot often did ship, and that's history.
+// It leaves the fulfillment board regardless, which lists only sold AND paid lots.
+export async function refundLot(lotId: string, refund: RefundInput): Promise<void> {
+  await updateLot(lotId, {
+    payment_status: 'refunded',
+    outcome: 'passed',
+    refund_amount: refund.amount,
+    refunded_at: refund.refundedAt || new Date().toISOString(),
+    refund_method: refund.method,
+    refund_reason: refund.reason?.trim() || null,
+  });
+}
+
+// Undo a refund recorded in error: back to sold + paid, refund record cleared.
+export async function undoRefund(lotId: string): Promise<void> {
+  await updateLot(lotId, {
+    payment_status: 'paid',
+    outcome: 'sold',
+    refund_amount: null,
+    refunded_at: null,
+    refund_method: null,
+    refund_reason: null,
   });
 }
 
 // Buyer defaulted with no (or a declined) second chance → the lot falls to unsold,
-// dropping into the disposition flow (D5).
+// dropping into the disposition flow (D5) where it can be re-sold.
+//
+// It also comes off the buyer's shipment: nothing they haven't paid for should ship.
+// sold_price and la_invoice_id are deliberately KEPT — the price is what the
+// underbidder gets offered, and the invoice link is what lets their invoice show the
+// lot credited back. `outcome: 'passed'` is what stops it counting as a sale
+// (see lib/lotState.ts).
 export async function markDefaulted(lotId: string): Promise<void> {
-  await updateLot(lotId, { payment_status: 'defaulted', outcome: 'passed' });
+  await updateLot(lotId, {
+    payment_status: 'defaulted',
+    outcome: 'passed',
+    fulfillment_carrier: null,
+    fulfillment_method: null,
+    tracking_number: null,
+    shipped_at: null,
+    delivered_at: null,
+  });
 }

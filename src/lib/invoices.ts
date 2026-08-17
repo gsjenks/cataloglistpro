@@ -7,6 +7,7 @@
 // Tax base is hammer + premium, the common auction convention.
 
 import type { Lot, LotBuyer } from '../types';
+import { isSoldLot } from './lotState';
 
 export interface InvoiceLine {
   lotId: string;
@@ -41,7 +42,9 @@ export const buyerKeyOf = (l: Lot): string => {
   return b.email || b.name || 'unknown';
 };
 
-export const isSold = (l: Lot): boolean => l.outcome === 'sold' || (l.sold_price ?? 0) > 0;
+// Re-exported so callers that already import from here keep working; the definition
+// lives in lib/lotState.ts, which every money path now shares.
+export const isSold = isSoldLot;
 
 export function buildBuyerInvoices(lots: Lot[], taxRate: number): BuyerInvoice[] {
   const rate = Number.isFinite(taxRate) ? taxRate : 0;

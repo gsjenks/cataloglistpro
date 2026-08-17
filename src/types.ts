@@ -92,6 +92,11 @@ export interface Lot {
   payment_due_at?: string;         // won_at + 72h
   second_bidder_amount?: number;   // manual entry
   second_bidder_contact?: string;  // manual entry
+  // Paid for, then given back. The lot returns to unsold; these record the money out.
+  refund_amount?: number;
+  refunded_at?: string;
+  refund_method?: string;
+  refund_reason?: string;
   // Unsold disposition cascade (spec §4.2)
   disposition?: LotDisposition;
   disposition_at?: string;
@@ -309,7 +314,7 @@ export type SaleStage =
   | 'settlement' | 'fulfillment' | 'reconciliation' | 'closed';
 
 export type LotOutcome = 'pending' | 'sold' | 'passed';
-export type LotPaymentStatus = 'unpaid' | 'paid' | 'second_chance' | 'defaulted';
+export type LotPaymentStatus = 'unpaid' | 'paid' | 'second_chance' | 'defaulted' | 'refunded';
 export type LotDisposition = 'returned' | 'hold_relist' | 'charity' | 'discarded';
 
 // One checklist item's state within sales.stage_progress.
@@ -418,6 +423,8 @@ export interface BuyerInvoiceRecord {
   payment_method?: string;
   paid_at_text?: string;
   lot_numbers?: number[];
+  // Per-lot lines exactly as LA billed them, for crediting a lot that falls off.
+  lines?: { lotNumber: number; title: string; hammer: number; premium: number; price: number }[];
   totals_balance?: boolean;   // false = LA's printed total doesn't add up; review it
   imported_at?: string;
   created_at?: string;

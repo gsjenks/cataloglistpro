@@ -6,6 +6,7 @@
 
 import type { Consignment, Lot, HouseCharge, BuyerInvoiceRecord } from '../types';
 import { computeSettlement, type Settlement } from './settlement';
+import { isSoldLot } from './lotState';
 
 export interface ConsignorRow {
   consignment: Consignment;
@@ -43,6 +44,11 @@ export interface SaleReconciliation {
   // Sales tax the house collected is NOT revenue — it is money held for the state.
   // Kept out of houseRevenue deliberately and reported on its own.
   taxLiability: number;
+  // Money returned to buyers on lots that came back. The lots themselves are already
+  // out of every figure above (they stopped being sales), so this is the audit trail
+  // of cash actually returned, not a further deduction.
+  refundsIssued: number;
+  refundCount: number;
   taxCollectedCount: number;    // buyers charged house tax
   exemptCount: number;          // buyers billed tax-exempt (resale certificates)
   // Collected by LiveAuctioneers, never touching the house's books. Informational
@@ -82,8 +88,7 @@ export function computeReconciliation(
     })
     .sort((a, b) => b.settlement.net - a.settlement.net);
 
-  const isSold = (l: Lot) => l.outcome === 'sold' || (l.sold_price ?? 0) > 0;
-  const sold = lots.filter(isSold);
+  const sold = lots.filter(isSoldLot);
   const unassignedSold = sold.filter((l) => !l.consignment_id);
 
   const grossHammer = sold.reduce((s, l) => s + (l.sold_price ?? 0), 0);
@@ -111,6 +116,8 @@ export function computeReconciliation(
     feesCharged: round2(feesCharged),
     houseShipping: round2(houseShipping),
     houseRevenue: round2(commission + buyersPremium + feesCharged + houseShipping),
+    refundsIssued: round2(lots.reduce((s, l) => s + (l.refund_amount ?? 0), 0)),
+    refundCount: lots.filter((l) => (l.refund_amount ?? 0) > 0).length,
     taxLiability: round2(taxLiability),
     taxCollectedCount: houseCharges.filter((c) => (c.tax ?? 0) > 0).length,
     exemptCount: houseCharges.filter((c) => c.tax_exempt).length,
@@ -165,6 +172,8 @@ export function buildAccountingCsv(saleName: string, recon: SaleReconciliation):
   lines.push('');
   lines.push(csvRow(['Held for others — NOT revenue']));
   lines.push(csvRow(['Sales tax collected in-house (remit to state)', recon.taxLiability]));
+  lines.push(csvRow(['Refunds issued to buyers', recon.refundsIssued]));
+  lines.push(csvRow(['  (refunded lots are already excluded from the sales figures)']));
   lines.push('');
   lines.push(csvRow(['Collected by LiveAuctioneers — not house funds']));
   lines.push(csvRow(['Sales tax', recon.laTaxCollected]));

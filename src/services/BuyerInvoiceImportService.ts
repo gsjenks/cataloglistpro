@@ -80,6 +80,9 @@ export async function importBuyerInvoices(
     payment_method: inv.paymentMethod ?? null,
     paid_at_text: inv.paidAtText ?? null,
     lot_numbers: inv.lots.map((l) => l.lotNumber),
+    // Kept as billed: a lot that later falls off this invoice is credited at LA's
+    // figures, not at whatever the lot row says after it's re-sold.
+    lines: inv.lots,
     totals_balance: inv.totalsBalance,
     imported_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),

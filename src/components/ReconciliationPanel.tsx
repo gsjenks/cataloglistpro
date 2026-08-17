@@ -152,7 +152,7 @@ export default function ReconciliationPanel({
         {/* Money that passes through the house without ever being its own. Kept out
             of House revenue above — sales tax is owed to the state, and anything
             LiveAuctioneers collected never reaches the house's books at all. */}
-        {(recon.taxLiability > 0 || recon.laTaxCollected > 0 || recon.laShippingCollected > 0) && (
+        {(recon.taxLiability > 0 || recon.laTaxCollected > 0 || recon.laShippingCollected > 0 || recon.refundsIssued > 0) && (
           <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-4">
             <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-gray-500">
               <Landmark className="w-3.5 h-3.5" /> Held or collected for others — not revenue
@@ -169,6 +169,20 @@ export default function ReconciliationPanel({
                 </div>
                 <span className="text-lg font-bold tabular-nums text-amber-700 shrink-0">
                   {money(recon.taxLiability)}
+                </span>
+              </div>
+            )}
+
+            {recon.refundsIssued > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-200 flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-gray-900">Refunds issued to buyers</div>
+                  <div className="text-xs text-gray-500">
+                    {recon.refundCount} lot(s) returned · already out of the sales figures above
+                  </div>
+                </div>
+                <span className="text-lg font-bold tabular-nums text-amber-700 shrink-0">
+                  {money(recon.refundsIssued)}
                 </span>
               </div>
             )}
