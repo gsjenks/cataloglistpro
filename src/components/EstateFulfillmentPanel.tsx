@@ -4,8 +4,8 @@
 // manifest: the items, the delivery address/date, and the mover company + contact
 // captured at checkout. Printable for handing to the mover.
 
-import { useEffect, useState } from 'react';
-import { Truck, Printer, MapPin, Calendar, User, Phone, Mail, AlertTriangle } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Truck, Printer, MapPin, Calendar, User, Phone, Mail, AlertTriangle, Pencil } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { Lot } from '../types';
 
@@ -37,54 +37,97 @@ interface Group {
 const money = (n?: number | null) =>
   n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
+const inputCls = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600';
+
+const emptyForm = { address: '', date: '', estimate: '', company: '', phone: '', email: '' };
+
 export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
 
   const deliveryLots = lots.filter((l) => l.inventory_status === 'sold' && l.for_delivery);
   const key = deliveryLots.map((l) => l.id).sort().join(',');
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      if (deliveryLots.length === 0) { if (!cancelled) { setGroups([]); setLoading(false); } return; }
+  const load = useCallback(async () => {
+    setLoading(true);
+    const ids = key ? key.split(',') : [];
+    if (ids.length === 0) { setGroups([]); setLoading(false); return; }
 
-      // Link each delivery lot to its POS transaction.
-      const { data: items } = await supabase
-        .from('sales_transaction_items')
-        .select('lot_id, transaction_id')
-        .in('lot_id', deliveryLots.map((l) => l.id));
-      const lotToTxn = new Map<string, string>();
-      ((items as { lot_id: string; transaction_id: string }[] | null) || []).forEach((i) => lotToTxn.set(i.lot_id, i.transaction_id));
+    // Link each delivery lot to its POS transaction.
+    const { data: items } = await supabase
+      .from('sales_transaction_items')
+      .select('lot_id, transaction_id')
+      .in('lot_id', ids);
+    const lotToTxn = new Map<string, string>();
+    ((items as { lot_id: string; transaction_id: string }[] | null) || []).forEach((i) => lotToTxn.set(i.lot_id, i.transaction_id));
 
-      const txnIds = [...new Set([...lotToTxn.values()])];
-      const txnById = new Map<string, Txn>();
-      if (txnIds.length) {
-        const { data: txns } = await supabase
-          .from('sales_transactions')
-          .select('id, buyer_name, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
-          .in('id', txnIds);
-        ((txns as Txn[] | null) || []).forEach((t) => txnById.set(t.id, t));
-      }
+    const txnIds = [...new Set([...lotToTxn.values()])];
+    const txnById = new Map<string, Txn>();
+    if (txnIds.length) {
+      const { data: txns } = await supabase
+        .from('sales_transactions')
+        .select('id, buyer_name, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+        .in('id', txnIds);
+      ((txns as Txn[] | null) || []).forEach((t) => txnById.set(t.id, t));
+    }
 
-      // Group delivery lots by transaction.
-      const byKey = new Map<string, Group>();
-      for (const l of deliveryLots) {
-        const tid = lotToTxn.get(l.id);
-        const gkey = tid ?? 'unlinked';
-        const g = byKey.get(gkey) ?? { key: gkey, txn: tid ? txnById.get(tid) ?? null : null, lots: [], total: 0 };
-        g.lots.push(l);
-        g.total += l.sold_price ?? 0;
-        byKey.set(gkey, g);
-      }
-      const result = [...byKey.values()].sort((a, b) =>
-        (a.txn?.buyer_name || 'zzz').localeCompare(b.txn?.buyer_name || 'zzz'),
-      );
-      if (!cancelled) { setGroups(result); setLoading(false); }
-    })();
-    return () => { cancelled = true; };
+    // Group delivery lots by transaction (uses the current lots for names/prices).
+    const byId = new Map(deliveryLots.map((l) => [l.id, l]));
+    const byKey = new Map<string, Group>();
+    for (const id of ids) {
+      const l = byId.get(id);
+      if (!l) continue;
+      const tid = lotToTxn.get(id);
+      const gkey = tid ?? 'unlinked';
+      const g = byKey.get(gkey) ?? { key: gkey, txn: tid ? txnById.get(tid) ?? null : null, lots: [], total: 0 };
+      g.lots.push(l);
+      g.total += l.sold_price ?? 0;
+      byKey.set(gkey, g);
+    }
+    const result = [...byKey.values()].sort((a, b) =>
+      (a.txn?.buyer_name || 'zzz').localeCompare(b.txn?.buyer_name || 'zzz'),
+    );
+    setGroups(result);
+    setLoading(false);
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { load(); }, [load]);
+
+  const openEdit = (g: Group) => {
+    if (!g.txn) return;
+    setEditKey(g.txn.id);
+    setForm({
+      address: g.txn.delivery_address ?? '',
+      date: g.txn.delivery_date ?? '',
+      estimate: g.txn.delivery_estimate ?? '',
+      company: g.txn.delivery_company ?? '',
+      phone: g.txn.delivery_company_phone ?? '',
+      email: g.txn.delivery_company_email ?? '',
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editKey) return;
+    setSaving(true);
+    const { error } = await supabase
+      .from('sales_transactions')
+      .update({
+        delivery_address: form.address.trim() || null,
+        delivery_date: form.date.trim() || null,
+        delivery_estimate: form.estimate.trim() || null,
+        delivery_company: form.company.trim() || null,
+        delivery_company_phone: form.phone.trim() || null,
+        delivery_company_email: form.email.trim() || null,
+      })
+      .eq('id', editKey);
+    setSaving(false);
+    if (error) { alert('Could not save delivery details: ' + error.message); return; }
+    setEditKey(null);
+    await load();
+  };
 
   const itemCount = groups.reduce((s, g) => s + g.lots.length, 0);
   const grandTotal = groups.reduce((s, g) => s + g.total, 0);
@@ -135,42 +178,76 @@ export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
                     </h3>
                     <p className="text-xs text-gray-500">{g.lots.length} item{g.lots.length === 1 ? '' : 's'} · {money(g.total)}</p>
                   </div>
-                  {t?.delivery_date && (
-                    <span className="inline-flex items-center gap-1.5 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
-                      <Calendar className="w-4 h-4" /> {t.delivery_date}{t.delivery_estimate ? ` · ${t.delivery_estimate}` : ''}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {t?.delivery_date && (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
+                        <Calendar className="w-4 h-4" /> {t.delivery_date}{t.delivery_estimate ? ` · ${t.delivery_estimate}` : ''}
+                      </span>
+                    )}
+                    {t && editKey !== t.id && (
+                      <button
+                        onClick={() => openEdit(g)}
+                        className="no-print inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline"
+                      >
+                        <Pencil className="w-3.5 h-3.5" /> Edit
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {/* Delivery + mover details */}
-                <div className="mt-3 grid sm:grid-cols-2 gap-3">
-                  <div className="rounded-md border border-gray-200 p-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Deliver to</p>
-                    {hasAddress ? (
-                      <p className="text-sm text-gray-800 flex items-start gap-1.5">
-                        <MapPin className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" /> {t!.delivery_address}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-amber-700 flex items-center gap-1.5">
-                        <AlertTriangle className="w-4 h-4" /> No delivery address on file
-                      </p>
-                    )}
+                {/* Delivery + mover details — view or edit */}
+                {t && editKey === t.id ? (
+                  <div className="mt-3 rounded-md border border-indigo-200 bg-indigo-50/40 p-3 space-y-2 no-print">
+                    <p className="text-xs font-semibold text-indigo-900">Delivery &amp; mover details</p>
+                    <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Delivery address" className={inputCls} />
+                    <div className="flex gap-2">
+                      <input value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} placeholder="Delivery date" className={inputCls} />
+                      <input value={form.estimate} onChange={(e) => setForm({ ...form, estimate: e.target.value })} placeholder="Time / estimate" className={inputCls} />
+                    </div>
+                    <input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} placeholder="Mover / delivery company" className={inputCls} />
+                    <div className="flex gap-2">
+                      <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Mover phone" className={inputCls} />
+                      <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Mover email" className={inputCls} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={saveEdit} disabled={saving} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300">
+                        {saving ? 'Saving…' : 'Save'}
+                      </button>
+                      <button onClick={() => setEditKey(null)} disabled={saving} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                  <div className="rounded-md border border-gray-200 p-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Mover / delivery company</p>
-                    {hasMover ? (
-                      <div className="text-sm text-gray-800 space-y-0.5">
-                        {t?.delivery_company && <p className="flex items-center gap-1.5"><User className="w-4 h-4 text-gray-400" /> {t.delivery_company}</p>}
-                        {t?.delivery_company_phone && <p className="flex items-center gap-1.5"><Phone className="w-4 h-4 text-gray-400" /> <a href={`tel:${t.delivery_company_phone}`} className="hover:underline">{t.delivery_company_phone}</a></p>}
-                        {t?.delivery_company_email && <p className="flex items-center gap-1.5"><Mail className="w-4 h-4 text-gray-400" /> <a href={`mailto:${t.delivery_company_email}`} className="hover:underline">{t.delivery_company_email}</a></p>}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-amber-700 flex items-center gap-1.5">
-                        <AlertTriangle className="w-4 h-4" /> No mover details on file
-                      </p>
-                    )}
+                ) : (
+                  <div className="mt-3 grid sm:grid-cols-2 gap-3">
+                    <div className="rounded-md border border-gray-200 p-3">
+                      <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Deliver to</p>
+                      {hasAddress ? (
+                        <p className="text-sm text-gray-800 flex items-start gap-1.5">
+                          <MapPin className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" /> {t!.delivery_address}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-amber-700 flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4" /> No delivery address on file
+                        </p>
+                      )}
+                    </div>
+                    <div className="rounded-md border border-gray-200 p-3">
+                      <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Mover / delivery company</p>
+                      {hasMover ? (
+                        <div className="text-sm text-gray-800 space-y-0.5">
+                          {t?.delivery_company && <p className="flex items-center gap-1.5"><User className="w-4 h-4 text-gray-400" /> {t.delivery_company}</p>}
+                          {t?.delivery_company_phone && <p className="flex items-center gap-1.5"><Phone className="w-4 h-4 text-gray-400" /> <a href={`tel:${t.delivery_company_phone}`} className="hover:underline">{t.delivery_company_phone}</a></p>}
+                          {t?.delivery_company_email && <p className="flex items-center gap-1.5"><Mail className="w-4 h-4 text-gray-400" /> <a href={`mailto:${t.delivery_company_email}`} className="hover:underline">{t.delivery_company_email}</a></p>}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-amber-700 flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4" /> No mover details on file
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Lots */}
                 <div className="mt-3 border border-gray-200 rounded-md overflow-hidden">
