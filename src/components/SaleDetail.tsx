@@ -7,6 +7,7 @@ import type { Sale, Lot, Contact, Document, Consignment } from '../types';
 import { useLotInventoryRealtime } from '../hooks/useLotInventoryRealtime';
 import { reclaimExpiredHolds } from '../lib/holds';
 import { isSoldLot } from '../lib/lotState';
+import { refundLotSale } from '../services/RefundService';
 import type { ScannedLot } from '../services/ScannerService';
 import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
@@ -290,6 +291,19 @@ export default function SaleDetail() {
   const handleStructuralChange = useCallback(() => {
     loadLots();
   }, [saleId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Refund a sold lot — the only way it leaves "Sold". Reverses its register sale
+  // and returns it to Available.
+  const handleRefundLot = useCallback(async (lot: Lot) => {
+    const price = lot.sold_price != null ? ` ($${lot.sold_price.toLocaleString()})` : '';
+    if (!confirm(`Refund #${lot.lot_number ?? '—'} ${lot.name}${price}? This reverses the sale and returns the item to Available.`)) return;
+    const res = await refundLotSale(lot.id);
+    if (!res.success) {
+      alert('Refund failed: ' + (res.error ?? 'unknown error'));
+      return;
+    }
+    loadLots();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Staff mark a lot Available / Held / Sold. Optimistic update + write-back;
   // realtime echoes the change to other devices.
@@ -886,6 +900,7 @@ export default function SaleDetail() {
               saleType={sale?.sale_type}
               onInventoryChange={handleInventoryChange}
               onHoldLot={setAssignLot}
+              onRefundLot={handleRefundLot}
               consignorNames={consignorNames}
             />
             

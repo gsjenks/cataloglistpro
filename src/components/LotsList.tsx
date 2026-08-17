@@ -22,6 +22,8 @@ interface LotsListProps {
   onInventoryChange?: (lotId: string, status: InventoryStatus) => void;
   // Held → put the lot in a customer's basket (opens a picker in the parent).
   onHoldLot?: (lot: Lot) => void;
+  // Refund a sold lot (the only way a sold lot leaves "Sold").
+  onRefundLot?: (lot: Lot) => void;
   // consignment_id -> consignor display name, for the card's Consignor line.
   consignorNames?: Record<string, string>;
 }
@@ -104,6 +106,7 @@ const LotCard = memo(({
   showInventory,
   onInventoryChange,
   onHold,
+  onRefund,
   saleId,
   consignorName
 }: {
@@ -116,6 +119,7 @@ const LotCard = memo(({
   showInventory: boolean;
   onInventoryChange?: (lotId: string, status: InventoryStatus) => void;
   onHold?: () => void;
+  onRefund?: () => void;
   saleId: string;
   consignorName?: string;
 }) => {
@@ -235,13 +239,21 @@ const LotCard = memo(({
             </div>
 
             {showInventory && onInventoryChange && (
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
                 <span className="text-xs text-gray-500 w-20 flex-shrink-0">Status:</span>
                 <InventoryStatusControl
                   status={lot.inventory_status ?? 'available'}
                   onChange={(s) => onInventoryChange(lot.id, s)}
                   onHold={onHold}
                 />
+                {lot.inventory_status === 'sold' && onRefund && (
+                  <button
+                    onClick={onRefund}
+                    className="text-xs font-medium text-red-600 hover:text-red-700 hover:underline"
+                  >
+                    Refund
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -288,7 +300,7 @@ const LotCard = memo(({
 
 LotCard.displayName = 'LotCard';
 
-export default function LotsList({ lots, saleId, onRefresh, saleType, onInventoryChange, onHoldLot, consignorNames }: LotsListProps) {
+export default function LotsList({ lots, saleId, onRefresh, saleType, onInventoryChange, onHoldLot, onRefundLot, consignorNames }: LotsListProps) {
   const showInventory = saleType === 'estate_sale';
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -425,6 +437,7 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
           showInventory={showInventory}
           onInventoryChange={onInventoryChange}
           onHold={onHoldLot ? () => onHoldLot(lot) : undefined}
+          onRefund={onRefundLot ? () => onRefundLot(lot) : undefined}
           saleId={saleId}
           consignorName={lot.consignment_id ? consignorNames?.[lot.consignment_id] : undefined}
         />
