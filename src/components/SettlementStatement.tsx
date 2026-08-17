@@ -11,13 +11,16 @@ interface Props {
   consignorName: string;
   saleName: string;
   lots: Lot[];
+  saleType?: 'estate_sale' | 'auction' | 'social';
   onClose: () => void;
 }
 
 const money = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
-export default function SettlementStatement({ consignment, consignorName, saleName, lots, onClose }: Props) {
+export default function SettlementStatement({ consignment, consignorName, saleName, lots, saleType, onClose }: Props) {
   const s = computeSettlement(consignment, lots);
+  const isEstate = saleType === 'estate_sale';
+  const priceLabel = isEstate ? 'Sold' : 'Hammer';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -56,7 +59,7 @@ export default function SettlementStatement({ consignment, consignorName, saleNa
                 <tr>
                   <th className="text-left font-medium px-3 py-2 w-16">Lot</th>
                   <th className="text-left font-medium px-3 py-2">Item</th>
-                  <th className="text-right font-medium px-3 py-2 w-28">Hammer</th>
+                  <th className="text-right font-medium px-3 py-2 w-28">{priceLabel}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">

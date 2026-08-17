@@ -20,6 +20,7 @@ interface Props {
   consignments: Consignment[];
   lots: Lot[];
   consignorNames: Record<string, string>;
+  saleType?: 'estate_sale' | 'auction' | 'social';
   onChanged: () => void;
 }
 
@@ -40,8 +41,9 @@ const shortDate = (iso?: string) =>
   iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
 
 export default function ReconciliationPanel({
-  saleId, saleName, consignments, lots, consignorNames, onChanged,
+  saleId, saleName, consignments, lots, consignorNames, saleType, onChanged,
 }: Props) {
+  const isEstate = saleType === 'estate_sale';
   const [busy, setBusy] = useState<string | null>(null);
   const [statementFor, setStatementFor] = useState<ConsignorRow | null>(null);
   const [payFor, setPayFor] = useState<ConsignorRow | null>(null);
@@ -138,15 +140,24 @@ export default function ReconciliationPanel({
         </div>
 
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
-          <Stat label="Gross hammer" value={money(recon.grossHammer)} />
-          <Stat label="Buyer's premium" value={money(recon.buyersPremium)} />
+          {isEstate ? (
+            <>
+              <Stat label="Gross sales" value={money(recon.grossHammer)} />
+              <Stat label="Net sales" value={money(recon.grossHammer - recon.refundsIssued)} strong />
+            </>
+          ) : (
+            <>
+              <Stat label="Gross hammer" value={money(recon.grossHammer)} />
+              <Stat label="Buyer's premium" value={money(recon.buyersPremium)} />
+            </>
+          )}
           <Stat label="Commission" value={money(recon.commission)} />
           <Stat label="Fees billed" value={money(recon.feesCharged)} />
           {recon.houseShipping > 0 && (
             <Stat label="Shipping billed in-house" value={money(recon.houseShipping)} />
           )}
           <Stat label="House revenue" value={money(recon.houseRevenue)} strong />
-          <Stat label="Consignor payouts" value={money(recon.payoutsDue)} />
+          <Stat label={isEstate ? 'Consignor / owner payouts' : 'Consignor payouts'} value={money(recon.payoutsDue)} />
         </div>
 
         {/* Money that passes through the house without ever being its own. Kept out
@@ -418,6 +429,7 @@ export default function ReconciliationPanel({
           consignorName={statementFor.name}
           saleName={saleName}
           lots={lots}
+          saleType={saleType}
           onClose={() => setStatementFor(null)}
         />
       )}
@@ -441,7 +453,7 @@ function PayoutRow({
         <div className="text-sm font-medium text-gray-900 truncate">{row.name}</div>
         <div className="text-xs text-gray-500 flex flex-wrap gap-x-3">
           <span className="text-gray-800 font-medium">{money(s.net)} due</span>
-          <span>{s.soldCount} sold · {money(s.gross)} hammer</span>
+          <span>{s.soldCount} sold · {money(s.gross)}{isEstate ? '' : ' hammer'}</span>
           {s.commission > 0 && <span>− {money(s.commission)} commission</span>}
           {s.feesTotal > 0 && <span>− {money(s.feesTotal)} fees</span>}
         </div>

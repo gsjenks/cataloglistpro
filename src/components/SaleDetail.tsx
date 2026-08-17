@@ -945,6 +945,7 @@ export default function SaleDetail() {
             consignments={consignments}
             lots={lots}
             consignorNames={consignorNames}
+            saleType={sale?.sale_type}
             onChanged={loadConsignments}
           />
         )}
