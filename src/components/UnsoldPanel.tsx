@@ -11,24 +11,37 @@ import { sellAftersale, setDisposition, updateDispositionNote, clearDisposition 
 import DispositionPrintList from './DispositionPrintList';
 import BuyerFields from './BuyerFields';
 
-const DISPO_META: Record<LotDisposition, { label: string; noteLabel: string; placeholder: string }> = {
-  returned: { label: 'Return to consignor', noteLabel: 'Reason (optional)', placeholder: 'high value, family requested…' },
+// Estate sales use owner/cleanout wording (and no auction aftersale/hold);
+// auctions use consignor/discard wording.
+const dispoMeta = (isEstate: boolean): Record<LotDisposition, { label: string; noteLabel: string; placeholder: string }> => ({
+  returned: {
+    label: isEstate ? 'Returned to owner' : 'Return to consignor',
+    noteLabel: 'Reason (optional)',
+    placeholder: isEstate ? 'owner kept, family requested…' : 'high value, family requested…',
+  },
   hold_relist: { label: 'Hold for future sale', noteLabel: 'Note (optional)', placeholder: 'next sale, storage location…' },
-  charity: { label: 'Send to charity', noteLabel: 'Charity name / note', placeholder: 'e.g. Goodwill, Habitat ReStore…' },
-  discarded: { label: 'Discard', noteLabel: 'Reason (optional)', placeholder: 'broken, stained, chipped…' },
-};
+  charity: { label: 'Charity', noteLabel: 'Charity name / note', placeholder: 'e.g. Goodwill, Habitat ReStore…' },
+  discarded: {
+    label: isEstate ? 'Cleanout' : 'Discard',
+    noteLabel: 'Reason (optional)',
+    placeholder: isEstate ? 'left with the cleanout, unsellable…' : 'broken, stained, chipped…',
+  },
+});
 
 interface Props {
   saleId: string;
   lots: Lot[];
   consignorNames?: Record<string, string>;
   saleName: string;
+  saleType?: 'estate_sale' | 'auction' | 'social';
   onChanged: () => void;
 }
 
 const money = (n?: number) => (n == null ? '' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' }));
 
-export default function UnsoldPanel({ lots, consignorNames, saleName, onChanged }: Props) {
+export default function UnsoldPanel({ lots, consignorNames, saleName, saleType, onChanged }: Props) {
+  const isEstate = saleType === 'estate_sale';
+  const DISPO_META = dispoMeta(isEstate);
   const [busy, setBusy] = useState<string | null>(null);
   const [afterFor, setAfterFor] = useState<Lot | null>(null);
   const [afterName, setAfterName] = useState('');
@@ -145,25 +158,30 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, onChanged 
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
-                  <button onClick={() => { setAfterFor(l); setAfterName(''); setAfterPrice(''); }}
-                    className="px-2 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700">
-                    Aftersale
-                  </button>
+                  {/* Aftersale (2nd-chance offer) and Hold are auction-only. */}
+                  {!isEstate && (
+                    <button onClick={() => { setAfterFor(l); setAfterName(''); setAfterPrice(''); }}
+                      className="px-2 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700">
+                      Aftersale
+                    </button>
+                  )}
                   <button onClick={() => openDispo(l, 'returned')}
                     className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50">
-                    Return
+                    {isEstate ? 'Returned' : 'Return'}
                   </button>
-                  <button onClick={() => openDispo(l, 'hold_relist')}
-                    className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50">
-                    Hold
-                  </button>
+                  {!isEstate && (
+                    <button onClick={() => openDispo(l, 'hold_relist')}
+                      className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50">
+                      Hold
+                    </button>
+                  )}
                   <button onClick={() => openDispo(l, 'charity')}
                     className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50">
                     Charity
                   </button>
                   <button onClick={() => openDispo(l, 'discarded')}
                     className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-red-50 hover:text-red-600">
-                    Trash
+                    {isEstate ? 'Cleanout' : 'Trash'}
                   </button>
                 </div>
               </li>
@@ -172,25 +190,27 @@ export default function UnsoldPanel({ lots, consignorNames, saleName, onChanged 
         )}
       </div>
 
-      <DispositionSection title="Returned to consignor" icon={<RotateCcw className="w-4 h-4" />}
+      <DispositionSection title={isEstate ? 'Returned to owner' : 'Returned to consignor'} icon={<RotateCcw className="w-4 h-4" />}
         lots={returned} consignorOf={consignorOf} busy={busy} onEditNote={openEditNote}
         onUndo={(l) => run(`undo:${l.id}`, () => clearDisposition(l.id))}
-        onPrint={() => setPrintCat({ title: 'Returned to Consignor', lots: returned })} />
+        onPrint={() => setPrintCat({ title: isEstate ? 'Returned to Owner' : 'Returned to Consignor', lots: returned })} />
 
-      <DispositionSection title="Held for future sale" icon={<Archive className="w-4 h-4" />}
-        lots={held} consignorOf={consignorOf} busy={busy} onEditNote={openEditNote}
-        onUndo={(l) => run(`undo:${l.id}`, () => clearDisposition(l.id))}
-        onPrint={() => setPrintCat({ title: 'Held for Future Sale', lots: held })} />
+      {!isEstate && (
+        <DispositionSection title="Held for future sale" icon={<Archive className="w-4 h-4" />}
+          lots={held} consignorOf={consignorOf} busy={busy} onEditNote={openEditNote}
+          onUndo={(l) => run(`undo:${l.id}`, () => clearDisposition(l.id))}
+          onPrint={() => setPrintCat({ title: 'Held for Future Sale', lots: held })} />
+      )}
 
       <DispositionSection title="Charity" icon={<Heart className="w-4 h-4" />}
         lots={charity} consignorOf={consignorOf} busy={busy} onEditNote={openEditNote}
         onUndo={(l) => run(`undo:${l.id}`, () => clearDisposition(l.id))}
         onPrint={() => setPrintCat({ title: 'Charity Donation', lots: charity })} />
 
-      <DispositionSection title="Discarded / unsellable" icon={<Trash2 className="w-4 h-4" />}
+      <DispositionSection title={isEstate ? 'Cleanout' : 'Discarded / unsellable'} icon={<Trash2 className="w-4 h-4" />}
         lots={discarded} consignorOf={consignorOf} busy={busy} onEditNote={openEditNote}
         onUndo={(l) => run(`undo:${l.id}`, () => clearDisposition(l.id))}
-        onPrint={() => setPrintCat({ title: 'Discarded (Unsellable)', lots: discarded })} />
+        onPrint={() => setPrintCat({ title: isEstate ? 'Cleanout' : 'Discarded (Unsellable)', lots: discarded })} />
 
       {/* Aftersale modal */}
       {afterFor && (

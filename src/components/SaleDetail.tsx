@@ -910,6 +910,7 @@ export default function SaleDetail() {
             lots={lots}
             consignorNames={consignorNames}
             saleName={sale.name}
+            saleType={sale?.sale_type}
             onChanged={loadLots}
           />
         )}
