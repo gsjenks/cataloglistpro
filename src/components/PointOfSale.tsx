@@ -187,7 +187,34 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     );
   };
 
-  const filteredPicker = pickerSearch.trim() ? pickerResults : availableLots;
+  // Available items first, then those held in another basket (stable within
+  // each group, so lot-number order is preserved).
+  const filteredPicker = useMemo(() => {
+    const base = pickerSearch.trim() ? pickerResults : availableLots;
+    const heldLive = (lot: Lot) =>
+      lot.inventory_status === 'held' && !!lot.held_until &&
+      new Date(lot.held_until).getTime() > Date.now() &&
+      !!lot.held_by && lot.held_by !== buyerBasketId;
+    return [...base].sort((a, b) => Number(heldLive(a)) - Number(heldLive(b)));
+  }, [pickerSearch, pickerResults, availableLots, buyerBasketId]);
+
+  // Name of whoever currently holds a lot, so the picker can show "held by X".
+  // saleBaskets already includes every current holder.
+  const holderNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    saleBaskets.forEach((b) => m.set(b.shopper.id, b.shopper.name));
+    return m;
+  }, [saleBaskets]);
+
+  // A lot held live in a basket other than the one loaded at the register.
+  const heldElsewhere = (lot: Lot): { who: string; mins: number } | null => {
+    const live = lot.inventory_status === 'held' && !!lot.held_until && new Date(lot.held_until).getTime() > Date.now();
+    if (!live || !lot.held_by || lot.held_by === buyerBasketId) return null;
+    return {
+      who: holderNameById.get(lot.held_by) || 'another customer',
+      mins: Math.max(0, Math.floor((new Date(lot.held_until as string).getTime() - Date.now()) / 60000)),
+    };
+  };
 
   // Make sure there's a customer/basket to save items into. If a customer is
   // already loaded, use them; otherwise, if staff typed a name, create a basket
@@ -910,18 +937,26 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             <p className="text-sm text-gray-400 py-2 text-center">No matching items in this sale.</p>
           ) : (
             <>
-              {filteredPicker.slice(0, pickerExpanded ? 50 : 2).map((lot) => (
-                <button
-                  key={lot.id}
-                  onClick={async () => { await addLot(lot); if (pickerSearch.trim()) searchPicker(pickerSearch); }}
-                  className="w-full flex justify-between items-center px-2 py-2 text-sm text-left hover:bg-gray-50 rounded"
-                >
-                  <span className="text-gray-700 truncate pr-2">
-                    #{lot.lot_number ?? '—'} {lot.name}
-                  </span>
-                  <span className="text-gray-500 whitespace-nowrap">{money(defaultPrice(lot))}</span>
-                </button>
-              ))}
+              {filteredPicker.slice(0, pickerExpanded ? 50 : 2).map((lot) => {
+                const held = heldElsewhere(lot);
+                return (
+                  <button
+                    key={lot.id}
+                    onClick={async () => { await addLot(lot); if (pickerSearch.trim()) searchPicker(pickerSearch); }}
+                    className={`w-full flex justify-between items-center px-2 py-2 text-sm text-left rounded ${held ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-gray-50'}`}
+                  >
+                    <span className="truncate pr-2 min-w-0">
+                      <span className="text-gray-700 block truncate">#{lot.lot_number ?? '—'} {lot.name}</span>
+                      {held && (
+                        <span className="block text-xs text-amber-700">
+                          🔒 Held by {held.who}{held.mins ? ` · ${held.mins}m left` : ''} — tap to override
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-gray-500 whitespace-nowrap">{money(defaultPrice(lot))}</span>
+                  </button>
+                );
+              })}
               {filteredPicker.length > 2 && (
                 <button
                   onClick={() => setPickerExpanded((s) => !s)}
