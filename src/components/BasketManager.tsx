@@ -70,6 +70,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   // Every shopper whose basket is associated with THIS sale (even if empty now),
   // plus the buyer names that have checked out, for the "baskets for this sale" list.
   const [saleShoppers, setSaleShoppers] = useState<Shopper[]>([]);
+  const [checkedOutIds, setCheckedOutIds] = useState<Set<string>>(new Set());
   const [checkedOutNames, setCheckedOutNames] = useState<Set<string>>(new Set());
   const [shopperQuery, setShopperQuery] = useState('');
   const [shopperResults, setShopperResults] = useState<Shopper[]>([]);
@@ -135,19 +136,18 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
       setSaleShoppers([]);
     }
 
-    // Buyer names that completed a sale here — best-effort "checked out" status
-    // (the POS records buyer_name as text, not a shopper_id).
+    // Shoppers who completed a sale here → "checked out" status. Prefer the hard
+    // shopper_id link; fall back to buyer_name for transactions recorded before
+    // shopper_id was captured.
     const { data: txns } = await supabase
       .from('sales_transactions')
-      .select('buyer_name')
+      .select('buyer_name, shopper_id')
       .eq('sale_id', saleId)
       .eq('status', 'completed');
+    const txnRows = (txns as { buyer_name: string | null; shopper_id: string | null }[] | null) || [];
+    setCheckedOutIds(new Set(txnRows.map((t) => t.shopper_id).filter(Boolean) as string[]));
     setCheckedOutNames(
-      new Set(
-        ((txns as { buyer_name: string | null }[] | null) || [])
-          .map((t) => (t.buyer_name || '').trim().toLowerCase())
-          .filter(Boolean),
-      ),
+      new Set(txnRows.map((t) => (t.buyer_name || '').trim().toLowerCase()).filter(Boolean)),
     );
   }, [saleId]);
 
@@ -315,7 +315,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     const rows: BasketRow[] = [...byId.values()].map((s) => {
       const h = held.get(s.id);
       if (h) return { shopper: s, count: h.count, total: h.total, expires: h.expires, status: 'holding' };
-      const checkedOut = checkedOutNames.has((s.name || '').trim().toLowerCase());
+      const checkedOut = checkedOutIds.has(s.id) || checkedOutNames.has((s.name || '').trim().toLowerCase());
       return { shopper: s, count: 0, total: 0, expires: null, status: checkedOut ? 'checkedout' : 'empty' };
     });
 
@@ -325,7 +325,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
       (a.expires != null && b.expires != null ? a.expires - b.expires : 0) ||
       a.shopper.name.localeCompare(b.shopper.name),
     );
-  }, [saleShoppers, shopperMap, lots, checkedOutNames, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [saleShoppers, shopperMap, lots, checkedOutIds, checkedOutNames, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Roll-up across baskets currently holding items, for the section header.
   const openSummary = useMemo(() => {

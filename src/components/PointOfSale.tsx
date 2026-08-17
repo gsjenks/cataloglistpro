@@ -568,6 +568,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
       taxRate,
       tenderType: tender,
       buyerName: buyerName.trim(),
+      shopperId: buyerBasketId || buyerBasketIdRef.current,
       note: buyerBasketId ? `basket ${buyerBasketId.slice(0, 8)}` : undefined,
       delivery: hasDelivery
         ? {

@@ -29,6 +29,7 @@ export interface CreateTransactionInput {
   taxRate: number; // percent, e.g. 8.5
   tenderType: TenderType;
   buyerName?: string;
+  shopperId?: string | null; // hard link to the basket/customer, for "checked out" status
   note?: string;
   delivery?: DeliveryInfo;
 }
@@ -62,7 +63,7 @@ export interface CreateTransactionResult {
 export async function createTransaction(
   input: CreateTransactionInput,
 ): Promise<CreateTransactionResult> {
-  const { saleId, companyId, items, taxRate, tenderType, buyerName, note, delivery } = input;
+  const { saleId, companyId, items, taxRate, tenderType, buyerName, shopperId, note, delivery } = input;
 
   if (!items.length) return { success: false, error: 'Cart is empty' };
   if (!buyerName || !buyerName.trim()) return { success: false, error: "Buyer's name is required" };
@@ -70,27 +71,40 @@ export async function createTransaction(
   const totals = computeTotals(items, taxRate);
 
   // 1. Transaction header
-  const { data: txn, error: txnError } = await supabase
+  const header: Record<string, unknown> = {
+    sale_id: saleId,
+    company_id: companyId,
+    subtotal: totals.subtotal,
+    tax: totals.tax,
+    total: totals.total,
+    tender_type: tenderType,
+    status: 'completed',
+    buyer_name: buyerName.trim(),
+    shopper_id: shopperId || null,
+    note: note || null,
+    delivery_address: delivery?.address || null,
+    delivery_date: delivery?.date || null,
+    delivery_estimate: delivery?.estimate || null,
+    delivery_company: delivery?.company || null,
+    delivery_company_phone: delivery?.companyPhone || null,
+    delivery_company_email: delivery?.companyEmail || null,
+  };
+  let { data: txn, error: txnError } = await supabase
     .from('sales_transactions')
-    .insert({
-      sale_id: saleId,
-      company_id: companyId,
-      subtotal: totals.subtotal,
-      tax: totals.tax,
-      total: totals.total,
-      tender_type: tenderType,
-      status: 'completed',
-      buyer_name: buyerName.trim(),
-      note: note || null,
-      delivery_address: delivery?.address || null,
-      delivery_date: delivery?.date || null,
-      delivery_estimate: delivery?.estimate || null,
-      delivery_company: delivery?.company || null,
-      delivery_company_phone: delivery?.companyPhone || null,
-      delivery_company_email: delivery?.companyEmail || null,
-    })
+    .insert(header)
     .select('id')
     .single();
+
+  // Self-heal if the shopper_id column hasn't been migrated yet: retry without
+  // it so a checkout never fails over optional bookkeeping.
+  if (txnError && /shopper_id/.test(txnError.message || '')) {
+    delete header.shopper_id;
+    ({ data: txn, error: txnError } = await supabase
+      .from('sales_transactions')
+      .insert(header)
+      .select('id')
+      .single());
+  }
 
   if (txnError || !txn) {
     return { success: false, error: txnError?.message || 'Failed to create transaction' };
