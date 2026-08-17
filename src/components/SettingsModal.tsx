@@ -342,8 +342,58 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
     setIsSaving(true);
     try {
-      const { error } = await supabase.rpc('delete_company', { p_company_id: currentCompany.id });
+      const companyId = currentCompany.id;
+      const logoUrl = currentCompany.logo_url;
+
+      // Gather this company's storage file paths BEFORE its rows are deleted —
+      // the rows vanish once delete_company runs. Resale-certificate images are
+      // intentionally excluded: those rows survive a business delete (shared
+      // across sibling companies), so their files are still referenced.
+      let photoPaths: string[] = [];
+      let docPaths: string[] = [];
+      try {
+        const { data: saleRows } = await supabase.from('sales').select('id').eq('company_id', companyId);
+        const saleIds = ((saleRows ?? []) as { id: string }[]).map((s) => s.id);
+        if (saleIds.length) {
+          const { data: lotRows } = await supabase.from('lots').select('id').in('sale_id', saleIds);
+          const lotIds = ((lotRows ?? []) as { id: string }[]).map((l) => l.id);
+          if (lotIds.length) {
+            const { data: photoRows } = await supabase.from('photos').select('file_path').in('lot_id', lotIds);
+            photoPaths = ((photoRows ?? []) as { file_path: string | null }[])
+              .map((p) => p.file_path).filter((p): p is string => !!p);
+          }
+        }
+        const orFilter = saleIds.length
+          ? `company_id.eq.${companyId},sale_id.in.(${saleIds.join(',')})`
+          : `company_id.eq.${companyId}`;
+        const { data: docRows } = await supabase.from('documents').select('file_path').or(orFilter);
+        docPaths = ((docRows ?? []) as { file_path: string | null }[])
+          .map((d) => d.file_path).filter((p): p is string => !!p);
+      } catch (e) {
+        console.warn('Gathering storage paths before business delete (non-fatal):', e);
+      }
+
+      const { error } = await supabase.rpc('delete_company', { p_company_id: companyId });
       if (error) throw error;
+
+      // Rows are gone — remove the now-orphaned files (best-effort; the
+      // storage-sweep tool can mop up anything that slips through).
+      const removeInBatches = async (bucket: string, paths: string[]) => {
+        for (let i = 0; i < paths.length; i += 100) {
+          await supabase.storage.from(bucket).remove(paths.slice(i, i + 100));
+        }
+      };
+      try {
+        if (photoPaths.length) await removeInBatches('photos', photoPaths);
+        if (docPaths.length) await removeInBatches('documents', docPaths);
+        if (logoUrl && logoUrl.includes('/company-assets/')) {
+          const path = logoUrl.split('/company-assets/')[1]?.split('?')[0];
+          if (path) await supabase.storage.from('company-assets').remove([decodeURIComponent(path)]);
+        }
+      } catch (e) {
+        console.warn('Storage cleanup after business delete (non-fatal):', e);
+      }
+
       alert(`"${name}" was deleted.`);
       // Clear the deleted company's saved id + stale cache so the reload picks a
       // remaining company (instead of getting stranded on "create a company").
