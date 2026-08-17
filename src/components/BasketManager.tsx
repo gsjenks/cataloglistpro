@@ -65,6 +65,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [selected, setSelected] = useState<Shopper | null>(null);
   const [addSearch, setAddSearch] = useState('');
   const [addResults, setAddResults] = useState<LotRow[]>([]);
+  const [addError, setAddError] = useState<string | null>(null);
   const [itemSearch, setItemSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [showNewShopper, setShowNewShopper] = useState(false);
@@ -271,9 +272,11 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     const { data, error } = await query.order('lot_number', { ascending: true }).limit(60);
     if (error) {
       console.error('Lot search failed:', error.message);
+      setAddError(error.message);
       setAddResults([]);
       return;
     }
+    setAddError(null);
     // Exclude sold + items already in this basket. Treat a null status as
     // available so lots without an explicit status still appear.
     setAddResults(
@@ -864,8 +867,10 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                     );
                   })}
                   {addResults.length === 0 && (
-                    <li className="px-3 py-2 text-sm text-gray-400">
-                      {addSearch ? `No available item matches “${addSearch}”.` : 'No available items to add.'}
+                    <li className={`px-3 py-2 text-sm ${addError ? 'text-red-600' : 'text-gray-400'}`}>
+                      {addError
+                        ? "Couldn't load items — a database update may be pending. Tell your admin."
+                        : addSearch ? `No available item matches “${addSearch}”.` : 'No available items to add.'}
                     </li>
                   )}
                 </ul>
