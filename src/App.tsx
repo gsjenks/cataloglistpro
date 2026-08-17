@@ -12,6 +12,7 @@ import { AppProvider, useApp } from "./context/AppContext";
 import { FooterProvider } from "./context/FooterContext";
 import Auth from "./components/Auth";
 import CompanySetup from "./components/CompanySetup";
+import HelpAssistant from "./components/HelpAssistant";
 import Dashboard from "./components/Dashboard";
 import SaleDetail from "./components/SaleDetail";
 import LotDetail from "./components/LotDetail";
@@ -317,6 +318,7 @@ function AppContent() {
           </Routes>
         </main>
         <ContextFooter />
+        <HelpAssistant />
       </div>
     </div>
   );
