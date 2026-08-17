@@ -265,10 +265,15 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const searchAddable = async (q: string) => {
     setAddSearch(q);
     const tokens = searchTokens(q);
-    if (!tokens.length) { setAddResults([]); return; }
+    // No query = browse the sale's available inventory; a query filters it.
     let query = supabase.from('lots').select(LOT_COLS).eq('sale_id', saleId);
     for (const tok of tokens) query = query.or(tokenOrClause(tok));
-    const { data } = await query.order('lot_number', { ascending: true }).limit(50);
+    const { data, error } = await query.order('lot_number', { ascending: true }).limit(60);
+    if (error) {
+      console.error('Lot search failed:', error.message);
+      setAddResults([]);
+      return;
+    }
     // Exclude sold + items already in this basket. Treat a null status as
     // available so lots without an explicit status still appear.
     setAddResults(
@@ -277,6 +282,12 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
       ),
     );
   };
+
+  // Show the sale's available inventory to browse the moment a basket is open,
+  // so staff can scroll and pick without having to guess a matching word.
+  useEffect(() => {
+    if (selected) searchAddable('');
+  }, [selected?.id, saleId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Item lookup: with a query, search ALL lots (any status); with no query,
   // default to an overview of what's currently held.
@@ -824,35 +835,40 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                   <input
                     value={addSearch}
                     onChange={(e) => searchAddable(e.target.value)}
-                    placeholder="Add / hold an item — search available lots…"
+                    placeholder="Add / hold an item — type a name or lot #, or scroll the list…"
                     className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
                   />
                 </div>
-                {addSearch && (
-                  <ul className="border border-gray-200 rounded-md bg-white max-h-56 overflow-auto">
-                    {addResults.map((l) => {
-                      const heldElsewhere = isHeld(l);
-                      return (
-                        <li key={l.id}>
-                          <button
-                            onClick={async () => { await staffHold(l.id, selected.id); searchAddable(addSearch); }}
-                            disabled={busy}
-                            className="w-full flex items-center justify-between px-3 py-2 text-sm text-left hover:bg-gray-50"
-                          >
-                            <span className="truncate pr-2">
-                              #{l.lot_number ?? '—'} {l.name}
-                              {heldElsewhere && (
-                                <span className="text-xs text-amber-600"> · held by {holderLabel(l)}</span>
-                              )}
-                            </span>
-                            <span className="text-gray-500 whitespace-nowrap">{money(l.starting_bid)}</span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                    {addResults.length === 0 && <li className="px-3 py-2 text-sm text-gray-400">No matching items.</li>}
-                  </ul>
-                )}
+                <p className="text-xs text-gray-400 mb-1">
+                  {addSearch ? 'Matching available items' : 'Available items to add'}
+                </p>
+                <ul className="border border-gray-200 rounded-md bg-white max-h-56 overflow-auto">
+                  {addResults.map((l) => {
+                    const heldElsewhere = isHeld(l);
+                    return (
+                      <li key={l.id}>
+                        <button
+                          onClick={async () => { await staffHold(l.id, selected.id); searchAddable(addSearch); }}
+                          disabled={busy}
+                          className="w-full flex items-center justify-between px-3 py-2 text-sm text-left hover:bg-gray-50"
+                        >
+                          <span className="truncate pr-2">
+                            #{l.lot_number ?? '—'} {l.name}
+                            {heldElsewhere && (
+                              <span className="text-xs text-amber-600"> · held by {holderLabel(l)}</span>
+                            )}
+                          </span>
+                          <span className="text-gray-500 whitespace-nowrap">{money(l.starting_bid)}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {addResults.length === 0 && (
+                    <li className="px-3 py-2 text-sm text-gray-400">
+                      {addSearch ? `No available item matches “${addSearch}”.` : 'No available items to add.'}
+                    </li>
+                  )}
+                </ul>
 
                 <div className="mt-3 border-t border-gray-100 pt-3">
                   {!showNewItem ? (
