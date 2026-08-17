@@ -3,12 +3,12 @@
 // available lots, set tax, choose a tender, and complete the sale — which marks
 // each lot sold and shows a printable receipt. Card tender arrives in Phase 4.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X, ScanLine, Plus, Trash2, Search, Printer, CheckCircle2, ShoppingBasket, User, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Lot, TenderType } from '../types';
 import { supabase } from '../lib/supabase';
 import { searchTokens, tokenOrClause } from '../lib/lotSearch';
-import { touchSaleBasket } from '../lib/saleBaskets';
+import { touchSaleBasket, loadSaleBaskets, type SaleBasketRow } from '../lib/saleBaskets';
 import { createTransaction, computeTotals, type PosLineItem } from '../services/PosService';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
 import {
@@ -112,6 +112,8 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   // new customer before React re-renders.
   const buyerBasketIdRef = useRef<string | null>(null);
   const [buyerContact, setBuyerContact] = useState<{ name?: string; phone?: string; email?: string } | null>(null);
+  // All baskets for this sale, so staff can grab one to review/checkout.
+  const [saleBaskets, setSaleBaskets] = useState<SaleBasketRow[]>([]);
   const [scanMode, setScanMode] = useState<'item' | 'basket'>('item');
   type CustomerRow = { id: string; name: string; email: string | null; phone: string | null };
   type MatchRow = CustomerRow & { reason: 'contact' | 'name' };
@@ -131,6 +133,13 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   useEffect(() => {
     localStorage.setItem(`pos_taxrate_${saleId}`, String(taxRate));
   }, [saleId, taxRate]);
+
+  // Keep the "baskets for this sale" list current: on mount and whenever the
+  // loaded basket changes (switch/checkout returns to the list).
+  const refreshBaskets = useCallback(() => {
+    loadSaleBaskets(supabase, saleId).then(setSaleBaskets);
+  }, [saleId]);
+  useEffect(() => { refreshBaskets(); }, [refreshBaskets, buyerBasketId]);
 
   const totals = useMemo(() => computeTotals(cart, taxRate), [cart, taxRate]);
 
@@ -808,6 +817,41 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
                 >
                   <Plus className="w-3.5 h-3.5" /> Add customer
                 </button>
+              </div>
+            )}
+
+            {/* All baskets for this sale — grab one to review / checkout */}
+            {!buyerName.trim() && saleBaskets.length > 0 && (
+              <div className="mt-2">
+                <p className="text-xs font-medium text-gray-500 mb-1.5">
+                  Baskets for this sale ({saleBaskets.length}) — tap to open
+                </p>
+                <div className="border border-gray-200 rounded-md divide-y divide-gray-100 max-h-60 overflow-auto">
+                  {saleBaskets.map(({ shopper: s, count, total, status }) => (
+                    <button
+                      key={s.id}
+                      onClick={() => pickCustomer(s.id)}
+                      className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50"
+                    >
+                      <User className="w-4 h-4 text-gray-400 shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium text-gray-800 truncate">{s.name}</span>
+                        <span className="block text-xs text-gray-500 truncate">
+                          {[s.phone, s.email].filter(Boolean).join(' · ') || 'No contact info'}
+                        </span>
+                      </span>
+                      <span className="text-xs whitespace-nowrap shrink-0 text-right">
+                        {status === 'holding' ? (
+                          <span className="text-gray-600 font-medium">{count} item{count === 1 ? '' : 's'} · {money(total)}</span>
+                        ) : status === 'checkedout' ? (
+                          <span className="text-green-600 font-medium">Checked out</span>
+                        ) : (
+                          <span className="text-gray-400 font-medium">Empty</span>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </>
