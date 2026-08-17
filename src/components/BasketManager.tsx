@@ -83,6 +83,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const [mergeMode, setMergeMode] = useState(false);
   const [mergeQuery, setMergeQuery] = useState('');
   const [mergeResults, setMergeResults] = useState<Shopper[]>([]);
+  const [editShopper, setEditShopper] = useState<{ name: string; phone: string; email: string } | null>(null);
   const [selectedLot, setSelectedLot] = useState<LotRow | null>(null);
   const [lotPhotoUrl, setLotPhotoUrl] = useState<string | null>(null);
   const [lotBuyer, setLotBuyer] = useState<string | null>(null);
@@ -124,6 +125,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     setAddSearch('');
     setAddResults([]);
     setEditLot(null);
+    setEditShopper(null);
     let cancelled = false;
     if (!selected) {
       setDeliveryInfo(emptyDelivery);
@@ -385,6 +387,29 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     if (error) return alert('Could not clear delivery details.');
     setDeliveryInfo(emptyDelivery);
     setDeliverySaved(false);
+  };
+
+  // Edit the selected shopper's own details (name / phone / email) in place.
+  // Name is required; phone or email must be present so the record stays usable.
+  const saveShopperInfo = async () => {
+    if (!selected || !editShopper) return;
+    const name = editShopper.name.trim();
+    const phone = editShopper.phone.trim();
+    const email = editShopper.email.trim();
+    if (!name) { alert('Name is required.'); return; }
+    if (!phone && !email) { alert('Enter a phone or an email.'); return; }
+    setBusy(true);
+    const { data, error } = await supabase
+      .from('shoppers')
+      .update({ name, phone: phone || null, email: email || null, updated_at: new Date().toISOString() })
+      .eq('id', selected.id)
+      .select('id, name, email, phone')
+      .maybeSingle();
+    setBusy(false);
+    if (error) { alert(`Couldn't save: ${error.message}`); return; }
+    if (data) setSelected(data as Shopper);
+    setEditShopper(null);
+    onChanged?.();
   };
 
   // Delete a customer record. Releases any items they were holding (any sale)
@@ -659,37 +684,82 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
               </>
             ) : (
               <>
-                <div className="flex items-start justify-between mb-3 gap-2">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-gray-900">{selected.name}</p>
-                    {selected.phone && (
-                      <p className="text-xs text-gray-500 truncate">
-                        <a href={`tel:${selected.phone}`} className="hover:underline">{selected.phone}</a>
-                      </p>
-                    )}
-                    {selected.email && (
-                      <p className="text-xs text-gray-500 truncate">
-                        <a href={`mailto:${selected.email}`} className="hover:underline">{selected.email}</a>
-                      </p>
-                    )}
-                    {!selected.phone && !selected.email && (
-                      <p className="text-xs text-gray-400">No contact info</p>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <button onClick={() => { setSelected(null); setMergeMode(false); }} className="text-sm text-indigo-600 hover:underline">
-                      Change
-                    </button>
+                {editShopper ? (
+                  /* Edit this shopper's own name / phone / email */
+                  <div className="mb-3 p-3 bg-indigo-50/50 border border-indigo-200 rounded-md space-y-2">
+                    <p className="text-xs font-semibold text-indigo-900">Edit customer details</p>
+                    <input
+                      value={editShopper.name}
+                      onChange={(e) => setEditShopper({ ...editShopper, name: e.target.value })}
+                      placeholder="Name"
+                      className={inputCls}
+                    />
                     <div className="flex gap-2">
-                      <button onClick={() => { setMergeMode((m) => !m); setMergeQuery(''); setMergeResults([]); }} disabled={busy} className="text-xs text-gray-500 hover:text-indigo-600">
-                        Merge
+                      <input
+                        value={editShopper.phone}
+                        onChange={(e) => setEditShopper({ ...editShopper, phone: e.target.value })}
+                        placeholder="Phone"
+                        className={inputCls}
+                      />
+                      <input
+                        value={editShopper.email}
+                        onChange={(e) => setEditShopper({ ...editShopper, email: e.target.value })}
+                        placeholder="Email"
+                        className={inputCls}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-400">Name required; phone or email required.</p>
+                    <div className="flex items-center gap-2">
+                      <button onClick={saveShopperInfo} disabled={busy} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300">
+                        Save
                       </button>
-                      <button onClick={deleteCustomer} disabled={busy} className="text-xs text-gray-500 hover:text-red-600">
-                        Delete
+                      <button onClick={() => setEditShopper(null)} disabled={busy} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+                        Cancel
                       </button>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex items-start justify-between mb-3 gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900">{selected.name}</p>
+                      {selected.phone && (
+                        <p className="text-xs text-gray-500 truncate">
+                          <a href={`tel:${selected.phone}`} className="hover:underline">{selected.phone}</a>
+                        </p>
+                      )}
+                      {selected.email && (
+                        <p className="text-xs text-gray-500 truncate">
+                          <a href={`mailto:${selected.email}`} className="hover:underline">{selected.email}</a>
+                        </p>
+                      )}
+                      {!selected.phone && !selected.email && (
+                        <p className="text-xs text-gray-400">No contact info</p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditShopper({ name: selected.name ?? '', phone: selected.phone ?? '', email: selected.email ?? '' })}
+                          disabled={busy}
+                          className="text-sm text-indigo-600 hover:underline"
+                        >
+                          Edit
+                        </button>
+                        <button onClick={() => { setSelected(null); setMergeMode(false); }} className="text-sm text-indigo-600 hover:underline">
+                          Change
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => { setMergeMode((m) => !m); setMergeQuery(''); setMergeResults([]); }} disabled={busy} className="text-xs text-gray-500 hover:text-indigo-600">
+                          Merge
+                        </button>
+                        <button onClick={deleteCustomer} disabled={busy} className="text-xs text-gray-500 hover:text-red-600">
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Merge: search for the customer to merge this one into */}
                 {mergeMode && (
