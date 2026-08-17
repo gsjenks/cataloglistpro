@@ -55,6 +55,12 @@ interface Shopper {
 
 const HOLD_MS = 30 * 60 * 1000;
 const money = (n: number | null) => (n != null ? `$${n.toLocaleString()}` : '—');
+// Time left until a hold lapses, e.g. "12m left" / "<1m left".
+const countdown = (expires: number, now: number) => {
+  const mins = Math.floor((expires - now) / 60000);
+  if (mins <= 0) return '<1m left';
+  return `${mins}m left`;
+};
 
 export default function BasketManager({ saleId, companyId, onClose, onChanged }: Props) {
   const [tab, setTab] = useState<'shoppers' | 'items'>('shoppers');
@@ -231,7 +237,12 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
     if (lot) openDetail(lot);
   };
 
-  const now = Date.now();
+  // Tick so hold countdowns stay live and expired holds fall out of the list.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
   const isHeld = (l: LotRow) =>
     l.inventory_status === 'held' && !!l.held_until && new Date(l.held_until).getTime() > now;
 
@@ -244,19 +255,32 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
   const heldItems = useMemo(() => lots.filter(isHeld), [lots, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Every basket with live holds: group held lots by their holder (shopper).
+  // Track each basket's soonest-expiring hold so staff can act before it lapses.
   const openBaskets = useMemo(() => {
-    const map = new Map<string, { shopper: Shopper; count: number; total: number }>();
+    const map = new Map<string, { shopper: Shopper; count: number; total: number; expires: number }>();
     for (const l of lots) {
       if (!l.held_by || !isHeld(l)) continue;
       const sh = shopperMap[l.held_by];
       if (!sh) continue;
-      const e = map.get(l.held_by) ?? { shopper: sh, count: 0, total: 0 };
+      const exp = new Date(l.held_until as string).getTime();
+      const e = map.get(l.held_by) ?? { shopper: sh, count: 0, total: 0, expires: exp };
       e.count += 1;
       e.total += l.starting_bid || 0;
+      e.expires = Math.min(e.expires, exp);
       map.set(l.held_by, e);
     }
-    return [...map.values()].sort((a, b) => a.shopper.name.localeCompare(b.shopper.name));
+    // Most urgent first (soonest hold to lapse at top).
+    return [...map.values()].sort((a, b) => a.expires - b.expires);
   }, [lots, shopperMap, now]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Roll-up across all live baskets for the section header.
+  const openSummary = useMemo(
+    () => ({
+      items: openBaskets.reduce((s, b) => s + b.count, 0),
+      total: openBaskets.reduce((s, b) => s + b.total, 0),
+    }),
+    [openBaskets],
+  );
 
   const LOT_COLS =
     'id, lot_number, name, description, category, condition, height, width, depth, dimension_unit, starting_bid, sold_price, inventory_status, held_by, held_until, for_delivery';
@@ -630,28 +654,43 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                 {/* All open baskets (customers currently holding items) */}
                 {!shopperQuery.trim() && (
                   <div className="mt-1">
-                    <p className="text-xs font-medium text-gray-500 mb-2">
-                      Open baskets{openBaskets.length ? ` (${openBaskets.length})` : ''}
-                    </p>
+                    <div className="flex items-baseline justify-between mb-2">
+                      <p className="text-xs font-medium text-gray-500">
+                        Open baskets{openBaskets.length ? ` (${openBaskets.length})` : ''}
+                      </p>
+                      {openBaskets.length > 0 && (
+                        <p className="text-xs text-gray-400">
+                          {openSummary.items} item{openSummary.items === 1 ? '' : 's'} held · {money(openSummary.total)}
+                        </p>
+                      )}
+                    </div>
                     {openBaskets.length === 0 ? (
                       <p className="text-sm text-gray-400 text-center py-4">No open baskets yet.</p>
                     ) : (
-                      openBaskets.map(({ shopper: s, count, total }) => (
-                        <button
-                          key={s.id}
-                          onClick={() => { setSelected(s); setShopperResults([]); setShopperQuery(''); }}
-                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left bg-white border border-gray-200 rounded-md mb-2 hover:border-indigo-400"
-                        >
-                          <User className="w-4 h-4 text-gray-400 shrink-0" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-sm font-medium text-gray-800 truncate">{s.name}</span>
-                            <span className="block text-xs text-gray-500 truncate">{s.phone || s.email || 'No contact info'}</span>
-                          </span>
-                          <span className="text-xs text-gray-500 whitespace-nowrap shrink-0">
-                            {count} item{count === 1 ? '' : 's'} · {money(total)}
-                          </span>
-                        </button>
-                      ))
+                      openBaskets.map(({ shopper: s, count, total, expires }) => {
+                        const urgent = expires - now < 5 * 60 * 1000;
+                        return (
+                          <button
+                            key={s.id}
+                            onClick={() => { setSelected(s); setShopperResults([]); setShopperQuery(''); }}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 text-left bg-white border border-gray-200 rounded-md mb-2 hover:border-indigo-400"
+                          >
+                            <User className="w-4 h-4 text-gray-400 shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-medium text-gray-800 truncate">{s.name}</span>
+                              <span className="block text-xs text-gray-500 truncate">{s.phone || s.email || 'No contact info'}</span>
+                            </span>
+                            <span className="flex flex-col items-end shrink-0">
+                              <span className="text-xs text-gray-500 whitespace-nowrap">
+                                {count} item{count === 1 ? '' : 's'} · {money(total)}
+                              </span>
+                              <span className={`text-[11px] font-medium whitespace-nowrap ${urgent ? 'text-red-600' : 'text-amber-600'}`}>
+                                {countdown(expires, now)}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })
                     )}
                   </div>
                 )}
