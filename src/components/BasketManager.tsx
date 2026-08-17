@@ -107,6 +107,11 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
     address?: string | null; date?: string | null; estimate?: string | null;
     company?: string | null; phone?: string | null; email?: string | null;
   } | null>(null);
+  // Sold-lot delivery editing (Item Lookup): switch a carry-out to delivery, or
+  // amend delivery details. Writes to the lot's POS transaction.
+  const [lotTxnId, setLotTxnId] = useState<string | null>(null);
+  const [deliveryEdit, setDeliveryEdit] = useState(false);
+  const [dForm, setDForm] = useState({ address: '', date: '', estimate: '', company: '', phone: '', email: '' });
   // Item Lookup → "Add to a basket": assign the looked-up lot to a customer.
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignQuery, setAssignQuery] = useState('');
@@ -235,6 +240,8 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
     setLotBuyer(null);
     setLotFulfillment(null);
     setLotDelivery(null);
+    setLotTxnId(null);
+    setDeliveryEdit(false);
     setAssignOpen(false);
     setAssignQuery('');
     setAssignResults([]);
@@ -257,6 +264,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
         .limit(1);
       const item = (items as { transaction_id: string; fulfillment?: string }[] | null)?.[0];
       setLotFulfillment(item?.fulfillment ?? null);
+      setLotTxnId(item?.transaction_id ?? null);
       if (item?.transaction_id) {
         const { data: txn } = await supabase
           .from('sales_transactions')
@@ -282,6 +290,44 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
     setShowItemScanner(false);
     const lot = lots.find((l) => l.id === scanned.lotId);
     if (lot) openDetail(lot);
+  };
+
+  // Open the delivery editor for a sold lot, prefilled from what's on file.
+  const openDeliveryEdit = () => {
+    setDForm({
+      address: lotDelivery?.address ?? '',
+      date: lotDelivery?.date ?? '',
+      estimate: lotDelivery?.estimate ?? '',
+      company: lotDelivery?.company ?? '',
+      phone: lotDelivery?.phone ?? '',
+      email: lotDelivery?.email ?? '',
+    });
+    setDeliveryEdit(true);
+  };
+
+  // Switch a sold lot to delivery (or amend its delivery details): flag the lot,
+  // flip its transaction line to delivery, and save the details on the sale.
+  const saveLotDelivery = async () => {
+    if (!selectedLot || !lotTxnId) return;
+    setBusy(true);
+    await supabase.from('lots').update({ for_delivery: true, updated_at: new Date().toISOString() }).eq('id', selectedLot.id);
+    await supabase.from('sales_transaction_items').update({ fulfillment: 'delivery' }).eq('lot_id', selectedLot.id).eq('transaction_id', lotTxnId);
+    const { error } = await supabase.from('sales_transactions').update({
+      delivery_address: dForm.address.trim() || null,
+      delivery_date: dForm.date.trim() || null,
+      delivery_estimate: dForm.estimate.trim() || null,
+      delivery_company: dForm.company.trim() || null,
+      delivery_company_phone: dForm.phone.trim() || null,
+      delivery_company_email: dForm.email.trim() || null,
+    }).eq('id', lotTxnId);
+    setBusy(false);
+    if (error) { alert('Could not save delivery details: ' + error.message); return; }
+    setLotFulfillment('delivery');
+    setLotDelivery({ address: dForm.address, date: dForm.date, estimate: dForm.estimate, company: dForm.company, phone: dForm.phone, email: dForm.email });
+    setSelectedLot((prev) => (prev ? { ...prev, for_delivery: true } : prev));
+    setDeliveryEdit(false);
+    await load();
+    onChanged?.();
   };
 
   // Tick so hold countdowns stay live and expired holds fall out of the list.
@@ -1213,7 +1259,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                             </span>
                           )}
                         </div>
-                        {lotFulfillment === 'delivery' && lotDelivery && (
+                        {lotFulfillment === 'delivery' && lotDelivery && !deliveryEdit && (
                           <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-900 space-y-0.5">
                             <p className="font-medium">Delivery details</p>
                             {lotDelivery.address && <p>Address: {lotDelivery.address}</p>}
@@ -1225,6 +1271,40 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                             {!lotDelivery.address && !lotDelivery.company && (
                               <p className="text-blue-700">No delivery details recorded.</p>
                             )}
+                          </div>
+                        )}
+
+                        {/* Switch a carry-out to delivery, or amend delivery details */}
+                        {lotTxnId && !deliveryEdit && (
+                          <button
+                            onClick={openDeliveryEdit}
+                            className="text-sm font-medium text-indigo-600 hover:underline"
+                          >
+                            {lotFulfillment === 'delivery' ? 'Edit delivery details' : 'Switch to delivery'}
+                          </button>
+                        )}
+
+                        {deliveryEdit && (
+                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-md space-y-2">
+                            <p className="text-xs font-semibold text-amber-900">Delivery &amp; mover details</p>
+                            <input value={dForm.address} onChange={(e) => setDForm({ ...dForm, address: e.target.value })} placeholder="Delivery address" className={inputCls} />
+                            <div className="flex gap-2">
+                              <input value={dForm.date} onChange={(e) => setDForm({ ...dForm, date: e.target.value })} placeholder="Delivery date" className={inputCls} />
+                              <input value={dForm.estimate} onChange={(e) => setDForm({ ...dForm, estimate: e.target.value })} placeholder="Time / estimate" className={inputCls} />
+                            </div>
+                            <input value={dForm.company} onChange={(e) => setDForm({ ...dForm, company: e.target.value })} placeholder="Mover / delivery company" className={inputCls} />
+                            <div className="flex gap-2">
+                              <input value={dForm.phone} onChange={(e) => setDForm({ ...dForm, phone: e.target.value })} placeholder="Mover phone" className={inputCls} />
+                              <input value={dForm.email} onChange={(e) => setDForm({ ...dForm, email: e.target.value })} placeholder="Mover email" className={inputCls} />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={saveLotDelivery} disabled={busy} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300">
+                                {busy ? 'Saving…' : 'Save delivery'}
+                              </button>
+                              <button onClick={() => setDeliveryEdit(false)} disabled={busy} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+                                Cancel
+                              </button>
+                            </div>
                           </div>
                         )}
                       </>
