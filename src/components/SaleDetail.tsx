@@ -847,21 +847,23 @@ export default function SaleDetail() {
               saleName={sale.name}
               onChanged={loadConsignments}
             />
-            <div className="bg-white rounded-lg border border-gray-200 p-5 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Catalogue</h2>
-                <p className="text-sm text-gray-500">
-                  Import the LiveAuctioneers catalogue PDF to add estimates and descriptions
-                  to existing lots and pull in the unsold lots.
-                </p>
+            {!isEstate && (
+              <div className="bg-white rounded-lg border border-gray-200 p-5 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Catalogue</h2>
+                  <p className="text-sm text-gray-500">
+                    Import the LiveAuctioneers catalogue PDF to add estimates and descriptions
+                    to existing lots and pull in the unsold lots.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowCatalogueImport(true)}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shrink-0"
+                >
+                  <Upload className="w-4 h-4" /> Import catalogue PDF
+                </button>
               </div>
-              <button
-                onClick={() => setShowCatalogueImport(true)}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shrink-0"
-              >
-                <Upload className="w-4 h-4" /> Import catalogue PDF
-              </button>
-            </div>
+            )}
           </div>
         )}
         {activeTab === 'items' && (
