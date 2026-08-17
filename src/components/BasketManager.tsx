@@ -746,7 +746,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged }:
                           Edit
                         </button>
                         <button onClick={() => { setSelected(null); setMergeMode(false); }} className="text-sm text-indigo-600 hover:underline">
-                          Change
+                          Baskets
                         </button>
                       </div>
                       <div className="flex gap-2">
