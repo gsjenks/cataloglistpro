@@ -79,6 +79,15 @@ export interface Lot {
   // is held until `held_until`; `held_by` is the buyer's basket id.
   held_until?: string | null;
   held_by?: string | null;
+  // Estate delivery: this item goes out for delivery, plus per-item delivery/mover
+  // details used when the sale has no register transaction to carry them.
+  for_delivery?: boolean;
+  delivery_address?: string | null;
+  delivery_date?: string | null;
+  delivery_estimate?: string | null;
+  delivery_company?: string | null;
+  delivery_company_phone?: string | null;
+  delivery_company_email?: string | null;
   // Auction lifecycle (#2). Consignor tag (supersedes the legacy free-text
   // `consignor` above) + cataloging and post-auction state. See
   // docs/auction-lifecycle-spec.md.

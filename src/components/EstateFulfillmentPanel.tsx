@@ -37,11 +37,18 @@ interface ShopperDelivery {
   delivery_company_email: string | null;
 }
 
+interface Delivery {
+  address: string | null; date: string | null; estimate: string | null;
+  company: string | null; phone: string | null; email: string | null;
+}
+
 interface Group {
   key: string;
-  txn: Txn | null;
-  lots: Lot[];
+  txn: Txn | null;   // set when the delivery is backed by a POS transaction
+  lots: Lot[];       // the item(s) going out together
   total: number;
+  buyer: string | null;
+  del: Delivery;     // effective delivery info (transaction, else lot-level)
 }
 
 const money = (n?: number | null) =>
@@ -50,8 +57,9 @@ const money = (n?: number | null) =>
 const inputCls = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600';
 
 const emptyForm = { address: '', date: '', estimate: '', company: '', phone: '', email: '' };
+const emptyDelivery = (): Delivery => ({ address: null, date: null, estimate: null, company: null, phone: null, email: null });
 
-export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
+export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Props) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [editKey, setEditKey] = useState<string | null>(null);
@@ -65,6 +73,19 @@ export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
     setLoading(true);
     const ids = key ? key.split(',') : [];
     if (ids.length === 0) { setGroups([]); setLoading(false); return; }
+
+    // Fresh lot-level delivery fields (so lot-based edits reflect without waiting
+    // on the parent to reload the lots prop).
+    const { data: lotDeliv } = await supabase
+      .from('lots')
+      .select('id, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+      .in('id', ids);
+    const lotDelivById = new Map<string, Delivery>();
+    ((lotDeliv as (ShopperDelivery & { id: string })[] | null) || []).forEach((r) =>
+      lotDelivById.set(r.id, {
+        address: r.delivery_address, date: r.delivery_date, estimate: r.delivery_estimate,
+        company: r.delivery_company, phone: r.delivery_company_phone, email: r.delivery_company_email,
+      }));
 
     // Link each delivery lot to its POS transaction.
     const { data: items } = await supabase
@@ -109,21 +130,36 @@ export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
       });
     }
 
-    // Group delivery lots by transaction (uses the current lots for names/prices).
+    // Group delivery lots. Transaction-backed lots group by their sale (buyer);
+    // lots with no transaction stand alone (per lot) so each still holds its own
+    // delivery info on the lot itself.
     const byId = new Map(deliveryLots.map((l) => [l.id, l]));
     const byKey = new Map<string, Group>();
     for (const id of ids) {
       const l = byId.get(id);
       if (!l) continue;
       const tid = lotToTxn.get(id);
-      const gkey = tid ?? 'unlinked';
-      const g = byKey.get(gkey) ?? { key: gkey, txn: tid ? txnById.get(tid) ?? null : null, lots: [], total: 0 };
+      const gkey = tid ?? `lot:${id}`;
+      const t = tid ? txnById.get(tid) ?? null : null;
+      const g = byKey.get(gkey) ?? { key: gkey, txn: t, lots: [], total: 0, buyer: t?.buyer_name ?? null, del: emptyDelivery() };
       g.lots.push(l);
       g.total += l.sold_price ?? 0;
       byKey.set(gkey, g);
     }
+    // Effective delivery: from the transaction (already shopper-merged) when
+    // there is one, otherwise from the lot's own delivery fields.
+    for (const g of byKey.values()) {
+      if (g.txn) {
+        g.del = {
+          address: g.txn.delivery_address, date: g.txn.delivery_date, estimate: g.txn.delivery_estimate,
+          company: g.txn.delivery_company, phone: g.txn.delivery_company_phone, email: g.txn.delivery_company_email,
+        };
+      } else {
+        g.del = lotDelivById.get(g.lots[0].id) ?? emptyDelivery();
+      }
+    }
     const result = [...byKey.values()].sort((a, b) =>
-      (a.txn?.buyer_name || 'zzz').localeCompare(b.txn?.buyer_name || 'zzz'),
+      (a.buyer || a.lots[0]?.name || 'zzz').localeCompare(b.buyer || b.lots[0]?.name || 'zzz'),
     );
     setGroups(result);
     setLoading(false);
@@ -132,36 +168,34 @@ export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
   useEffect(() => { load(); }, [load]);
 
   const openEdit = (g: Group) => {
-    if (!g.txn) return;
-    setEditKey(g.txn.id);
+    setEditKey(g.key);
     setForm({
-      address: g.txn.delivery_address ?? '',
-      date: g.txn.delivery_date ?? '',
-      estimate: g.txn.delivery_estimate ?? '',
-      company: g.txn.delivery_company ?? '',
-      phone: g.txn.delivery_company_phone ?? '',
-      email: g.txn.delivery_company_email ?? '',
+      address: g.del.address ?? '', date: g.del.date ?? '', estimate: g.del.estimate ?? '',
+      company: g.del.company ?? '', phone: g.del.phone ?? '', email: g.del.email ?? '',
     });
   };
 
   const saveEdit = async () => {
-    if (!editKey) return;
+    const g = groups.find((x) => x.key === editKey);
+    if (!g) return;
     setSaving(true);
-    const { error } = await supabase
-      .from('sales_transactions')
-      .update({
-        delivery_address: form.address.trim() || null,
-        delivery_date: form.date.trim() || null,
-        delivery_estimate: form.estimate.trim() || null,
-        delivery_company: form.company.trim() || null,
-        delivery_company_phone: form.phone.trim() || null,
-        delivery_company_email: form.email.trim() || null,
-      })
-      .eq('id', editKey);
+    const patch = {
+      delivery_address: form.address.trim() || null,
+      delivery_date: form.date.trim() || null,
+      delivery_estimate: form.estimate.trim() || null,
+      delivery_company: form.company.trim() || null,
+      delivery_company_phone: form.phone.trim() || null,
+      delivery_company_email: form.email.trim() || null,
+    };
+    // Save to the transaction when there is one, else onto the lot(s) themselves.
+    const { error } = g.txn
+      ? await supabase.from('sales_transactions').update(patch).eq('id', g.txn.id)
+      : await supabase.from('lots').update({ ...patch, updated_at: new Date().toISOString() }).in('id', g.lots.map((l) => l.id));
     setSaving(false);
     if (error) { alert('Could not save delivery details: ' + error.message); return; }
     setEditKey(null);
     await load();
+    onChanged?.();
   };
 
   const itemCount = groups.reduce((s, g) => s + g.lots.length, 0);
@@ -201,25 +235,24 @@ export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
           </div>
         ) : (
           groups.map((g) => {
-            const t = g.txn;
-            const hasMover = !!(t?.delivery_company || t?.delivery_company_phone || t?.delivery_company_email);
-            const hasAddress = !!t?.delivery_address;
+            const d = g.del;
+            const hasMover = !!(d.company || d.phone || d.email);
+            const hasAddress = !!d.address;
+            const title = g.buyer || (g.txn ? 'Sale (no buyer recorded)' : `${g.lots[0]?.name ?? 'Delivery'} — no buyer recorded`);
             return (
               <div key={g.key} className="manifest-card bg-white rounded-lg border border-gray-200 p-5">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div className="min-w-0">
-                    <h3 className="text-base font-semibold text-gray-900">
-                      {t?.buyer_name || 'Unlinked sale'}
-                    </h3>
+                    <h3 className="text-base font-semibold text-gray-900">{title}</h3>
                     <p className="text-xs text-gray-500">{g.lots.length} item{g.lots.length === 1 ? '' : 's'} · {money(g.total)}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {t?.delivery_date && (
+                    {d.date && (
                       <span className="inline-flex items-center gap-1.5 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
-                        <Calendar className="w-4 h-4" /> {t.delivery_date}{t.delivery_estimate ? ` · ${t.delivery_estimate}` : ''}
+                        <Calendar className="w-4 h-4" /> {d.date}{d.estimate ? ` · ${d.estimate}` : ''}
                       </span>
                     )}
-                    {t && editKey !== t.id && (
+                    {editKey !== g.key && (
                       <button
                         onClick={() => openEdit(g)}
                         className="no-print inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline"
@@ -231,7 +264,7 @@ export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
                 </div>
 
                 {/* Delivery + mover details — view or edit */}
-                {t && editKey === t.id ? (
+                {editKey === g.key ? (
                   <div className="mt-3 rounded-md border border-indigo-200 bg-indigo-50/40 p-3 space-y-2 no-print">
                     <p className="text-xs font-semibold text-indigo-900">Delivery &amp; mover details</p>
                     <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Delivery address" className={inputCls} />
@@ -259,7 +292,7 @@ export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
                       <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Deliver to</p>
                       {hasAddress ? (
                         <p className="text-sm text-gray-800 flex items-start gap-1.5">
-                          <MapPin className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" /> {t!.delivery_address}
+                          <MapPin className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" /> {d.address}
                         </p>
                       ) : (
                         <p className="text-sm text-amber-700 flex items-center gap-1.5">
@@ -271,9 +304,9 @@ export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
                       <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Mover / delivery company</p>
                       {hasMover ? (
                         <div className="text-sm text-gray-800 space-y-0.5">
-                          {t?.delivery_company && <p className="flex items-center gap-1.5"><User className="w-4 h-4 text-gray-400" /> {t.delivery_company}</p>}
-                          {t?.delivery_company_phone && <p className="flex items-center gap-1.5"><Phone className="w-4 h-4 text-gray-400" /> <a href={`tel:${t.delivery_company_phone}`} className="hover:underline">{t.delivery_company_phone}</a></p>}
-                          {t?.delivery_company_email && <p className="flex items-center gap-1.5"><Mail className="w-4 h-4 text-gray-400" /> <a href={`mailto:${t.delivery_company_email}`} className="hover:underline">{t.delivery_company_email}</a></p>}
+                          {d.company && <p className="flex items-center gap-1.5"><User className="w-4 h-4 text-gray-400" /> {d.company}</p>}
+                          {d.phone && <p className="flex items-center gap-1.5"><Phone className="w-4 h-4 text-gray-400" /> <a href={`tel:${d.phone}`} className="hover:underline">{d.phone}</a></p>}
+                          {d.email && <p className="flex items-center gap-1.5"><Mail className="w-4 h-4 text-gray-400" /> <a href={`mailto:${d.email}`} className="hover:underline">{d.email}</a></p>}
                         </div>
                       ) : (
                         <p className="text-sm text-amber-700 flex items-center gap-1.5">
