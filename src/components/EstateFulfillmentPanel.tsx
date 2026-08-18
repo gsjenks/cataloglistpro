@@ -18,7 +18,17 @@ interface Props {
 
 interface Txn {
   id: string;
+  shopper_id: string | null;
   buyer_name: string | null;
+  delivery_address: string | null;
+  delivery_date: string | null;
+  delivery_estimate: string | null;
+  delivery_company: string | null;
+  delivery_company_phone: string | null;
+  delivery_company_email: string | null;
+}
+
+interface ShopperDelivery {
   delivery_address: string | null;
   delivery_date: string | null;
   delivery_estimate: string | null;
@@ -69,9 +79,34 @@ export default function EstateFulfillmentPanel({ lots, saleName }: Props) {
     if (txnIds.length) {
       const { data: txns } = await supabase
         .from('sales_transactions')
-        .select('id, buyer_name, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+        .select('id, shopper_id, buyer_name, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
         .in('id', txnIds);
-      ((txns as Txn[] | null) || []).forEach((t) => txnById.set(t.id, t));
+      const txnRows = (txns as Txn[] | null) || [];
+
+      // Fall back to the customer's saved delivery profile for any field the sale
+      // left blank (e.g. delivery info added to the shopper on the floor).
+      const shopperIds = [...new Set(txnRows.map((t) => t.shopper_id).filter(Boolean) as string[])];
+      const profileById = new Map<string, ShopperDelivery>();
+      if (shopperIds.length) {
+        const { data: shoppers } = await supabase
+          .from('shoppers')
+          .select('id, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+          .in('id', shopperIds);
+        ((shoppers as (ShopperDelivery & { id: string })[] | null) || []).forEach((s) => profileById.set(s.id, s));
+      }
+
+      txnRows.forEach((t) => {
+        const p = t.shopper_id ? profileById.get(t.shopper_id) : undefined;
+        if (p) {
+          t.delivery_address = t.delivery_address ?? p.delivery_address;
+          t.delivery_date = t.delivery_date ?? p.delivery_date;
+          t.delivery_estimate = t.delivery_estimate ?? p.delivery_estimate;
+          t.delivery_company = t.delivery_company ?? p.delivery_company;
+          t.delivery_company_phone = t.delivery_company_phone ?? p.delivery_company_phone;
+          t.delivery_company_email = t.delivery_company_email ?? p.delivery_company_email;
+        }
+        txnById.set(t.id, t);
+      });
     }
 
     // Group delivery lots by transaction (uses the current lots for names/prices).

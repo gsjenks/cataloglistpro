@@ -54,6 +54,10 @@ const num = (s: string): number | undefined => {
 
 export default function ConsignmentsManager({ saleId, companyId, consignments, contacts, lots, saleName, saleType, onChanged }: Props) {
   const isEstate = saleType === 'estate_sale';
+  // Estate sales call the consigning party the client/estate owner.
+  const partyOne = isEstate ? 'client' : 'consignor';
+  const PartyOne = isEstate ? 'Client' : 'Consignor';
+  const partyHeading = isEstate ? 'Client / Estate' : 'Consignors';
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Consignment | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -95,7 +99,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
 
   const save = async () => {
     if (!form.contact_id) {
-      alert('Pick a consignor (from this sale’s Contacts).');
+      alert(`Pick a ${partyOne} (from this sale’s Contacts).`);
       return;
     }
     setSaving(true);
@@ -170,21 +174,25 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
     <div className="bg-white rounded-lg border border-gray-200 p-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Consignors</h2>
-          <p className="text-sm text-gray-500">Terms per consignor; assign lots to a consignor on each item.</p>
+          <h2 className="text-lg font-semibold text-gray-900">{partyHeading}</h2>
+          <p className="text-sm text-gray-500">
+            {isEstate
+              ? 'Terms for the estate owner; assign the sale’s lots to them.'
+              : 'Terms per consignor; assign lots to a consignor on each item.'}
+          </p>
         </div>
         <button
           onClick={openAdd}
           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
         >
-          <Plus className="w-4 h-4" /> Add consignor
+          <Plus className="w-4 h-4" /> Add {partyOne}
         </button>
       </div>
 
       {consignments.length === 0 ? (
         <div className="mt-4 text-center py-8 text-gray-400">
           <UserPlus className="w-8 h-8 mx-auto mb-2" />
-          <p className="text-sm">No consignors yet. Add one to capture terms and assign lots.</p>
+          <p className="text-sm">No {isEstate ? 'client' : 'consignor'} yet. Add one to capture terms and assign lots.</p>
         </div>
       ) : (
         <ul className="mt-4 divide-y divide-gray-100">
@@ -232,7 +240,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
           <div className="bg-white rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">
-                {editing ? 'Edit consignor' : 'Add consignor'}
+                {editing ? `Edit ${partyOne}` : `Add ${partyOne}`}
               </h3>
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
@@ -241,7 +249,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
 
             <div className="p-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Consignor *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{PartyOne} *</label>
                 <select
                   value={form.contact_id}
                   onChange={(e) => setForm({ ...form, contact_id: e.target.value })}
@@ -319,14 +327,16 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                 </div>
               </div>
 
-              <div className="w-1/2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Buy-in rate (% of reserve)</label>
-                <input
-                  type="number" inputMode="decimal" value={form.fees.buyin}
-                  onChange={(e) => setForm({ ...form, fees: { ...form.fees, buyin: e.target.value } })}
-                  className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="3"
-                />
-              </div>
+              {!isEstate && (
+                <div className="w-1/2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Buy-in rate (% of reserve)</label>
+                  <input
+                    type="number" inputMode="decimal" value={form.fees.buyin}
+                    onChange={(e) => setForm({ ...form, fees: { ...form.fees, buyin: e.target.value } })}
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="3"
+                  />
+                </div>
+              )}
 
               {/* Other fees — ad-hoc consignor charges (cleanout, parking, gate, setup…) */}
               <div>
@@ -388,25 +398,30 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
 
               <div className="rounded-md bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
                 <p className="font-medium text-gray-700">How these are used at settlement</p>
-                <p>
-                  Consignor payout = total hammer &minus; commission &minus; fees. The
-                  buyer&apos;s premium is paid by the buyer (house revenue) and is not
-                  deducted from the consignor.
-                </p>
-                <ul className="list-disc pl-4 space-y-0.5">
-                  <li>
-                    <span className="font-medium">Commission</span> — the house&apos;s share
-                    of each hammer price.
-                  </li>
-                  <li>
-                    <span className="font-medium">Photography / Cataloging / Insurance /
-                    Storage</span> — costs billed back to the consignor.
-                  </li>
-                  <li>
-                    <span className="font-medium">Buy-in</span> — {DEFAULT_BUYIN_RATE}% (editable) of
-                    the reserve on each unsold lot; only lots that had a reserve are charged.
-                  </li>
-                </ul>
+                {isEstate ? (
+                  <>
+                    <p>
+                      {PartyOne} payout = gross sales &minus; commission &minus; fees.
+                    </p>
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      <li><span className="font-medium">Commission</span> — the house&apos;s share of gross sales.</li>
+                      <li><span className="font-medium">Flat fees + Other fees</span> (cleanout, parking, gate, setup…) — costs billed back to the {partyOne}.</li>
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      Consignor payout = total hammer &minus; commission &minus; fees. The
+                      buyer&apos;s premium is paid by the buyer (house revenue) and is not
+                      deducted from the consignor.
+                    </p>
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      <li><span className="font-medium">Commission</span> — the house&apos;s share of each hammer price.</li>
+                      <li><span className="font-medium">Photography / Cataloging / Insurance / Storage</span> — costs billed back to the consignor.</li>
+                      <li><span className="font-medium">Buy-in</span> — {DEFAULT_BUYIN_RATE}% (editable) of the reserve on each unsold lot; only lots that had a reserve are charged.</li>
+                    </ul>
+                  </>
+                )}
               </div>
             </div>
 
@@ -415,7 +430,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                 Cancel
               </button>
               <button onClick={save} disabled={saving} className="px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
-                {saving ? 'Saving…' : editing ? 'Save changes' : 'Add consignor'}
+                {saving ? 'Saving…' : editing ? 'Save changes' : `Add ${partyOne}`}
               </button>
             </div>
           </div>
