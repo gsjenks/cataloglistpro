@@ -109,36 +109,45 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
     const txnIds = [...new Set([...lotToTxn.values()])];
     const txnById = new Map<string, Txn>();
     if (txnIds.length) {
+      // Core fields — never include shopper_id here, so a missing shopper_id
+      // column (unrun migration) can't 400 the whole query and hide the buyers.
       const { data: txns } = await supabase
         .from('sales_transactions')
-        .select('id, shopper_id, buyer_name, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+        .select('id, buyer_name, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
         .in('id', txnIds);
       const txnRows = (txns as Txn[] | null) || [];
+      txnRows.forEach((t) => txnById.set(t.id, t));
 
-      // Fall back to the customer's saved delivery profile for any field the sale
-      // left blank (e.g. delivery info added to the shopper on the floor).
-      const shopperIds = [...new Set(txnRows.map((t) => t.shopper_id).filter(Boolean) as string[])];
-      const profileById = new Map<string, ShopperDelivery>();
-      if (shopperIds.length) {
-        const { data: shoppers } = await supabase
-          .from('shoppers')
-          .select('id, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
-          .in('id', shopperIds);
-        ((shoppers as (ShopperDelivery & { id: string })[] | null) || []).forEach((s) => profileById.set(s.id, s));
-      }
-
-      txnRows.forEach((t) => {
-        const p = t.shopper_id ? profileById.get(t.shopper_id) : undefined;
-        if (p) {
-          t.delivery_address = t.delivery_address ?? p.delivery_address;
-          t.delivery_date = t.delivery_date ?? p.delivery_date;
-          t.delivery_estimate = t.delivery_estimate ?? p.delivery_estimate;
-          t.delivery_company = t.delivery_company ?? p.delivery_company;
-          t.delivery_company_phone = t.delivery_company_phone ?? p.delivery_company_phone;
-          t.delivery_company_email = t.delivery_company_email ?? p.delivery_company_email;
+      // Optional: pull shopper_id separately for the saved-profile fallback. If
+      // that column isn't migrated yet, just skip the fallback (buyers/delivery
+      // from the transaction still show).
+      const sidRes = await supabase.from('sales_transactions').select('id, shopper_id').in('id', txnIds);
+      if (!sidRes.error) {
+        const shopperByTxn = new Map<string, string>();
+        ((sidRes.data as { id: string; shopper_id: string | null }[] | null) || []).forEach((r) => {
+          if (r.shopper_id) shopperByTxn.set(r.id, r.shopper_id);
+        });
+        const shopperIds = [...new Set(shopperByTxn.values())];
+        if (shopperIds.length) {
+          const { data: shoppers } = await supabase
+            .from('shoppers')
+            .select('id, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+            .in('id', shopperIds);
+          const profileById = new Map<string, ShopperDelivery>();
+          ((shoppers as (ShopperDelivery & { id: string })[] | null) || []).forEach((s) => profileById.set(s.id, s));
+          txnById.forEach((t, id) => {
+            const p = shopperByTxn.get(id) ? profileById.get(shopperByTxn.get(id)!) : undefined;
+            if (p) {
+              t.delivery_address = t.delivery_address ?? p.delivery_address;
+              t.delivery_date = t.delivery_date ?? p.delivery_date;
+              t.delivery_estimate = t.delivery_estimate ?? p.delivery_estimate;
+              t.delivery_company = t.delivery_company ?? p.delivery_company;
+              t.delivery_company_phone = t.delivery_company_phone ?? p.delivery_company_phone;
+              t.delivery_company_email = t.delivery_company_email ?? p.delivery_company_email;
+            }
+          });
         }
-        txnById.set(t.id, t);
-      });
+      }
     }
 
     // Group delivery lots. Transaction-backed lots group by their sale (buyer);
