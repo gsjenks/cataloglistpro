@@ -63,11 +63,8 @@ export default function DeliveryMoverManifest({
               <p className="text-xs uppercase tracking-wide text-gray-500">Deliver to</p>
               <p className="font-medium text-gray-900">{buyer || '—'}</p>
               <p className="text-gray-700 whitespace-pre-line">{address || 'No address on file'}</p>
-              {(date || estimate) && (
-                <p className="text-gray-700 mt-1">
-                  {date}{date && estimate ? ' · ' : ''}{estimate}
-                </p>
-              )}
+              {date && <p className="text-gray-700 mt-1">{date}</p>}
+              {estimate && <p className="text-gray-700 mt-1"><span className="text-gray-500">Moving Estimate:</span> {estimate}</p>}
             </div>
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-500">Mover / delivery company</p>

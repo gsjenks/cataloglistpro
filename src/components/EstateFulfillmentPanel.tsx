@@ -268,9 +268,9 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
                     <p className="text-xs text-gray-500">{g.lots.length} item{g.lots.length === 1 ? '' : 's'} · {money(g.total)}</p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap justify-end">
-                    {(d.date || d.estimate) && (
+                    {d.date && (
                       <span className="inline-flex items-center gap-1.5 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
-                        <Calendar className="w-4 h-4" /> {d.date}{d.date && d.estimate ? ' · ' : ''}{d.estimate}
+                        <Calendar className="w-4 h-4" /> {d.date}
                       </span>
                     )}
                     {editKey !== g.key && (
@@ -299,7 +299,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
                     <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Delivery address" className={inputCls} />
                     <div className="flex gap-2">
                       <input value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} placeholder="Delivery date" className={inputCls} />
-                      <input value={form.estimate} onChange={(e) => setForm({ ...form, estimate: e.target.value })} placeholder="Time / estimate" className={inputCls} />
+                      <input value={form.estimate} onChange={(e) => setForm({ ...form, estimate: e.target.value })} placeholder="Moving estimate" className={inputCls} />
                     </div>
                     <input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} placeholder="Mover / delivery company" className={inputCls} />
                     <div className="flex gap-2">
@@ -328,10 +328,13 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
                           <AlertTriangle className="w-4 h-4" /> No delivery address on file
                         </p>
                       )}
-                      {(d.date || d.estimate) && (
+                      {d.date && (
                         <p className="text-sm text-gray-600 flex items-center gap-1.5 mt-1.5">
-                          <Calendar className="w-4 h-4 text-gray-400" /> {d.date}{d.date && d.estimate ? ' · ' : ''}{d.estimate}
+                          <Calendar className="w-4 h-4 text-gray-400" /> {d.date}
                         </p>
+                      )}
+                      {d.estimate && (
+                        <p className="text-sm text-gray-700 mt-1"><span className="text-gray-500">Estimate:</span> {d.estimate}</p>
                       )}
                     </div>
                     <div className="rounded-md border border-gray-200 p-3">
