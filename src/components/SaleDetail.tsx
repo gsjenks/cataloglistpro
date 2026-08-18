@@ -12,6 +12,7 @@ import type { ScannedLot } from '../services/ScannerService';
 import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
 import AssignToBasketModal from './AssignToBasketModal';
+import SaleCloseSummary from './SaleCloseSummary';
 import QRScanner from './QRScanner';
 import PointOfSale from './PointOfSale';
 import BasketManager from './BasketManager';
@@ -832,6 +833,16 @@ export default function SaleDetail() {
       <div className="mt-6">
         {activeTab === 'setup' && (
           <div className="space-y-6">
+            {sale.stage === 'closed' && (
+              <SaleCloseSummary
+                sale={sale}
+                lots={lots}
+                consignments={consignments}
+                consignorNames={consignorNames}
+                saleType={sale?.sale_type}
+                onChanged={loadSale}
+              />
+            )}
             <SaleSetupTab
               sale={sale}
               lots={lots}
