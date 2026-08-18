@@ -5,7 +5,8 @@
 // captured at checkout. Printable for handing to the mover.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Truck, Printer, MapPin, Calendar, User, Phone, Mail, AlertTriangle, Pencil } from 'lucide-react';
+import { Truck, Printer, MapPin, Calendar, User, Phone, Mail, AlertTriangle, Pencil, FileSignature } from 'lucide-react';
+import DeliveryMoverManifest from './DeliveryMoverManifest';
 import { supabase } from '../lib/supabase';
 import type { Lot } from '../types';
 
@@ -65,6 +66,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
   const [editKey, setEditKey] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [manifestFor, setManifestFor] = useState<Group | null>(null);
 
   // Base set: every sold lot. Whether it's a delivery is decided below from the
   // sale line's fulfillment (like the Disposition Report), not only the lot flag.
@@ -265,19 +267,27 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
                     <h3 className="text-base font-semibold text-gray-900">{title}</h3>
                     <p className="text-xs text-gray-500">{g.lots.length} item{g.lots.length === 1 ? '' : 's'} · {money(g.total)}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {d.date && (
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {(d.date || d.estimate) && (
                       <span className="inline-flex items-center gap-1.5 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
-                        <Calendar className="w-4 h-4" /> {d.date}{d.estimate ? ` · ${d.estimate}` : ''}
+                        <Calendar className="w-4 h-4" /> {d.date}{d.date && d.estimate ? ' · ' : ''}{d.estimate}
                       </span>
                     )}
                     {editKey !== g.key && (
-                      <button
-                        onClick={() => openEdit(g)}
-                        className="no-print inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline"
-                      >
-                        <Pencil className="w-3.5 h-3.5" /> Edit
-                      </button>
+                      <>
+                        <button
+                          onClick={() => setManifestFor(g)}
+                          className="no-print inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline"
+                        >
+                          <FileSignature className="w-3.5 h-3.5" /> Manifest
+                        </button>
+                        <button
+                          onClick={() => openEdit(g)}
+                          className="no-print inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline"
+                        >
+                          <Pencil className="w-3.5 h-3.5" /> Edit
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -316,6 +326,11 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
                       ) : (
                         <p className="text-sm text-amber-700 flex items-center gap-1.5">
                           <AlertTriangle className="w-4 h-4" /> No delivery address on file
+                        </p>
+                      )}
+                      {(d.date || d.estimate) && (
+                        <p className="text-sm text-gray-600 flex items-center gap-1.5 mt-1.5">
+                          <Calendar className="w-4 h-4 text-gray-400" /> {d.date}{d.date && d.estimate ? ' · ' : ''}{d.estimate}
                         </p>
                       )}
                     </div>
@@ -362,6 +377,22 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
           })
         )}
       </div>
+
+      {manifestFor && (
+        <DeliveryMoverManifest
+          saleName={saleName}
+          buyer={manifestFor.buyer}
+          address={manifestFor.del.address}
+          date={manifestFor.del.date}
+          estimate={manifestFor.del.estimate}
+          company={manifestFor.del.company}
+          phone={manifestFor.del.phone}
+          email={manifestFor.del.email}
+          lots={manifestFor.lots}
+          total={manifestFor.total}
+          onClose={() => setManifestFor(null)}
+        />
+      )}
     </div>
   );
 }
