@@ -66,12 +66,31 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
-  const deliveryLots = lots.filter((l) => l.inventory_status === 'sold' && l.for_delivery);
-  const key = deliveryLots.map((l) => l.id).sort().join(',');
+  // Base set: every sold lot. Whether it's a delivery is decided below from the
+  // sale line's fulfillment (like the Disposition Report), not only the lot flag.
+  const soldLots = lots.filter((l) => l.inventory_status === 'sold');
+  const key = soldLots.map((l) => l.id).sort().join(',');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const ids = key ? key.split(',') : [];
+    const soldIds = key ? key.split(',') : [];
+    if (soldIds.length === 0) { setGroups([]); setLoading(false); return; }
+    const soldById = new Map(lots.filter((l) => l.inventory_status === 'sold').map((l) => [l.id, l]));
+
+    // Sale lines for every sold lot: gives the buyer link AND the delivery flag.
+    const { data: items } = await supabase
+      .from('sales_transaction_items')
+      .select('lot_id, transaction_id, fulfillment')
+      .in('lot_id', soldIds);
+    const lotToTxn = new Map<string, string>();
+    const lotFulfil = new Map<string, string | null>();
+    ((items as { lot_id: string; transaction_id: string; fulfillment: string | null }[] | null) || []).forEach((i) => {
+      lotToTxn.set(i.lot_id, i.transaction_id);
+      lotFulfil.set(i.lot_id, i.fulfillment);
+    });
+
+    // A lot is out for delivery if its sale line says so, or the lot is flagged.
+    const ids = soldIds.filter((id) => lotFulfil.get(id) === 'delivery' || soldById.get(id)?.for_delivery);
     if (ids.length === 0) { setGroups([]); setLoading(false); return; }
 
     // Fresh lot-level delivery fields (so lot-based edits reflect without waiting
@@ -86,14 +105,6 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
         address: r.delivery_address, date: r.delivery_date, estimate: r.delivery_estimate,
         company: r.delivery_company, phone: r.delivery_company_phone, email: r.delivery_company_email,
       }));
-
-    // Link each delivery lot to its POS transaction.
-    const { data: items } = await supabase
-      .from('sales_transaction_items')
-      .select('lot_id, transaction_id')
-      .in('lot_id', ids);
-    const lotToTxn = new Map<string, string>();
-    ((items as { lot_id: string; transaction_id: string }[] | null) || []).forEach((i) => lotToTxn.set(i.lot_id, i.transaction_id));
 
     const txnIds = [...new Set([...lotToTxn.values()])];
     const txnById = new Map<string, Txn>();
@@ -133,10 +144,9 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
     // Group delivery lots. Transaction-backed lots group by their sale (buyer);
     // lots with no transaction stand alone (per lot) so each still holds its own
     // delivery info on the lot itself.
-    const byId = new Map(deliveryLots.map((l) => [l.id, l]));
     const byKey = new Map<string, Group>();
     for (const id of ids) {
-      const l = byId.get(id);
+      const l = soldById.get(id);
       if (!l) continue;
       const tid = lotToTxn.get(id);
       const gkey = tid ?? `lot:${id}`;
