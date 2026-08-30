@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useFooter } from '../context/FooterContext';
 import { MessageCircle, X, ArrowUp, Sparkles, Maximize2, Minimize2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -52,6 +53,12 @@ export default function HelpAssistant() {
   });
   const scrollRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
+  // ContextFooter is fixed to the bottom-right and renders only when a screen
+  // registers actions. This bubble sat in the same corner at the same z-index
+  // and painted last, covering those buttons — worst on mobile, where the
+  // footer labels are hidden so the actions bunch up under it.
+  const { actions } = useFooter();
+  const footerVisible = actions.length > 0;
 
   const clamp = (w: number, h: number) => ({
     w: Math.max(300, Math.min(window.innerWidth * 0.96, w)),
@@ -113,7 +120,14 @@ export default function HelpAssistant() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 px-4 py-3 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700"
+        className={`fixed right-5 z-40 inline-flex items-center gap-2 px-4 py-3 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 ${
+          // .bottom-above-footer clears the footer's h-16 row, the home-indicator
+          // inset it pads itself with (pb-safe), and a gap. Defined in index.css
+          // rather than inline: an inline calc() with env() collapses to an
+          // invalid declaration where env() is unsupported, which would drop
+          // `bottom` entirely and strand a fixed element mid-page.
+          footerVisible ? 'bottom-above-footer' : 'bottom-5'
+        }`}
         aria-label="Open help assistant"
       >
         <MessageCircle className="w-5 h-5" />
