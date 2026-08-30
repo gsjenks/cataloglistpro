@@ -4,57 +4,92 @@ Auction / estate-sale cataloging PWA for auction houses. This file is the workin
 context and roadmap. Read it at the start of each session.
 
 ## Stack & deploy
-- React + TypeScript + Vite frontend; Supabase backend (auth, Postgres, storage, realtime).
+- React + TypeScript + Vite frontend; Supabase backend (auth, Postgres, storage, realtime, edge functions).
 - Capacitor for Android (target: Samsung Galaxy S24 Ultra).
 - Hosted at **cataloglistpro.vercel.app**, auto-deployed from **github.com/gsjenks/cataloglistpro** (push to `main` → Vercel builds).
 - **Build:** `vite build` only. Do NOT gate on `tsc -b` — there are ~60 pre-existing TS errors, isolated to the live-auction-room files, that the Vite build intentionally skips. Don't "fix" unrelated files to make tsc pass.
 - **Line endings: CRLF** (Windows repo). Preserve CRLF on any file you edit so diffs stay clean.
+- **Only the web app auto-deploys.** Migrations in `supabase/migrations/` and edge functions in `supabase/functions/` are applied/deployed **by hand**, as are `supabase secrets set` values. Assume nothing is live until it's been run; say so when a change needs it.
 
 ## Data model
-`Company → Sale → Lot → Photo`. Contacts and Documents attach to either a Company or a Sale.
-Two independent status systems exist and should not be conflated:
-- `sales.status`: `upcoming | active | completed` (the everyday sale lifecycle).
-- `src/types/auction.ts`: `auction.status` and `lot.status` — these belong to the **in-app live bidding room**, a separate feature.
+`Company → Sale → Lot → Photo`. Contacts and Documents attach to either a Company or a Sale (**exactly one** — a check constraint that exists only in the remote DB, no migration; setting both 400s).
+Status systems that must not be conflated:
+- `sales.status`: `upcoming | active | completed` — derived from `stage`, never set by hand.
+- `sales.stage`: `intake → setup → listed → live → settlement → fulfillment → reconciliation → closed` (the real pipeline; nullable `text`, no default/CHECK, code falls back to `intake`).
+- `sales.sale_type`: `auction | estate_sale | social` — the mode switch (see below). DB default is `auction`; `SaleModal` defaults **new** sales to `estate_sale`.
+- `lots.inventory_status`: `available | held | sold` — the **estate floor** state.
+- `lots.outcome` / `payment_status` — the **auction** per-lot state (sold/passed, paid/refunded).
+- `src/types/auction.ts` `auction.status` / `lot.status` — the **in-app live bidding room** only, a separate feature.
 
-## Current focus: the LiveAuctioneers marketplace auction
-We are working the end-to-end lifecycle of an auction **sold through LiveAuctioneers** (export a catalog to LA, bidding happens on their site, import results back).
+## Two modes, one app
+`sale_type` decides which surfaces appear. There is **no `isEstate()` helper** — every call site inlines `sale.sale_type === 'estate_sale'`.
 
-**Explicitly out of scope for now:** the in-app virtual bidding room / POS stack
-(`AuctionRoom3D`, `BidPanel`, `ClerkPanel`, `PointOfSale`, etc.). Leave it alone unless asked.
+**Still out of scope unless asked:** the in-app virtual bidding room (`AuctionRoom3D`, `BidPanel`, `ClerkPanel`, `BidderChat`, `useAuction`). The **POS/register/baskets stack is now in scope** — it is the estate-sale floor.
 
-### End-to-end map & status
-The lifecycle is built end to end. Sales carry a `stage` (intake → setup → listed →
-live → settlement → fulfillment → reconciliation → closed) with per-stage checklists;
-see `docs/auction-lifecycle-spec.md` and `src/lib/auctionStages.ts`.
+### A. LiveAuctioneers auction (`sale_type = 'auction'`)
+Export a catalog to LA, bidding happens on their site, import results back.
 
-1. **Contract / consignment intake** — Contacts + Documents (CRUD) + contract-on-file marker; Intake stage checklist.
+1. **Contract / consignment intake** — Contacts + Documents (CRUD) + contract-on-file marker; Intake checklist.
 2. **Setup / planning** — Setup tab: stage checklist, consignors (`ConsignmentsManager`) with terms/fees, catalogue PDF import.
 3. **Photos** — Camera/webcam capture, offline-first (`PhotoService`), primary photo, reorder, `LotNumber_sequence.jpg` naming.
 4. **Cataloging → LA listing** — `LotForm` editor, auto lot-numbering (`LotNumberService`), Gemini enrichment (inline `gemini-2.5-flash` call in `LotDetail.tsx`; `src/lib/Gemini.ts` is dead code). `ExportService` builds the full LA CSV + optional photo ZIP. Manual file upload to LA — no LA API.
 5. **Auction on LA** — external; app is passive.
-6. **End-of-auction** — `EOAImportService` imports the LA eoa-list **XML** (creates sale + consignor + sold lots); older `EOAProcessing` still reads the .xlsx and prints Avery 55163 labels / packing list. Payments tab works the 72h payment-resolution machine.
-7. **Fulfillment / shipping** — Fulfillment tab: group paid lots by buyer, assign a shipper from the company **shippers directory** (or Pickup/Store), packing invoice, tracking, delivery, lookup.
-8. **Closing the books** — Unsold tab (disposition cascade + printable sections) and **Reconciliation tab** (consignor payouts, house revenue, accounting CSV). Stage 8 *Closed* — final wrap-up/archive UI — is still just checkboxes.
+6. **End-of-auction** — `EOAImportService` imports the LA eoa-list **XML**; `BuyerInvoiceImportService` parses the LA invoice **PDF** (the only source of sales tax + shipping). Payments tab works the 72h payment-resolution machine. Older `EOAProcessing` still reads the .xlsx.
+7. **Fulfillment / shipping** — `FulfillmentPanel`: group paid lots by buyer, assign a shipper from the company **shippers directory** (or Pickup/Store), packing invoice, labels, shipper manifest, tracking, delivery, lookup.
+8. **Closing the books** — Unsold tab (disposition cascade) and **Reconciliation** (consignor payouts, house revenue, tax-liability split, refund audit, accounting CSV), then **Close** (`SaleCloseSummary`).
 
-### Ordered next steps
-- **Stage 8 Close** — sale wrap-up summary + archive (stage `closed` → status `completed`); currently the only stage with no UI of its own.
-- Cleanups: `photography_complete` is stubbed in `computeDerived`; `EOAProcessing` label header is hardcoded; `src/lib/Gemini.ts` is dead.
+### B. Estate sale (`sale_type = 'estate_sale'`)
+In-person floor sale run out of the app. Same stage machine, different surfaces.
+
+- **Items tab** gains footer actions **Register** (`PointOfSale`) and **Scan** (`QRScanner`), an Available/Held/Sold multi-select filter (in `SaleDetail.tsx`, on the raw column — an expired hold still shows as Held), and realtime lot sync.
+- **Baskets** — a basket *is* the set of lots with `held_by = shopper.id`, `inventory_status='held'`, `held_until > now`. `sale_baskets` (sale_id, shopper_id) exists only to link company-wide shoppers to a sale; statuses `holding | checkedout | empty` are **derived**, not stored. `BasketManager` lists every basket for the sale with a live countdown; its Checkout button hands the basket straight to the register (`initialBasketId` → `loadBuyerBasket`). `AssignToBasketModal` assigns a lot to a customer (or creates one) from Item Lookup.
+- **Holds** — 30 minutes. Adding an item **resets the whole basket's timer** (`renewBasketHolds`). Taking a held item needs a staff `confirm()` naming the holder and time left; the register re-reads the lot from the DB before that check. `held_until IS NULL` = indefinite staff hold. `hold_lot`/`release_lot` are `SECURITY DEFINER` RPCs open to anon (buyer self-serve), gated on `online_checkout_enabled` / `online_checkout_opens_at` (`src/lib/estateSale.ts`).
+- **Register** (`PointOfSale` / `PosService`) — tenders cash/check/venmo/cashapp/other (**card is disabled, "Square — Phase 4"**); records `shopper_id` on the transaction, sets each lot `sold` + `for_delivery` from the line's fulfillment, clears holds.
+- **Sold is locked.** `InventoryStatusControl` disables Sold; leaving Sold requires **Refund** (`RefundService.refundLotSale` → resets the lot, deletes/voids the POS line, re-tots tax, logs to `refunds`).
+- **Fulfillment** = `EstateFulfillmentPanel`: deliveries derived from the sale line (`fulfillment='delivery'`) or `lot.for_delivery`, resolved transaction fields → shopper profile → the lot's own `delivery_*` columns, each group editable and printable as a `DeliveryMoverManifest` (mover details, moving estimate, load-check boxes, driver signature block — paper only, nothing persisted).
+- **Hidden / reworded for estate:** Payments tab and every LA surface (catalogue import, LA export/import, invoice import, "Go Live") are gone; Consignors → **Client / Estate** with buyer's premium and buy-in hidden; Reconciliation says **Gross sales / Net sales** and *owner* payouts; Settlement column `Hammer` → `Sold`; Unsold says **Returned to owner / Cleanout** and drops Aftersale + Hold-for-relist; Reports & Tools adds the **Disposition Report**.
+
+## Stage machine
+`src/lib/auctionStages.ts` — 8 stages, each with a checklist; required items gate advance, overrides record who/when/reason. Estate variants exist for **only three** stages (`listed → Scheduled`, `live → Sale open`, `settlement → Checkout`); intake/setup/fulfillment/reconciliation still show auction wording for estate sales. `computeDerived()` derives items from lots/consignments/documents; `SaleStageService.advanceStage` writes `stage`, `stage_progress`, and the derived `status`. Spec: `docs/auction-lifecycle-spec.md`.
+
+**Stage 8 Close** — `SaleCloseSummary` renders on the Setup tab once `stage === 'closed'`: money recap (mode-aware wording, refunds netted out), item outcomes + sell-through, and an **Archive** button that only ticks the `archived` checklist item — there is no archive column and nothing becomes read-only.
+
+## Ordered next steps
+- **Refund accounting is split-brained** (see caveats) — make Reconciliation and Close agree on one source.
+- Estate checklists for `intake`/`setup`/`fulfillment`/`reconciliation` (still auction-worded), and derived items that are vacuously true on estate sales.
+- Real archive semantics for Stage 8 (flag on the sale, read-only/hide from the active list).
+- Cleanups: `photography_complete` stubbed in `computeDerived`; `EOAProcessing` label header hardcoded; `src/lib/Gemini.ts` dead; three separate copies of the 30-minute hold constant.
 
 ## Known caveats
-- **Live-auction DB objects** (`bids`, `auction_state`, `bidders`, `auction_registrations`, `chat_messages`, `watched_lots` tables; `place_bid`/`advance_lot`/`retract_last_bid`/`reset_auction` RPCs) are called by code but have **no migration in `supabase/migrations/`** — they live only in the hosted Supabase project. Estate-sale/POS/holds/shopper backend IS version-controlled.
-- `EOAProcessing.tsx` shipping-label header is **hardcoded** ("Benson Auction Services", a phone, a date) instead of pulled from company/sale data.
-- `src/lib/Gemini.ts` is legacy/unused; enrichment lives inline in `LotDetail.tsx`.
+- **Refunds have two sources and disagree.** `RefundService` logs to the `refunds` table but never writes `lots.refund_amount` / `payment_status='refunded'`, while `computeReconciliation` reads *only* `lots.refund_amount`. So on estate sales Reconciliation's "Net sales" always equals "Gross sales" and "Refunds issued" never fires, while `SaleCloseSummary` (refunds table) is correct. Refunding also nulls `sold_price`, dropping the lot out of gross.
+- **Derived checklist items are vacuously true** — `all_fulfilled`, `nonpaying_resolved`, `unsold_dispositioned` are `.every()` over possibly-empty arrays; nothing marks estate sales `paid`. Conversely `settlements_generated`/`consignors_paid` require ≥1 consignment, so an estate sale with no client record can only clear Stage 7 by override.
+- **Live-auction DB objects** (`bids`, `auction_state`, `bidders`, `auction_registrations`, `chat_messages`, `watched_lots`; `place_bid`/`advance_lot`/`retract_last_bid`/`reset_auction`) are called by code but have **no migration** — they live only in the hosted Supabase project. Estate/POS/holds/shopper/baskets/refunds/delete backend IS version-controlled. The `documents`/`contacts` one-parent check constraint is also remote-only.
+- **`/clerk/:saleId` is a public route** in `App.tsx` — a staff clerking panel outside the auth wrapper.
+- `supabase/functions/watched-lot-alert` is hardcoded to send `to: "gsjenks@yahoo.com"` from `onboarding@resend.dev` (`// TODO: use \`to\` param in production`).
+- `shopper-verify` falls back to **TEST MODE and returns the code in the response** when no Resend/Twilio key is set.
+- `storage-sweep` is manual-invoke only, secret-guarded, `dryRun` defaults **true**; `company-assets` is never swept.
+- `EOAProcessing.tsx` shipping-label header is hardcoded ("Benson Auction Services", a phone, a date); `QRCodeLabelGenerator` hardcodes the `cataloglistpro.vercel.app` base URL.
+- Two companies use this app — **Benson Auction Services** and **Benson Estate Sales**; resale-certificate lookups deliberately span them via RLS.
+- `src/lib/publicClient.ts` must keep its own `storageKey` — sharing one with `lib/supabase.ts` made the two GoTrue clients deadlock on the navigator lock and hung dashboard loads.
 
 ## Work log
+- **Estate fulfillment & deliveries** (2026-08-17/18): `EstateFulfillmentPanel` — every delivery reviewable/editable/printable including lots with no POS transaction (new `lots.delivery_*` columns, migration `20260817000004_lot_delivery.sql`); deliveries derived from the sale line the way the report does it; per-delivery `DeliveryMoverManifest` with mover details, moving estimate and a driver signature block; delivery falls back to the saved shopper profile; `shopper_id` fetched separately so an unrun migration can't 400 the whole panel.
+- **Stage 8 Close** (2026-08-18): `SaleCloseSummary` wrap-up + Archive tick (`4027fb6`).
+- **Estate mode sweep** (2026-08-17): relabels (Consignors → Client / Estate, hammer → Gross/Net sales, `Hammer` → `Sold`, Returned to owner / Cleanout), hides (LA catalogue import, LA export/import, EOA invoice import, Payments tab, buyer's premium, Go Live, Aftersale, hold-for-relist), estate checklist variants for Listed/Live/Settlement, whole-sale **Disposition Report** in Reports & Tools, Unsold populated for estate (not sold + not held), ad-hoc consignor fees (cleanout, parking, gate, setup, other), reconciliation unassigned-money banner. Fixed `ReconciliationPanel` crash (`isEstate` out of scope in `PayoutRow`).
+- **Refund audit trail** (2026-08-17): sold lots are locked — leaving Sold requires a refund; `RefundService` + `refunds` table (`20260817000003`), surfaced in Reconciliation, Close and the Disposition Report.
+- **Baskets & register** (2026-08-17): `sale_baskets` join table (`20260817000001`) so every basket for a sale is listed whatever its status; live hold countdown, urgency sort, roll-up totals; browse/sort available-then-held inventory in the add-item box; edit a shopper's name/phone/email in place; adding an item resets the whole basket timer; staff-confirm override for held items (register re-reads the lot first); "Checkout" hands the basket to the register; POS records `shopper_id` (`20260817000002`) and sets `lot.for_delivery` from the line; Item Lookup can add a lot to a basket or switch a sold carry-out lot to delivery; Available/Held/Sold filter on the Items tab.
+- **Tier 1 AI help assistant** (2026-08-17): `HelpAssistant` + `supabase/functions/help-assistant` — grounded how-to chat over an inline KNOWLEDGE string via `gemini-2.5-flash`, auth-gated, last 12 messages, no live data access; resizable window remembered in `localStorage['help_size']`. Needs `GEMINI_API_KEY` set as a Supabase secret.
+- **Destructive-op cleanup** (2026-08-17): `delete_sale` RPC (`20260817000000`) deletes all child rows with an authorization guard and a one-time orphan sweep, with storage files removed client-side first; Delete Business now removes the company's storage files too; guarded `storage-sweep` edge function; Documents attach to exactly one of sale or company (fixes the upload 400) and surface the real upload error.
 - **Certificates shared across companies** (branch `feat/packing-print`, PR #13, 2026-08-16): the app is used by **two companies — Benson Auction Services and Benson Estate Sales** — so resale-certificate lookups drop the `company_id` filter and let RLS (`company_id IN (user's companies)`) scope them; siblings share, no schema change, `company_id` still records who collected it. Caveat: sharing follows the *viewer's* memberships. `TaxExemptionsManager` lists everything on file (expired first, then soonest to lapse; search; "no image" flag), opened from "Resale certificates" beside "Manage shippers" in Fulfillment.
 - **Tax liability split + resale certificates** (branch `feat/packing-print`, PR #13, 2026-08-16): Reconciliation separates house revenue (commission + BP + fees + in-house shipping/handling) from **sales tax collected in-house, which is a liability to remit, not revenue** — its own block in the panel and the accounting CSV — with LA-collected tax/shipping shown only for cross-checking. `tax_exemptions` table (migration `20260816000003`, **applied to remote**): company-scoped resale certificates keyed on buyer email, certificate photographed (`capture="environment"`) or uploaded into the **private `documents` bucket**, signed-URL reads. Valid cert auto-exempts and prints its state/permit on the invoice; expired never exempts. This branch merges `feat/reconciliation` (PR #11), since `ReconciliationPanel` lives there.
-- **House charges** (branch `feat/packing-print`, in PR #13, 2026-08-16): `house_charges` table (migration `20260816000002`, **applied to remote**) — per (sale, buyer) shipping/handling/tax the HOUSE collects, kept out of `buyer_invoices` so LA re-imports can't wipe it. `HouseChargesModal` from a Charges button on every Fulfillment buyer row; prints as a "Collected by <house>" block on the buyer invoice. Tax base = hammer + premium + shipping + handling; `tax_includes_goods` defaults off when LA already taxed that buyer (no double tax). **Outstanding:** Reconciliation must show collected tax as a liability to remit (not revenue) and exclude LA-collected amounts — needs PR #11 merged first; resale-certificate table (`tax_exemptions`) still unbuilt, `tax_exempt`/`exempt_reason` is the manual stand-in.
+- **House charges** (branch `feat/packing-print`, in PR #13, 2026-08-16): `house_charges` table (migration `20260816000002`, **applied to remote**) — per (sale, buyer) shipping/handling/tax the HOUSE collects, kept out of `buyer_invoices` so LA re-imports can't wipe it. `HouseChargesModal` from a Charges button on every Fulfillment buyer row; prints as a "Collected by <house>" block on the buyer invoice. Tax base = hammer + premium + shipping + handling; `tax_includes_goods` defaults off when LA already taxed that buyer (no double tax).
 - **LA invoice PDF ingest** (branch `feat/packing-print`, in PR #13, 2026-08-16): `lib/laInvoiceParse.ts` (pure parser for the partners.liveauctioneers.com invoice print-out — page-spanning invoices, wrapped titles, `Total` vs `Totals`, pdf.js's stray in-number spaces; flags invoices whose printed total ≠ their lines) + `BuyerInvoiceImportService` (pdf.js in browser → upsert `buyer_invoices`, optional mark-paid from LA's zero balance) + `BuyerInvoiceImportModal` on the Payments tab. Migration `20260816000001_buyer_invoices.sql` **applied to remote**; joins lots via `lots.la_invoice_id`. **This is the only source of sales tax + shipping** — printed buyer invoices now prefer it, manual tax rate demoted to fallback. Verified on the real 68-page Liz PDF: 52 invoices / 132 lots / $15,323 hammer / $3,064.60 premium (matches the EOA XML exactly) + $1,281.80 tax + $1,230 shipping.
 - **Packing-session paperwork** (branch `feat/packing-print`, PR #13, stacked on #12, 2026-08-16): "Print for packing" row in the Fulfillment tab → (1) `AuctionPackingList.tsx` master sheet (lot/item/buyer/address/shipper, sortable, unpaid + unassigned warnings), (2) `BuyerInvoices.tsx` financial invoice per buyer one-per-page (hammer/premium/tax/total; **tax rate entered on screen + stored in `localStorage['invoice_taxrate_<saleId>']`** since LA collects tax and it's in no table), (3) `services/LabelService.ts` Avery 55163 PDF, one label per lot with buyer/address/lot #/shipper/"piece n of m". Shared math in `lib/invoices.ts`. Per-buyer "Invoice" button renamed "Slip" (it's the packing slip).
-- **Shipper handoff manifest** (branch `feat/shipper-manifest`, PR #12, 2026-08-16): `ShipperManifest.tsx` — one printable page per shipper listing every lot going to them grouped by buyer (tick box per lot, per-shipment subtotal, lots/shipments/declared-value header), with a single signature block (driver name + signature + date + time, released-by, exceptions). "Manifest" button on each shipper section in `FulfillmentPanel`. Defaults to lots not yet shipped/delivered; built from all of the shipper's shipments, never the search-filtered view.
+- **Shipper handoff manifest** (branch `feat/shipper-manifest`, PR #12, 2026-08-16): `ShipperManifest.tsx` — one printable page per shipper listing every lot going to them grouped by buyer (tick box per lot, per-shipment subtotal, lots/shipments/declared-value header), with a single signature block (driver name + signature + date + time, released-by, exceptions). "Manifest" button on each shipper section in `FulfillmentPanel`. Defaults to lots not yet shipped/delivered; built from all of the shipper's shipments, never the search-filtered view. Shipper pickup marks the whole load shipped in one action.
 - **Stage 7 Reconciliation** (branch `feat/reconciliation`, 2026-08-16): `ReconciliationPanel` tab — sale money summary (gross hammer, BP, commission, fees, house revenue, payouts due/paid/outstanding, sell-through), per-consignor payout worklist (record check/ACH with reference + date, edit/undo, drift warning), accounting CSV. Pure roll-up in `src/lib/reconciliation.ts`; `ConsignmentService` gained `markSettled`/`recordPayout`/`clearPayout`. Stage-7 checklist items are now derived. Migration `20260816000000_consignment_payout.sql` adds `consignments.payment_reference` + `payout_note`.
 - **Contract-on-file marker** (`SalesList.tsx`, `Dashboard.tsx`, `SaleDetail.tsx`): sales with a document of `document_type === 'contract'` show a green **Contract** badge; otherwise an amber **No contract** marker. On each Dashboard sale card and the SaleDetail header (amber marker deep-links to the Documents tab). No schema change. Branch `feat/contract-on-file-marker`.
 
 ## Conventions
 - Ask for the relevant files before creating new ones; keep explanations tight.
 - Source of truth is git. Don't run two Claude surfaces editing the same file simultaneously.
+- Nothing in `supabase/` deploys itself — call out any migration, function deploy or secret a change depends on.
