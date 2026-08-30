@@ -50,6 +50,9 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
   const [sendingInvite, setSendingInvite] = useState(false);
+  // Result of the last invite: the record always lands, but the email can
+  // fail silently (unverified Resend sender), so say so instead of pretending.
+  const [inviteNotice, setInviteNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [myRole, setMyRole] = useState<string | null>(null);
 
   // Determine the current user's role in the current company (for gating admin
@@ -260,9 +263,12 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         invited_by: user.id,
       }]);
       if (error) throw error;
-      // Email the invitation (non-fatal — the invite is recorded regardless).
+      // Email the invitation. Non-fatal — the invite is recorded regardless — but
+      // the function answers 200 with { success: false } when Resend rejects the
+      // send, so check the body too or a bounced invite looks like a sent one.
+      let mailError = '';
       try {
-        await supabase.functions.invoke('send-invite', {
+        const { data, error: fnError } = await supabase.functions.invoke('send-invite', {
           body: {
             email,
             companyName: currentCompany.name,
@@ -270,9 +276,14 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             appUrl: window.location.origin,
           },
         });
-      } catch {
-        /* email optional; the person can still join by signing in with this email */
+        if (fnError) mailError = fnError.message;
+        else if (data && data.success === false) mailError = String(data.error || 'email not sent');
+      } catch (e) {
+        mailError = e instanceof Error ? e.message : 'email not sent';
       }
+      setInviteNotice(mailError
+        ? { ok: false, text: `${email} is invited, but the email couldn't be sent (${mailError}). Ask them to sign up at ${window.location.origin} with this exact address — they'll be added automatically.` }
+        : { ok: true, text: `Invitation emailed to ${email}.` });
       setInviteEmail('');
       setInviteRole('member');
       await loadInvites();
@@ -844,6 +855,18 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   >
                     {sendingInvite ? '…' : 'Invite'}
                   </button>
+                </div>
+              )}
+
+              {isAdmin && inviteNotice && (
+                <div
+                  className={`mb-5 -mt-2 px-3 py-2 text-sm rounded-md border ${
+                    inviteNotice.ok
+                      ? 'bg-green-50 border-green-200 text-green-800'
+                      : 'bg-amber-50 border-amber-200 text-amber-800'
+                  }`}
+                >
+                  {inviteNotice.text}
                 </div>
               )}
 
