@@ -68,6 +68,18 @@ body {
   position: relative;
 }
 
+/* Floating help bubble, lifted clear of the fixed ContextFooter (h-16 = 4rem)
+   plus a 0.75rem gap. Base value first so browsers without env() still get a
+   usable offset instead of an invalid declaration. */
+.bottom-above-footer {
+  bottom: 4.75rem;
+}
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .bottom-above-footer {
+    bottom: calc(4.75rem + env(safe-area-inset-bottom));
+  }
+}
+
 /* Safe Area Insets for Mobile Devices */
 /* Ensures content doesn't overlap with device UI (home indicator, notches, etc.) */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
