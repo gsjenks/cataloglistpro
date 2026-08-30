@@ -37,10 +37,10 @@ export default function DeliveryMoverManifest({
   saleName, buyer, address, date, estimate, company, phone, email, lots, total, onClose,
 }: Props) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 cursor-pointer" onClick={onClose}>
       <style>{`@media print { body * { visibility: hidden !important; } #delivery-manifest, #delivery-manifest * { visibility: visible !important; } #delivery-manifest { position: absolute; inset: 0; margin: 0; box-shadow: none; max-height: none; overflow: visible; } .no-print { display: none !important; } .sign-block { break-inside: avoid; page-break-inside: avoid; } }`}</style>
 
-      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[92vh] overflow-y-auto cursor-default" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between no-print">
           <h3 className="text-lg font-semibold text-gray-900">Delivery manifest</h3>
           <div className="flex items-center gap-2">

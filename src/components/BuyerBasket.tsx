@@ -38,9 +38,9 @@ export default function BuyerBasket({ items, total, onRemove, saleId, basketId }
 
       {/* Panel */}
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 cursor-pointer" onClick={() => setOpen(false)}>
           <div
-            className="bg-white w-full sm:max-w-md sm:rounded-lg rounded-t-2xl max-h-[85vh] flex flex-col"
+            className="bg-white w-full sm:max-w-md sm:rounded-lg rounded-t-2xl max-h-[85vh] flex flex-col cursor-default"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">

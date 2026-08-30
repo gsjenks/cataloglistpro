@@ -87,8 +87,8 @@ export default function ShopperRegistration({ saleId, onVerified, onClose }: Pro
     'w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 cursor-pointer" onClick={onClose}>
+      <div className="bg-white rounded-lg max-w-sm w-full p-6 cursor-default" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold text-gray-900">
             {step === 'details' ? 'Start shopping' : 'Enter your code'}
