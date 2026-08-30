@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { CheckCircle2, Archive, DollarSign, Package } from 'lucide-react';
 import type { Sale, Lot, Consignment } from '../types';
 import { computeReconciliation } from '../lib/reconciliation';
-import { getRefunds } from '../services/RefundService';
+import { getRefunds, type RefundRecord } from '../services/RefundService';
 import { setSaleChecklistItem } from '../services/SaleStageService';
 
 interface Props {
@@ -34,10 +34,11 @@ function Stat({ label, value, strong }: { label: string; value: string; strong?:
 
 export default function SaleCloseSummary({ sale, lots, consignments, consignorNames, saleType, onChanged }: Props) {
   const isEstate = saleType === 'estate_sale';
-  const [refundTotal, setRefundTotal] = useState(0);
+  const [refunds, setRefunds] = useState<RefundRecord[]>([]);
   const [busy, setBusy] = useState(false);
 
-  const recon = computeReconciliation(consignments, lots, consignorNames);
+  // Same refund figure the Reconciliation panel uses — both paths, counted once.
+  const recon = computeReconciliation(consignments, lots, consignorNames, [], [], refunds);
   const archived = !!sale.stage_progress?.items?.archived?.done;
 
   const returned = lots.filter((l) => l.disposition === 'returned').length;
@@ -46,7 +47,7 @@ export default function SaleCloseSummary({ sale, lots, consignments, consignorNa
 
   useEffect(() => {
     let live = true;
-    getRefunds(sale.id).then((r) => { if (live) setRefundTotal(r.reduce((s, x) => s + (x.amount ?? 0), 0)); });
+    getRefunds(sale.id).then((r) => { if (live) setRefunds(r); });
     return () => { live = false; };
   }, [sale.id]);
 
@@ -63,7 +64,7 @@ export default function SaleCloseSummary({ sale, lots, consignments, consignorNa
     }
   };
 
-  const netSales = recon.grossHammer - refundTotal;
+  const netSales = recon.grossHammer;
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-5">
@@ -85,7 +86,7 @@ export default function SaleCloseSummary({ sale, lots, consignments, consignorNa
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {isEstate ? (
             <>
-              <Stat label="Gross sales" value={money(recon.grossHammer)} />
+              <Stat label="Gross sales" value={money(recon.grossBeforeRefunds)} />
               <Stat label="Net sales" value={money(netSales)} />
             </>
           ) : (
@@ -100,7 +101,7 @@ export default function SaleCloseSummary({ sale, lots, consignments, consignorNa
           <Stat label={isEstate ? 'Owner payouts' : 'Consignor payouts'} value={money(recon.payoutsDue)} />
           <Stat label="Paid out" value={money(recon.paidOut)} />
           <Stat label="Outstanding" value={money(recon.outstanding)} strong />
-          {refundTotal > 0 && <Stat label="Refunds" value={money(refundTotal)} />}
+          {recon.refundsIssued > 0 && <Stat label="Refunds" value={money(recon.refundsIssued)} />}
         </div>
       </div>
 

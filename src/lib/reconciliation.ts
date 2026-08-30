@@ -8,6 +8,13 @@ import type { Consignment, Lot, HouseCharge, BuyerInvoiceRecord } from '../types
 import { computeSettlement, type Settlement } from './settlement';
 import { isSoldLot } from './lotState';
 
+// One logged refund. Structural on purpose: RefundService's RefundRecord
+// satisfies it, and this module stays I/O-free.
+export interface RefundEntry {
+  lot_id?: string | null;
+  amount?: number | null;
+}
+
 export interface ConsignorRow {
   consignment: Consignment;
   name: string;
@@ -44,11 +51,14 @@ export interface SaleReconciliation {
   // Sales tax the house collected is NOT revenue — it is money held for the state.
   // Kept out of houseRevenue deliberately and reported on its own.
   taxLiability: number;
-  // Money returned to buyers on lots that came back. The lots themselves are already
-  // out of every figure above (they stopped being sales), so this is the audit trail
-  // of cash actually returned, not a further deduction.
+  // Money returned to buyers on lots that came back, from BOTH refund paths
+  // (see computeReconciliation). Refunding takes the lot out of grossHammer, so
+  // this is the audit trail of cash returned, NOT a further deduction from it.
   refundsIssued: number;
   refundCount: number;
+  // grossHammer with the refunded lots added back — what was rung up before
+  // anything came back. grossBeforeRefunds − refundsIssued === grossHammer.
+  grossBeforeRefunds: number;
   taxCollectedCount: number;    // buyers charged house tax
   exemptCount: number;          // buyers billed tax-exempt (resale certificates)
   // Collected by LiveAuctioneers, never touching the house's books. Informational
@@ -69,6 +79,7 @@ export function computeReconciliation(
   consignorNames: Record<string, string>,
   houseCharges: HouseCharge[] = [],
   laInvoices: BuyerInvoiceRecord[] = [],
+  refunds: RefundEntry[] = [],
 ): SaleReconciliation {
   const rows: ConsignorRow[] = consignments
     .map((c) => {
@@ -97,6 +108,20 @@ export function computeReconciliation(
   const feesCharged = rows.reduce((s, r) => s + r.settlement.feesTotal, 0);
   const houseShipping = houseCharges.reduce((s, c) => s + (c.shipping ?? 0) + (c.handling ?? 0), 0);
   const taxLiability = houseCharges.reduce((s, c) => s + (c.tax ?? 0), 0);
+  // Refunds are written by two different paths: the estate register logs a row
+  // per refund (RefundService → `refunds`), while the auction path stamps the lot
+  // itself (PaymentService → lots.refund_amount). Reading only lots.refund_amount
+  // is what made this panel and SaleCloseSummary disagree. Take the union, keyed
+  // on the lot so anything recorded both ways is still counted once.
+  const loggedLotIds = new Set(
+    refunds.map((r) => r.lot_id).filter((id): id is string => !!id),
+  );
+  const loggedTotal = refunds.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const stampedLots = lots.filter((l) => (l.refund_amount ?? 0) > 0 && !loggedLotIds.has(l.id));
+  const refundsIssued = round2(
+    loggedTotal + stampedLots.reduce((s, l) => s + (l.refund_amount ?? 0), 0),
+  );
+
   const payoutsDue = rows.reduce((s, r) => s + r.settlement.net, 0);
   const paidRows = rows.filter((r) => r.paid);
   const paidOut = paidRows.reduce((s, r) => s + (r.recorded ?? r.settlement.net), 0);
@@ -116,8 +141,9 @@ export function computeReconciliation(
     feesCharged: round2(feesCharged),
     houseShipping: round2(houseShipping),
     houseRevenue: round2(commission + buyersPremium + feesCharged + houseShipping),
-    refundsIssued: round2(lots.reduce((s, l) => s + (l.refund_amount ?? 0), 0)),
-    refundCount: lots.filter((l) => (l.refund_amount ?? 0) > 0).length,
+    refundsIssued,
+    refundCount: refunds.length + stampedLots.length,
+    grossBeforeRefunds: round2(grossHammer + refundsIssued),
     taxLiability: round2(taxLiability),
     taxCollectedCount: houseCharges.filter((c) => (c.tax ?? 0) > 0).length,
     exemptCount: houseCharges.filter((c) => c.tax_exempt).length,
@@ -174,6 +200,7 @@ export function buildAccountingCsv(saleName: string, recon: SaleReconciliation):
   lines.push(csvRow(['Sales tax collected in-house (remit to state)', recon.taxLiability]));
   lines.push(csvRow(['Refunds issued to buyers', recon.refundsIssued]));
   lines.push(csvRow(['  (refunded lots are already excluded from the sales figures)']));
+  lines.push(csvRow(['Gross before refunds', recon.grossBeforeRefunds]));
   lines.push('');
   lines.push(csvRow(['Collected by LiveAuctioneers — not house funds']));
   lines.push(csvRow(['Sales tax', recon.laTaxCollected]));

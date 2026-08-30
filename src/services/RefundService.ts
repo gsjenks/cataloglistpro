@@ -17,6 +17,7 @@ export interface RefundResult {
 
 export interface RefundRecord {
   id: string;
+  lot_id: string | null;
   lot_name: string | null;
   lot_number: string | null;
   amount: number;
@@ -134,7 +135,7 @@ export async function getRefunds(saleId: string): Promise<RefundRecord[]> {
   try {
     const { data } = await supabase
       .from('refunds')
-      .select('id, lot_name, lot_number, amount, buyer_name, reason, created_at')
+      .select('id, lot_id, lot_name, lot_number, amount, buyer_name, reason, created_at')
       .eq('sale_id', saleId)
       .order('created_at', { ascending: false });
     return (data as RefundRecord[] | null) ?? [];

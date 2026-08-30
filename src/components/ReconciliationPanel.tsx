@@ -72,13 +72,12 @@ export default function ReconciliationPanel({
     return () => { live = false; };
   }, [saleId]);
 
-  const refundsTotal = refunds.reduce((s, r) => s + (r.amount ?? 0), 0);
   const shortDateTime = (iso: string) =>
     new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 
   const recon = useMemo(
-    () => computeReconciliation(consignments, lots, consignorNames, houseCharges, laInvoices),
-    [consignments, lots, consignorNames, houseCharges, laInvoices],
+    () => computeReconciliation(consignments, lots, consignorNames, houseCharges, laInvoices, refunds),
+    [consignments, lots, consignorNames, houseCharges, laInvoices, refunds],
   );
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
@@ -151,8 +150,8 @@ export default function ReconciliationPanel({
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
           {isEstate ? (
             <>
-              <Stat label="Gross sales" value={money(recon.grossHammer)} />
-              <Stat label="Net sales" value={money(recon.grossHammer - recon.refundsIssued)} strong />
+              <Stat label="Gross sales" value={money(recon.grossBeforeRefunds)} />
+              <Stat label="Net sales" value={money(recon.grossHammer)} strong />
             </>
           ) : (
             <>
@@ -188,13 +187,13 @@ export default function ReconciliationPanel({
         )}
 
         {/* Refund audit trail */}
-        {refunds.length > 0 && (
+        {recon.refundsIssued > 0 && (
           <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-gray-500">
-                <Undo2 className="w-3.5 h-3.5" /> Refunds ({refunds.length})
+                <Undo2 className="w-3.5 h-3.5" /> Refunds ({recon.refundCount})
               </div>
-              <span className="text-sm font-semibold text-gray-900">{money(refundsTotal)} refunded</span>
+              <span className="text-sm font-semibold text-gray-900">{money(recon.refundsIssued)} refunded</span>
             </div>
             <ul className="mt-2 divide-y divide-gray-100">
               {refunds.map((r) => (
@@ -212,6 +211,11 @@ export default function ReconciliationPanel({
                 </li>
               ))}
             </ul>
+            {refunds.length === 0 && (
+              <p className="mt-2 text-xs text-gray-500">
+                Recorded on the lots themselves — see the refunded lots on the Unsold tab.
+              </p>
+            )}
           </div>
         )}
 
