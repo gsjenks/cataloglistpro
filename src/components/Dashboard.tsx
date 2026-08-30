@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useFooter } from '../context/FooterContext';
 import { supabase } from '../lib/supabase';
+import offlineStorage from '../services/Offlinestorage';
 import type { Sale, Contact, Document } from '../types';
 import { 
   Package,
@@ -57,12 +58,51 @@ export default function Dashboard() {
     totalLots
   }), [sales, totalLots]);
 
+  // Everything the dashboard needs is already mirrored into IndexedDB by
+  // SyncService.performInitialSync, so a dead connection should show the last
+  // sync rather than an error. Returns false if there is nothing stored yet.
+  const loadFromLocalCache = useCallback(async (companyId: string): Promise<boolean> => {
+    try {
+      const [localSales, localContacts, localDocs] = await Promise.all([
+        offlineStorage.getSalesByCompany(companyId),
+        offlineStorage.getContactsByCompany(companyId),
+        offlineStorage.getDocumentsByCompany(companyId),
+      ]);
+      if (!localSales.length && !localContacts.length && !localDocs.length) return false;
+
+      setSales(localSales);
+      setContacts(localContacts);
+      setDocuments(localDocs);
+
+      // Lot counts and contract markers, per sale. Contracts are keyed on
+      // sale_id for the same reason as the online path: a sale-level upload can
+      // leave company_id null, which the company-scoped query would drop.
+      const perSale = await Promise.all(localSales.map(async (s) => ({
+        id: s.id,
+        lots: (await offlineStorage.getLotsBySale(s.id)).length,
+        hasContract: (await offlineStorage.getDocumentsBySale(s.id))
+          .some((d) => d.document_type === 'contract'),
+      })));
+      setTotalLots(perSale.reduce((n, s) => n + s.lots, 0));
+      setSalesWithContract(new Set(perSale.filter((s) => s.hasContract).map((s) => s.id)));
+      return true;
+    } catch (e) {
+      console.error('Local dashboard cache unavailable:', e);
+      return false;
+    }
+  }, []);
+
   // Parallel data loading
   const loadDashboardData = useCallback(async () => {
     if (!currentCompany) return;
 
     setLoading(true);
     try {
+      // Offline: don't wait on requests that cannot succeed.
+      if (!navigator.onLine) {
+        await loadFromLocalCache(currentCompany.id);
+        return;
+      }
       // Run all queries in parallel
       const [salesResult, contactsResult, documentsResult] = await Promise.all([
         supabase
@@ -118,11 +158,14 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
-      alert('Failed to load dashboard data');
+      // Reachable while navigator.onLine is still true (captive wifi, dead
+      // signal mid-request). Only complain if there is no local copy either.
+      const served = await loadFromLocalCache(currentCompany.id);
+      if (!served) alert('Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
-  }, [currentCompany]);
+  }, [currentCompany, loadFromLocalCache]);
 
   useEffect(() => {
     if (currentCompany) {

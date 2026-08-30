@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck, Banknote } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import offlineStorage from '../services/Offlinestorage';
 import { useFooter } from '../context/FooterContext';
 import type { Sale, Lot, Contact, Document, Consignment } from '../types';
 import { useLotInventoryRealtime } from '../hooks/useLotInventoryRealtime';
@@ -258,6 +259,9 @@ export default function SaleDetail() {
       setSale(data);
     } catch (error) {
       console.error('Error loading sale:', error);
+      // Fall back to the last sync so the sale still opens offline.
+      const local = await offlineStorage.getSale(saleId);
+      if (local) setSale(local);
     } finally {
       setLoading(false);
     }
@@ -267,6 +271,12 @@ export default function SaleDetail() {
     if (!saleId) return;
 
     try {
+      // Offline: read the mirror. Skip reclaimExpiredHolds — it writes to
+      // Supabase, and hold expiry is a floor concern that needs a connection.
+      if (!navigator.onLine) {
+        setLots(await offlineStorage.getLotsBySale(saleId));
+        return;
+      }
       // Free any timed-out holds before reading, so expired items show as
       // available (and leave shoppers' baskets) instead of staying "held".
       await reclaimExpiredHolds(supabase, saleId);
@@ -280,6 +290,8 @@ export default function SaleDetail() {
       setLots(data || []);
     } catch (error) {
       console.error('Error loading lots:', error);
+      const local = await offlineStorage.getLotsBySale(saleId);
+      if (local.length) setLots(local);
     }
   };
 
