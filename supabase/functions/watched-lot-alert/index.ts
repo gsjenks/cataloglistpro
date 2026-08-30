@@ -7,25 +7,27 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
+const RESEND_FROM    = Deno.env.get("RESEND_FROM") ?? "onboarding@resend.dev";
 const SUPABASE_URL   = Deno.env.get("DB_URL")!;
 const SUPABASE_KEY   = Deno.env.get("DB_SERVICE_KEY")!;
 const SITE_URL       = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
 const LOTS_AHEAD     = 5;
 
 async function sendEmail(to: string, subject: string, html: string) {
-  return fetch("https://api.resend.com/emails", {
+  const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${RESEND_API_KEY}`,
       "Content-Type":  "application/json",
     },
-    body: JSON.stringify({
-      from:    "Benson Auction Services <onboarding@resend.dev>",
-      to:      "gsjenks@yahoo.com", // TODO: use `to` param in production with verified domain
-      subject,
-      html,
-    }),
+    body: JSON.stringify({ from: RESEND_FROM, to, subject, html }),
   });
+  // Resend rejects the send with a non-2xx; Promise.all would otherwise
+  // swallow it and the watcher silently never hears about their lot.
+  if (!res.ok) {
+    console.error(`resend ${res.status} sending to ${to}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+  }
+  return res;
 }
 
 function buildEmail(opts: {
