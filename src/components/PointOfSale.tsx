@@ -1249,10 +1249,10 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
           record/cart before creating a duplicate. */}
       {showNewCustomer && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 cursor-pointer"
           onClick={() => setShowNewCustomer(false)}
         >
-          <div className="bg-white rounded-lg max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-lg max-w-sm w-full p-5 cursor-default" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-bold text-gray-900">New customer</h3>
               <button onClick={() => setShowNewCustomer(false)} className="p-1 rounded-full hover:bg-gray-100" aria-label="Close">

@@ -74,8 +74,8 @@ export default function AssignToBasketModal({ saleId, companyId, lot, onClose, o
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-lg w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 cursor-pointer" onClick={onClose}>
+      <div className="bg-white rounded-lg w-full max-w-md p-5 cursor-default" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 mb-1">
           <div className="min-w-0">
             <h3 className="text-lg font-semibold text-gray-900">Hold for a customer</h3>

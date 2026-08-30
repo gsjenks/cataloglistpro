@@ -503,8 +503,8 @@ export default function PublicLotDetail() {
 
       {/* One-time nudge after the first item to save the basket link */}
       {showSavePrompt && saleId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowSavePrompt(false)}>
-          <div className="bg-white rounded-lg max-w-sm w-full p-6 text-center" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 cursor-pointer" onClick={() => setShowSavePrompt(false)}>
+          <div className="bg-white rounded-lg max-w-sm w-full p-6 text-center cursor-default" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-gray-900 mb-1">Added to your basket!</h3>
             <p className="text-sm text-gray-600 mb-4">
               Save your basket link now so you can get back to it later — even if you
