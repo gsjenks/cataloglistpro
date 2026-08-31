@@ -126,6 +126,14 @@ function AppContent() {
           ),
         ]);
 
+        // Drain anything written while offline. performInitialSync only pulls,
+        // and ConnectivityService starts its interval on the `online` EVENT —
+        // which never fires for an app opened cold while already online. Without
+        // this a lot catalogued offline sits queued and never reaches Supabase.
+        await SyncService.pushLocalChanges().catch((e) =>
+          console.error("Pushing queued offline changes failed:", e),
+        );
+
         if (syncTimeoutRef.current) {
           clearTimeout(syncTimeoutRef.current);
         }

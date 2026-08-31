@@ -47,6 +47,19 @@ function generateUUID(): string {
   });
 }
 
+const queueLotUpsert = async (lot: Lot, type: "create" | "update") => {
+  // Writing to IndexedDB is not enough: pushLocalChanges drains `pendingSync`,
+  // so a lot saved offline but never queued is invisible to sync and simply
+  // never reaches Supabase. Keyed on the lot id (pendingSync uses id as its
+  // keyPath) so repeated edits collapse into one queued upsert carrying the
+  // latest full row — which is what the drain's upsert needs anyway.
+  try {
+    await offlineStorage.addPendingSyncItem({ id: lot.id, type, table: "lots", data: lot });
+  } catch (e) {
+    console.error("Could not queue lot for sync:", e);
+  }
+};
+
 export default function LotDetail() {
   const { saleId, lotId } = useParams<{ saleId: string; lotId: string }>();
   const navigate = useNavigate();
@@ -296,9 +309,14 @@ export default function LotDetail() {
           SyncService.startOperation();
           try {
             await supabase.from("lots").update(updatedLot).eq("id", lotId);
+          } catch (e) {
+            console.error("Pre-camera save failed, queued for sync:", e);
+            await queueLotUpsert(updatedLot, "update");
           } finally {
             SyncService.endOperation();
           }
+        } else {
+          await queueLotUpsert(updatedLot, "update");
         }
       } catch (e) {
         console.error("Error saving before camera:", e);
@@ -880,10 +898,16 @@ export default function LotDetail() {
               newLot.id,
               newLot.lot_number || 0,
             );
+          } catch (e) {
+            // Online by navigator, but the write failed anyway (captive wifi,
+            // signal dying mid-request). Queue rather than lose it.
+            console.error("Lot insert failed, queued for sync:", e);
+            await queueLotUpsert(newLot, "create");
           } finally {
             SyncService.endOperation();
           }
         } else {
+          await queueLotUpsert(newLot, "create");
           // Also generate QR code offline (will sync later)
           generateQRCodeForLot(saleId, newLot.id, newLot.lot_number || 0).catch(
             (e) => console.error("QR generation failed:", e),
@@ -914,9 +938,14 @@ export default function LotDetail() {
               updatedLot.id,
               updatedLot.lot_number || 0,
             );
+          } catch (e) {
+            console.error("Lot update failed, queued for sync:", e);
+            await queueLotUpsert(updatedLot, "update");
           } finally {
             SyncService.endOperation();
           }
+        } else {
+          await queueLotUpsert(updatedLot, "update");
         }
         alert("Item saved successfully");
       }
