@@ -170,7 +170,11 @@ class OfflineStorage {
 
   async getLotsBySale(saleId: string): Promise<Lot[]> {
     if (!this.db) await this.initialize();
-    return await this.db!.getAllFromIndex('lots', 'by-sale', saleId);
+    const rows = await this.db!.getAllFromIndex('lots', 'by-sale', saleId);
+    // Deleting a lot marks it `deleted` here rather than removing the row.
+    // Without this filter a lot deleted offline reappears in every offline
+    // read, which reads as the delete having silently failed.
+    return rows.filter((l) => !(l as Lot & { deleted?: boolean }).deleted);
   }
 
   async savePhoto(photo: Photo, blob?: Blob): Promise<void> {
