@@ -46,3 +46,12 @@ supabase/.temp/
 
 # Stray generated training artifact (kept on disk, not tracked)
 /auction-training-video-player.html
+
+# Android signing. Private keys and their passwords — never commit these.
+# They were tracked in a public repo from bfddcf2 until this commit, so the
+# keys in that history are burned; generate fresh ones before any release.
+*.keystore
+*.jks
+keystore.properties
+key.properties
+android/key.properties
