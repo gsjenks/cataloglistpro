@@ -168,6 +168,11 @@ class OfflineStorage {
     return await this.db!.get('lots', id);
   }
 
+  async getAllLots(): Promise<Lot[]> {
+    if (!this.db) await this.initialize();
+    return await this.db!.getAll('lots');
+  }
+
   async getLotsBySale(saleId: string): Promise<Lot[]> {
     if (!this.db) await this.initialize();
     const rows = await this.db!.getAllFromIndex('lots', 'by-sale', saleId);

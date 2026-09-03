@@ -5,6 +5,7 @@
 import { supabase } from '../lib/supabase';
 import offlineStorage from './Offlinestorage';
 import PhotoService, { isImageBlob } from './PhotoService';
+import { reassignTemporaryNumbers } from './LotNumberService';
 import type { Company, Sale, Lot, Photo } from '../types';
 
 const TOTAL_STEPS = 7;
@@ -558,6 +559,29 @@ class SyncService {
         }
         await PhotoService.saveMetadataToSupabase(photo);
       });
+
+      // Lots catalogued offline carry a temporary negative number. Now that the
+      // rows are on the server, give them real sequential ones — the next pull
+      // brings those numbers back down to the device. reassignTemporaryNumbers
+      // has existed since the offline work began and was never called.
+      try {
+        const saleIds = [...new Set(
+          (await offlineStorage.getAllLots())
+            .filter((l) => {
+              const n = typeof l.lot_number === 'string' ? parseFloat(l.lot_number) : l.lot_number;
+              return typeof n === 'number' && !isNaN(n) && n < 0;
+            })
+            .map((l) => l.sale_id)
+            .filter((id): id is string => !!id),
+        )];
+        for (const saleId of saleIds) {
+          const res = await reassignTemporaryNumbers(saleId);
+          if (res.errors.length) console.error('[PUSH] lot renumber errors:', res.errors);
+          else console.log(`[PUSH] renumbered temporary lots on sale ${saleId.slice(0, 8)}`);
+        }
+      } catch (e) {
+        console.error('[PUSH] lot renumbering failed:', e);
+      }
 
       const left = (await offlineStorage.getPendingSyncItems()).length;
       const stillUnsynced = (await offlineStorage.getUnsyncedPhotos()).length;
