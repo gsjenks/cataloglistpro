@@ -433,11 +433,53 @@ class SyncService {
     return queued;
   }
 
+  // A photo row can exist while its file does not — a metadata write for an
+  // upload that never landed. Storage hides this: a missing object in a public
+  // bucket answers 200 with a JSON body, so nothing errors and the row looks
+  // healthy. Where this device still holds the real image, put it back.
+  //
+  // Primary photos only: they are what the lists render, and it keeps this to
+  // one tiny ranged request per lot rather than one per photo.
+  private async repairMissingFiles(): Promise<number> {
+    if (!navigator.onLine) return 0;
+    let repaired = 0;
+    try {
+      const primaries = (await offlineStorage.getAllPhotos()).filter((p) => p.is_primary);
+      for (const photo of primaries) {
+        const blob = await offlineStorage.getPhotoBlob(photo.id);
+        if (!isImageBlob(blob)) continue; // nothing here to repair it with
+        const { data: pub } = supabase.storage.from('photos').getPublicUrl(photo.file_path);
+        if (!pub?.publicUrl) continue;
+        try {
+          const res = await fetch(pub.publicUrl, { headers: { Range: 'bytes=0-0' } });
+          const type = res.headers.get('content-type') ?? '';
+          if (type.startsWith('image/')) continue; // file is there
+          const up = await PhotoService.uploadToSupabase(blob, photo.file_path);
+          if (up.success) {
+            repaired++;
+            console.log(`[PUSH] restored missing file ${photo.file_path}`);
+          } else {
+            console.error(`[PUSH] restore failed ${photo.file_path}:`, up.error);
+          }
+        } catch {
+          // network hiccup — try again next sync
+        }
+      }
+    } catch (e) {
+      console.error('[PUSH] repair pass failed:', e);
+    }
+    return repaired;
+  }
+
   async pushLocalChanges(): Promise<void> {
     if (!navigator.onLine) return;
     this.startOperation();
     try {
       const recovered = await this.recoverUnqueuedLots();
+      // Before the reconcile below certifies rows as synced on the strength of
+      // the row existing — which is exactly what a missing file looks like.
+      const restored = await this.repairMissingFiles();
+      if (restored) console.log(`[PUSH] restored ${restored} missing file(s)`);
       const [unsyncedPhotos, pendingItems] = await Promise.all([
         offlineStorage.getUnsyncedPhotos(),
         offlineStorage.getPendingSyncItems()

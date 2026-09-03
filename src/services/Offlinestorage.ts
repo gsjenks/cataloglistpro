@@ -229,6 +229,11 @@ class OfflineStorage {
     await this.db!.delete('photoBlobs', photoId);
   }
 
+  async getAllPhotos(): Promise<Photo[]> {
+    if (!this.db) await this.initialize();
+    return await this.db!.getAll('photos');
+  }
+
   async getUnsyncedPhotos(): Promise<Photo[]> {
     if (!this.db) await this.initialize();
     const allPhotos = await this.db!.getAll('photos');
