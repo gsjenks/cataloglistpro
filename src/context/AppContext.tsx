@@ -652,7 +652,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // NOT async, and nothing here may await a supabase call. This callback
+      // runs while GoTrue holds its internal lock (see _recoverAndRefresh /
+      // _notifyAllSubscribers in the stack), and any supabase request made from
+      // inside it queues behind that same lock — so awaiting here deadlocks
+      // until the app's own timeouts fire. That was the source of the startup
+      // 'Session check', 'claim_company_invites', 'Owned companies' and 'User
+      // companies' timeouts: one deadlock, four casualties.
+      //
+      // State updates are safe here. Anything touching supabase is deferred to
+      // a fresh task, off the lock-holding stack.
       console.log('[AUTH] Auth event:', event);
 
       if (event === 'SIGNED_IN') {
@@ -661,7 +671,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         
         if (session?.user && !companiesLoadedRef.current) {
           console.log('[LOAD] Loading companies (initial sign in)');
-          await loadCompanies(session.user.id, true);
+          const userId = session.user.id;
+          setTimeout(() => { void loadCompanies(userId, true); }, 0);
         } else {
           console.log('[OK] Companies already loaded, skipping reload on token refresh');
         }
@@ -692,7 +703,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.log('[AUTH] Skipping company load - password reset in progress');
         } else if (session?.user && !companiesLoadedRef.current) {
           console.log('[LOAD] Loading companies after user update');
-          await loadCompanies(session.user.id, true);
+          const userId = session.user.id;
+          setTimeout(() => { void loadCompanies(userId, true); }, 0);
         }
       } else if (event === 'PASSWORD_RECOVERY') {
         console.log('[AUTH] PASSWORD RECOVERY DETECTED');
