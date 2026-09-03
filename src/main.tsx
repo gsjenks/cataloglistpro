@@ -1,3 +1,4 @@
+console.log(`[BUILD] CatalogListPro ${__BUILD_ID__}`);
 // src/main.tsx
 // UPDATED: Added ErrorBoundary to catch and handle app crashes
 import {} from "react";

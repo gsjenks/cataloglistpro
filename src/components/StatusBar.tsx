@@ -44,6 +44,7 @@ export default function StatusBar() {
     <div className="bg-gray-900 text-white px-4 py-1 flex items-center justify-between text-xs safe-area-top">
       {/* Left: Connection Status */}
       <div className="flex items-center gap-1.5">
+        <span className="text-gray-500 mr-1" title="Build currently running">{__BUILD_ID__}</span>
         {isOnline ? (
           <>
             <Wifi className="w-3.5 h-3.5 text-green-400" />
