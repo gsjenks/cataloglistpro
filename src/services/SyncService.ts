@@ -4,7 +4,7 @@
 
 import { supabase } from '../lib/supabase';
 import offlineStorage from './Offlinestorage';
-import PhotoService from './PhotoService';
+import PhotoService, { isImageBlob } from './PhotoService';
 import type { Company, Sale, Lot, Photo } from '../types';
 
 const TOTAL_STEPS = 7;
@@ -279,7 +279,14 @@ class SyncService {
           // unexplained 400 in the console.
           console.warn('  Photo file missing in storage:', photo.file_path, dlError.message);
         }
-        if (!dlError && blob) {
+        if (!dlError && blob && !isImageBlob(blob)) {
+          // 200 with a JSON error body: the row exists but the file does not.
+          // Do NOT cache it. Flag unsynced so a device still holding the real
+          // image uploads it; a device without one now has no blob to send.
+          console.warn(`  Storage has no file for ${photo.file_path} (got ${blob.type})`);
+          await offlineStorage.deletePhotoBlob(photo.id);
+          await offlineStorage.upsertPhoto({ ...photo, synced: false });
+        } else if (!dlError && blob) {
           await offlineStorage.upsertPhotoBlob(photo.id, blob);
           await offlineStorage.upsertPhoto({ ...photo, synced: true });
           downloaded++;
@@ -365,7 +372,14 @@ class SyncService {
           // unexplained 400 in the console.
           console.warn('  Photo file missing in storage:', photo.file_path, dlError.message);
         }
-        if (!dlError && blob) {
+        if (!dlError && blob && !isImageBlob(blob)) {
+          // 200 with a JSON error body: the row exists but the file does not.
+          // Do NOT cache it. Flag unsynced so a device still holding the real
+          // image uploads it; a device without one now has no blob to send.
+          console.warn(`  Storage has no file for ${photo.file_path} (got ${blob.type})`);
+          await offlineStorage.deletePhotoBlob(photo.id);
+          await offlineStorage.upsertPhoto({ ...photo, synced: false });
+        } else if (!dlError && blob) {
           await offlineStorage.upsertPhotoBlob(photo.id, blob);
           await offlineStorage.upsertPhoto({ ...photo, synced: true });
           downloaded++;
@@ -484,6 +498,11 @@ class SyncService {
       // Then the photos those rows belong to.
       await this.runWithConcurrency(photosToUpload, async (photo) => {
         const blob = await offlineStorage.getPhotoBlob(photo.id);
+        if (blob && !isImageBlob(blob)) {
+          console.warn(`[PUSH] local blob for ${photo.id} is ${blob.type || 'unknown'}, not an image — not uploading`);
+          await offlineStorage.deletePhotoBlob(photo.id);
+          return;
+        }
         if (!blob) {
           // No blob and not on the server: nothing to send, and leaving it
           // flagged means retrying it on every sync forever.
