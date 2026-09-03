@@ -3,7 +3,13 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Stamped into the bundle so the running build is identifiable at a glance.
+// A cached service worker can serve an old bundle indefinitely, which makes
+// every field test ambiguous unless the app says which version it is.
+const BUILD_ID = new Date().toISOString().slice(0, 16).replace('T', ' ');
+
 export default defineConfig({
+  define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
   plugins: [
     react(),
     // Offline shell. The data layer (IndexedDB via Offlinestorage + SyncService)
