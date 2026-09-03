@@ -38,11 +38,15 @@ const LazyImage = memo(({
 }: { 
   lotId: string; 
   alt: string; 
-  loadPhoto: (lotId: string) => Promise<string | null>;
+  loadPhoto: (lotId: string) => Promise<{ url: string | null; fallback: string | null }>;
   refreshKey: number;
   onClick?: () => void;
 }) => {
   const [src, setSrc] = useState<string | null>(null);
+  // Public URL for the same photo. The cached blob URL is revoked on every
+  // sync completion, and a thumbnail left holding a revoked URL renders as a
+  // broken image even though the file is fine in the bucket.
+  const [fallback, setFallback] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const imgRef = useRef<HTMLDivElement>(null);
 
@@ -69,8 +73,11 @@ const LazyImage = memo(({
     
     let cancelled = false;
     setSrc(null); // Reset on refresh
-    loadPhoto(lotId).then(url => {
-      if (!cancelled && url) setSrc(url);
+    loadPhoto(lotId).then(({ url, fallback: fb }) => {
+      if (cancelled) return;
+      if (fb) setFallback(fb);
+      if (url) setSrc(url);
+      else if (fb) setSrc(fb);
     });
 
     return () => { cancelled = true; };
@@ -83,7 +90,19 @@ const LazyImage = memo(({
       onClick={onClick}
     >
       {src ? (
-        <img src={src} alt={alt} className="w-full h-full object-cover" loading="lazy" />
+        <img
+          src={src}
+          alt={alt}
+          className="w-full h-full object-cover"
+          loading="lazy"
+          onError={(e) => {
+            const img = e.currentTarget;
+            if (fallback && img.src !== fallback && !img.dataset.fellBack) {
+              img.dataset.fellBack = "1";
+              img.src = fallback;
+            }
+          }}
+        />
       ) : (
         <div className="w-full h-full flex items-center justify-center">
           <Package className="w-10 h-10 text-gray-300" />
@@ -114,7 +133,7 @@ const LotCard = memo(({
   deleting: string | null;
   onEdit: (lotId: string) => void;
   onDelete: (lot: Lot) => void;
-  loadPhoto: (lotId: string) => Promise<string | null>;
+  loadPhoto: (lotId: string) => Promise<{ url: string | null; fallback: string | null }>;
   refreshKey: number;
   showInventory: boolean;
   onInventoryChange?: (lotId: string, status: InventoryStatus) => void;
@@ -308,7 +327,9 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
   
   // Cache for loaded photo URLs
   const photoCache = useRef<Map<string, string>>(new Map());
-  const pendingLoads = useRef<Map<string, Promise<string | null>>>(new Map());
+  const pendingLoads = useRef<Map<string, Promise<{ url: string | null; fallback: string | null }>>>(new Map());
+  // Public URLs survive the blob-cache sweep that runs on sync completion.
+  const fallbackCache = useRef<Map<string, string>>(new Map());
 
   // Listen for sync completion to refresh photos
   useEffect(() => {
@@ -337,10 +358,10 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
   }, []);
 
   // Load photo with caching and deduplication
-  const loadPhoto = useCallback(async (lotId: string): Promise<string | null> => {
+  const loadPhoto = useCallback(async (lotId: string): Promise<{ url: string | null; fallback: string | null }> => {
     // Return cached
     if (photoCache.current.has(lotId)) {
-      return photoCache.current.get(lotId)!;
+      return { url: photoCache.current.get(lotId)!, fallback: fallbackCache.current.get(lotId) ?? null };
     }
 
     // Return pending promise if already loading
@@ -355,16 +376,21 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
         const primaryPhoto = photos.find(p => p.is_primary) || photos[0];
         
         if (primaryPhoto) {
+          // Public bucket — resolvable with no round-trip, and it outlives the
+          // blob cache, so keep it as the fallback for this lot.
+          const { data: pub } = supabase.storage
+            .from('photos')
+            .getPublicUrl(primaryPhoto.file_path);
+          const fb = pub?.publicUrl ?? null;
+          if (fb) fallbackCache.current.set(lotId, fb);
           const url = await PhotoService.getPhotoObjectUrl(primaryPhoto.id);
-          if (url) {
-            photoCache.current.set(lotId, url);
-            return url;
-          }
+          if (url) photoCache.current.set(lotId, url);
+          return { url: url ?? fb, fallback: fb };
         }
-        return null;
+        return { url: null, fallback: null };
       } catch (error) {
         console.error(`Error loading photo for lot ${lotId}:`, error);
-        return null;
+        return { url: null, fallback: fallbackCache.current.get(lotId) ?? null };
       } finally {
         pendingLoads.current.delete(lotId);
       }
