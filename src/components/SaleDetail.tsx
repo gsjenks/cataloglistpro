@@ -287,7 +287,21 @@ export default function SaleDetail() {
         .order('lot_number', { ascending: true });
 
       if (error) throw error;
-      setLots(data || []);
+      // Union the server's rows with any local lot it doesn't have yet.
+      // Catalogue a lot offline, come back online, and a plain setLots(data)
+      // replaces the list with server rows only — so the new lot vanishes the
+      // moment you reconnect and reappears in airplane mode, which reads as
+      // data loss. It is only ever missing from the query, never from the
+      // device. Sync pushes it up separately; this just stops it disappearing.
+      const remote = (data || []) as Lot[];
+      const remoteIds = new Set(remote.map((l) => l.id));
+      const localOnly = (await offlineStorage.getLotsBySale(saleId))
+        .filter((l) => !remoteIds.has(l.id));
+      setLots(
+        [...remote, ...localOnly].sort(
+          (a, b) => (a.lot_number ?? Number.MAX_SAFE_INTEGER) - (b.lot_number ?? Number.MAX_SAFE_INTEGER),
+        ),
+      );
     } catch (error) {
       console.error('Error loading lots:', error);
       const local = await offlineStorage.getLotsBySale(saleId);
