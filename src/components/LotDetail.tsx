@@ -91,6 +91,14 @@ export default function LotDetail() {
   const [consignments, setConsignments] = useState<Consignment[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  // Public URL per photo, used if the blob URL fails to render.
+  const [photoFallbackUrls, setPhotoFallbackUrls] = useState<Record<string, string>>({});
+  // Every blob URL this mount created, revoked once on unmount.
+  const createdBlobUrls = useRef<Set<string>>(new Set());
+  // loadPhotos can run concurrently (mount + the sync-complete listener). Only
+  // the newest run may publish, or an older one lands last and restores URLs
+  // that have already been revoked.
+  const photoRunId = useRef(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const isNewLot = lotId === "new";
@@ -163,14 +171,18 @@ export default function LotDetail() {
     return unsubscribe;
   }, [lotId, isNewLot]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cleanup URLs
+  // Revoke blob URLs on unmount ONLY. This used to depend on [photoUrls], so
+  // every reload of the photo list revoked the previous run's URLs — and with
+  // loadPhotos running more than once, a slower run could publish URLs that had
+  // already been revoked, leaving a permanently broken thumbnail even though
+  // the file was fine in storage.
   useEffect(() => {
+    const created = createdBlobUrls.current;
     return () => {
-      Object.values(photoUrls).forEach((url) => {
-        if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-      });
+      created.forEach((url) => URL.revokeObjectURL(url));
+      created.clear();
     };
-  }, [photoUrls]);
+  }, []);
 
   // Data loading functions
   const initializeNewLot = async () => {
@@ -213,9 +225,11 @@ export default function LotDetail() {
 
   const loadPhotos = async () => {
     if (!lotId) return;
+    const run = ++photoRunId.current;
     console.log(`[PHOTO] LotDetail loadPhotos for lot ${lotId.slice(0, 8)}`);
     try {
       const urls: Record<string, string> = {};
+      const fallbacks: Record<string, string> = {};
       let photoData: Photo[] = [];
 
       // Get local photo metadata
@@ -227,7 +241,15 @@ export default function LotDetail() {
         // Try to get local blobs
         for (const photo of localPhotos) {
           const blob = await offlineStorage.getPhotoBlob(photo.id);
-          if (blob) urls[photo.id] = URL.createObjectURL(blob);
+          if (blob && blob.size > 0) {
+            const url = URL.createObjectURL(blob);
+            createdBlobUrls.current.add(url);
+            urls[photo.id] = url;
+          } else if (blob) {
+            // Zero-byte cache entry: drop it so the next sync re-downloads.
+            console.warn(`[PHOTO] Discarding empty local blob for ${photo.id}`);
+            await offlineStorage.deletePhotoBlob(photo.id);
+          }
         }
         console.log(`[PHOTO] Local blobs found: ${Object.keys(urls).length}`);
       }
@@ -261,14 +283,16 @@ export default function LotDetail() {
           // any photo without a local blob.
           let publicUrlCount = 0;
           for (const photo of photoData) {
+            const { data: urlData } = supabase.storage
+              .from("photos")
+              .getPublicUrl(photo.file_path);
+            if (!urlData?.publicUrl) continue;
+            // Always keep the public URL as a fallback, even when a blob URL
+            // exists — the blob is a cache and can be stale, empty or revoked.
+            fallbacks[photo.id] = urlData.publicUrl;
             if (!urls[photo.id]) {
-              const { data: urlData } = supabase.storage
-                .from("photos")
-                .getPublicUrl(photo.file_path);
-              if (urlData?.publicUrl) {
-                urls[photo.id] = urlData.publicUrl;
-                publicUrlCount++;
-              }
+              urls[photo.id] = urlData.publicUrl;
+              publicUrlCount++;
             }
           }
           console.log(`[PHOTO] Public URLs generated: ${publicUrlCount}`);
@@ -278,8 +302,10 @@ export default function LotDetail() {
       console.log(
         `[PHOTO] Final: ${photoData.length} photos, ${Object.keys(urls).length} URLs`,
       );
+      if (run !== photoRunId.current) return; // superseded by a newer run
       setPhotos(photoData);
       setPhotoUrls(urls);
+      setPhotoFallbackUrls(fallbacks);
     } catch (e) {
       console.error("Error loading photos:", e);
     }
@@ -1100,6 +1126,7 @@ export default function LotDetail() {
         <LotPhotoSection
           photos={photos}
           photoUrls={photoUrls}
+          photoFallbackUrls={photoFallbackUrls}
           selectedPhotos={selectedPhotos}
           showEditPanel={showEditPanel}
           editOptions={editOptions}

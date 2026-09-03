@@ -17,6 +17,7 @@ import type { PhotoRoomEditOptions } from '../services/PhotoRoomService';
 interface LotPhotoSectionProps {
   photos: Photo[];
   photoUrls: Record<string, string>;
+  photoFallbackUrls?: Record<string, string>;
   selectedPhotos: Set<string>;
   showEditPanel: boolean;
   editOptions: PhotoRoomEditOptions;
@@ -37,6 +38,7 @@ interface LotPhotoSectionProps {
 const PhotoCard = memo(({
   photo,
   photoUrl,
+  fallbackUrl,
   isSelected,
   onToggleSelection,
   onSetPrimary,
@@ -44,6 +46,7 @@ const PhotoCard = memo(({
 }: {
   photo: Photo;
   photoUrl: string | undefined;
+  fallbackUrl?: string;
   isSelected: boolean;
   onToggleSelection: () => void;
   onSetPrimary: () => void;
@@ -56,7 +59,21 @@ const PhotoCard = memo(({
   >
     <div className="aspect-square cursor-pointer" onClick={onToggleSelection}>
       {photoUrl ? (
-        <img src={photoUrl} alt={photo.file_name} className="w-full h-full object-cover" />
+        <img
+          src={photoUrl}
+          alt={photo.file_name}
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            // A blob URL can be revoked or stale while the file itself is fine
+            // in the public bucket. Swap to the public URL once, and guard with
+            // dataset so a failing fallback cannot loop.
+            const img = e.currentTarget;
+            if (fallbackUrl && img.src !== fallbackUrl && !img.dataset.fellBack) {
+              img.dataset.fellBack = "1";
+              img.src = fallbackUrl;
+            }
+          }}
+        />
       ) : (
         <div className="w-full h-full flex items-center justify-center">
           <ImageIcon className="w-8 h-8 text-gray-400" />
@@ -118,6 +135,7 @@ const BACKGROUND_OPTIONS = [
 function LotPhotoSection({
   photos,
   photoUrls,
+  photoFallbackUrls,
   selectedPhotos,
   showEditPanel,
   editOptions,
@@ -288,6 +306,7 @@ function LotPhotoSection({
             key={photo.id}
             photo={photo}
             photoUrl={photoUrls[photo.id]}
+            fallbackUrl={photoFallbackUrls?.[photo.id]}
             isSelected={selectedPhotos.has(photo.id)}
             onToggleSelection={() => onTogglePhotoSelection(photo.id)}
             onSetPrimary={() => onSetPrimary(photo.id)}
