@@ -4,10 +4,10 @@
  */
 
 import { supabase } from '../lib/supabase';
+import offlineStorage from './Offlinestorage';
 
 // Temporary lot numbers use negative values to avoid conflicts
 const TEMP_NUMBER_START = -1000000;
-let tempNumberCounter = TEMP_NUMBER_START;
 
 /**
  * Get the next available lot number for a sale
@@ -20,7 +20,7 @@ export async function getNextLotNumber(
 ): Promise<number> {
   if (!isOnline) {
     // Offline: Generate temporary negative number
-    return generateTemporaryNumber();
+    return generateTemporaryNumber(saleId);
   }
 
   try {
@@ -46,7 +46,7 @@ export async function getNextLotNumber(
   } catch (error) {
     console.error('Error getting next lot number:', error);
     // Fallback to temporary number on error
-    return generateTemporaryNumber();
+    return generateTemporaryNumber(saleId);
   }
 }
 
@@ -54,10 +54,22 @@ export async function getNextLotNumber(
  * Generate a temporary lot number (negative value)
  * These will be replaced with real numbers when syncing online
  */
-function generateTemporaryNumber(): number {
-  const tempNumber = tempNumberCounter;
-  tempNumberCounter--;
-  return tempNumber;
+async function generateTemporaryNumber(saleId: string): Promise<number> {
+  // Derived from the lots already on this device, NOT from a module-level
+  // counter. That counter reset to TEMP_NUMBER_START on every page load, so a
+  // second session handed out -1000000 and -1000001 all over again — which is
+  // why two different items ended up sharing a number.
+  try {
+    const lots = await offlineStorage.getLotsBySale(saleId);
+    const lowest = lots.reduce((min, l) => {
+      const raw = l.lot_number;
+      const n = typeof raw === 'string' ? parseFloat(raw) : raw;
+      return typeof n === 'number' && !isNaN(n) && n < min ? n : min;
+    }, TEMP_NUMBER_START + 1);
+    return Math.min(lowest - 1, TEMP_NUMBER_START);
+  } catch {
+    return TEMP_NUMBER_START;
+  }
 }
 
 /**
