@@ -355,9 +355,51 @@ class SyncService {
   }
 
   // Push local changes (PARALLEL)
+  // Lots written to IndexedDB before the queue existed — or by any path that
+  // forgot to enqueue — are invisible to the drain and never reach Supabase.
+  // Find local lots the server doesn't have and queue them.
+  //
+  // Trade-off: a lot deleted on ANOTHER device also looks "missing here", so
+  // this can resurrect one. Lots deleted locally are marked `deleted` and
+  // filtered out by getLotsBySale, and for one person cataloguing in the field
+  // losing real work is much the worse failure.
+  private async recoverUnqueuedLots(): Promise<number> {
+    if (!navigator.onLine) return 0;
+    let queued = 0;
+    try {
+      const companies = await offlineStorage.getAllCompanies();
+      for (const company of companies) {
+        const sales = await offlineStorage.getSalesByCompany(company.id);
+        for (const sale of sales) {
+          const localLots = await offlineStorage.getLotsBySale(sale.id);
+          if (!localLots.length) continue;
+          const { data, error } = await supabase
+            .from('lots')
+            .select('id')
+            .eq('sale_id', sale.id);
+          if (error) continue;
+          const remote = new Set((data ?? []).map((r: { id: string }) => r.id));
+          for (const lot of localLots) {
+            if (remote.has(lot.id)) continue;
+            await offlineStorage.addPendingSyncItem({
+              id: lot.id, type: 'create', table: 'lots', data: lot,
+            });
+            queued++;
+          }
+        }
+      }
+      if (queued) console.log(`[SYNC] Recovered ${queued} lot(s) that were never queued`);
+    } catch (e) {
+      console.error('Recovering unqueued lots failed:', e);
+    }
+    return queued;
+  }
+
   async pushLocalChanges(): Promise<void> {
+    if (!navigator.onLine) return;
     this.startOperation();
     try {
+      await this.recoverUnqueuedLots();
       const [unsyncedPhotos, pendingItems] = await Promise.all([
         offlineStorage.getUnsyncedPhotos(),
         offlineStorage.getPendingSyncItems()

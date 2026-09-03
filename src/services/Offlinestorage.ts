@@ -294,7 +294,14 @@ class OfflineStorage {
 
   async getPendingSyncItems(): Promise<PendingSyncItem[]> {
     if (!this.db) await this.initialize();
-    return await this.db!.getAllFromIndex('pendingSync', 'by-synced');
+    // NOT via the 'by-synced' index. `synced` is a boolean, and IndexedDB has
+    // no boolean key type — a record whose index key is invalid is omitted from
+    // that index entirely, so getAllFromIndex here always returned []. Every
+    // queued write was invisible to pushLocalChanges and never pushed.
+    // getUnsyncedPhotos already filters in JS for exactly this reason, which is
+    // why photos were the only thing that ever synced.
+    const all = await this.db!.getAll('pendingSync');
+    return all.filter((item) => !item.synced);
   }
 
   async markSynced(itemId: string): Promise<void> {
@@ -308,7 +315,11 @@ class OfflineStorage {
 
   async clearSyncedItems(): Promise<void> {
     if (!this.db) await this.initialize();
-    const syncedItems = await this.db!.getAllFromIndex('pendingSync', 'by-synced');
+    // Same boolean-index problem as above, and note the filter: this used to
+    // delete everything the query returned, which would take unsynced items
+    // with it now that the read actually returns rows.
+    const all = await this.db!.getAll('pendingSync');
+    const syncedItems = all.filter((item) => item.synced);
     const tx = this.db!.transaction('pendingSync', 'readwrite');
     for (const item of syncedItems) {
       await tx.store.delete(item.id);
