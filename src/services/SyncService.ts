@@ -250,7 +250,13 @@ class SyncService {
     // Filter photos that need downloading
     const photosToDownload: Photo[] = [];
     await Promise.all(primaryPhotos.map(async (photo) => {
-      await offlineStorage.upsertPhoto({ ...photo, synced: false });
+      // synced:true — this row came FROM the server, so there is nothing to
+      // push back. It used to be stored false and only flipped to true if the
+      // blob happened to need downloading, so every photo already cached stayed
+      // 'unsynced' forever and getUnsyncedPhotos handed the server's own photos
+      // to pushLocalChanges on every sync — 46 pointless uploads on a device
+      // that had taken no pictures. Blob presence is tracked separately, below.
+      await offlineStorage.upsertPhoto({ ...photo, synced: true });
       const existingBlob = await offlineStorage.getPhotoBlob(photo.id);
       if (!existingBlob) {
         photosToDownload.push(photo);
@@ -267,6 +273,12 @@ class SyncService {
           .from('photos')
           .download(photo.file_path);
 
+        if (dlError) {
+          // Usually a row whose storage object is missing. Non-fatal: the rest
+          // of the sync continues, but say which photo rather than leaving an
+          // unexplained 400 in the console.
+          console.warn('  Photo file missing in storage:', photo.file_path, dlError.message);
+        }
         if (!dlError && blob) {
           await offlineStorage.upsertPhotoBlob(photo.id, blob);
           await offlineStorage.upsertPhoto({ ...photo, synced: true });
@@ -324,7 +336,13 @@ class SyncService {
     // Filter photos that need downloading
     const photosToDownload: Photo[] = [];
     await Promise.all(remainingPhotos.map(async (photo) => {
-      await offlineStorage.upsertPhoto({ ...photo, synced: false });
+      // synced:true — this row came FROM the server, so there is nothing to
+      // push back. It used to be stored false and only flipped to true if the
+      // blob happened to need downloading, so every photo already cached stayed
+      // 'unsynced' forever and getUnsyncedPhotos handed the server's own photos
+      // to pushLocalChanges on every sync — 46 pointless uploads on a device
+      // that had taken no pictures. Blob presence is tracked separately, below.
+      await offlineStorage.upsertPhoto({ ...photo, synced: true });
       const existingBlob = await offlineStorage.getPhotoBlob(photo.id);
       if (!existingBlob) {
         photosToDownload.push(photo);
@@ -341,6 +359,12 @@ class SyncService {
           .from('photos')
           .download(photo.file_path);
 
+        if (dlError) {
+          // Usually a row whose storage object is missing. Non-fatal: the rest
+          // of the sync continues, but say which photo rather than leaving an
+          // unexplained 400 in the console.
+          console.warn('  Photo file missing in storage:', photo.file_path, dlError.message);
+        }
         if (!dlError && blob) {
           await offlineStorage.upsertPhotoBlob(photo.id, blob);
           await offlineStorage.upsertPhoto({ ...photo, synced: true });
