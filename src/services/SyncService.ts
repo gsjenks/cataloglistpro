@@ -203,7 +203,18 @@ class SyncService {
 
     const lots = data || [];
     // Batch upsert
-    await Promise.all(lots.map(lot => offlineStorage.upsertLot(lot)));
+    // Never overwrite a lot the device has deleted. Plain upserting the
+    // server's rows wiped the local `deleted` flag, so anything deleted offline
+    // reappeared on the next pull. Once the queued delete reaches the server
+    // the row stops coming back at all.
+    const locallyDeleted = new Set(
+      (await offlineStorage.getAllLots())
+        .filter((l) => (l as Lot & { deleted?: boolean }).deleted)
+        .map((l) => l.id),
+    );
+    await Promise.all(
+      lots.filter((l) => !locallyDeleted.has(l.id)).map(lot => offlineStorage.upsertLot(lot)),
+    );
     return lots;
   }
 
@@ -527,9 +538,14 @@ class SyncService {
       // the server — which is exactly the field-cataloguing case.
       await Promise.all(pendingItems.map(async (item) => {
         try {
-          const { error } = await supabase.from(item.table).upsert(item.data);
+          // Honour the operation. This always upserted, so a queued delete
+          // would have RE-CREATED the row it was meant to remove.
+          const rowId = (item.data as { id?: string })?.id ?? item.id;
+          const { error } = item.type === 'delete'
+            ? await supabase.from(item.table).delete().eq('id', rowId)
+            : await supabase.from(item.table).upsert(item.data);
           if (error) {
-            console.error(`Sync upsert to ${item.table} failed:`, error.message);
+            console.error(`Sync ${item.type} on ${item.table} failed:`, error.message);
             return;
           }
           await offlineStorage.markSynced(item.id);
