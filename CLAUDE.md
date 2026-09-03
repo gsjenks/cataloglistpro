@@ -71,6 +71,7 @@ In-person floor sale run out of the app. Same stage machine, different surfaces.
 - `storage-sweep` is manual-invoke only, secret-guarded, `dryRun` defaults **true**; `company-assets` is never swept.
 - `EOAProcessing.tsx` shipping-label header is hardcoded ("Benson Auction Services", a phone, a date); `QRCodeLabelGenerator` hardcodes the `cataloglistpro.vercel.app` base URL.
 - Two companies use this app — **Benson Auction Services** and **Benson Estate Sales**; resale-certificate lookups deliberately span them via RLS.
+- **Never `await` a supabase call inside `onAuthStateChange`.** The callback runs while GoTrue holds its internal lock, and any supabase request made from inside it queues behind that same lock — the app deadlocks until its own timeouts fire. This produced four startup timeouts at once (`Session check`, `claim_company_invites`, `Owned companies`, `User companies`) and a 30s initial sync. The callback is now non-async; state updates happen inline, anything touching supabase is deferred with `setTimeout(…, 0)`. Same lock, different symptom, as the `publicClient` note below.
 - `src/lib/publicClient.ts` must keep its own `storageKey` — sharing one with `lib/supabase.ts` made the two GoTrue clients deadlock on the navigator lock and hung dashboard loads.
 
 ## Work log
