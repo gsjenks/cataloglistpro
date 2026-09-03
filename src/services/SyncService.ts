@@ -405,7 +405,23 @@ class SyncService {
         offlineStorage.getPendingSyncItems()
       ]);
 
-      // Upload photos in parallel
+      // Rows BEFORE photos. photos.lot_id references lots(id), so a photo taken
+      // on a lot catalogued offline fails its foreign key until that lot is on
+      // the server — which is exactly the field-cataloguing case.
+      await Promise.all(pendingItems.map(async (item) => {
+        try {
+          const { error } = await supabase.from(item.table).upsert(item.data);
+          if (error) {
+            console.error(`Sync upsert to ${item.table} failed:`, error.message);
+            return;
+          }
+          await offlineStorage.markSynced(item.id);
+        } catch (e) {
+          console.error('Sync upsert threw:', e);
+        }
+      }));
+
+      // Then the photos those rows belong to.
       await this.runWithConcurrency(unsyncedPhotos, async (photo) => {
         const blob = await offlineStorage.getPhotoBlob(photo.id);
         if (blob) {
@@ -413,16 +429,6 @@ class SyncService {
           await PhotoService.saveMetadataToSupabase(photo);
         }
       });
-
-      // Push pending items in parallel
-      await Promise.all(pendingItems.map(async (item) => {
-        try {
-          const { error } = await supabase.from(item.table).upsert(item.data);
-          if (!error) await offlineStorage.markSynced(item.id);
-        } catch {
-          // Continue on error
-        }
-      }));
     } finally {
       this.endOperation();
     }

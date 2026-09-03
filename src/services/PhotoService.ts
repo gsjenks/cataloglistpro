@@ -237,9 +237,15 @@ class PhotoService {
 
   async saveMetadataToSupabase(photo: PhotoMetadata): Promise<boolean> {
     try {
-      const { error } = await supabase.from('photos').upsert(photo);
+      // `synced` is local-only bookkeeping added by savePhotoMetadata; there is
+      // no such column on `photos`. Callers pass the record straight back out of
+      // IndexedDB (getUnsyncedPhotos returns the stored shape, not PhotoMetadata),
+      // so it rode along and PostgREST rejected the whole upsert with a 400.
+      const { synced: _synced, ...row } = photo as PhotoMetadata & { synced?: boolean };
+      const { error } = await supabase.from('photos').upsert(row);
 
       if (error) {
+        console.error('Photo metadata upsert failed:', error.message);
         return false;
       }
 
