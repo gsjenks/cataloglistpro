@@ -999,9 +999,27 @@ export default function LotDetail() {
         id: lotId,
         deleted: true,
       } as Lot & { deleted: boolean });
+      // Queue the delete so it reaches Supabase. Marking the local row deleted
+      // only hides it on this device — without this the lot stayed on the server
+      // and every other device kept showing it.
+      const queueDelete = async () => {
+        try {
+          await offlineStorage.addPendingSyncItem({
+            id: lotId, type: "delete", table: "lots", data: { id: lotId },
+          });
+        } catch (e) {
+          console.error("Could not queue lot delete:", e);
+        }
+      };
       if (isOnline) {
-        await supabase.from("lots").delete().eq("id", lotId);
+        const { error: delErr } = await supabase.from("lots").delete().eq("id", lotId);
+        if (delErr) {
+          console.error("Lot delete failed, queued for sync:", delErr.message);
+          await queueDelete();
+        }
         SyncService.endOperation();
+      } else {
+        await queueDelete();
       }
       navigate(`/sales/${saleId}`);
     } catch (e) {
