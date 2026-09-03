@@ -435,6 +435,36 @@ class SyncService {
         (recovered ? `, ${recovered} recovered` : ''),
       );
 
+      // Reconcile before uploading. A photo can stay flagged unsynced forever
+      // through paths the pull no longer touches — setPrimaryPhoto marks a whole
+      // lot unsynced, and performInitialSync only mirrors upcoming/active sales,
+      // so anything outside that set is never corrected. Whatever the server
+      // already has is synced by definition; mark it and stop re-uploading it on
+      // every sync forever.
+      let photosToUpload = unsyncedPhotos;
+      if (unsyncedPhotos.length) {
+        try {
+          const { data, error } = await supabase
+            .from('photos')
+            .select('id')
+            .in('id', unsyncedPhotos.map((p) => p.id));
+          if (!error) {
+            const onServer = new Set((data ?? []).map((r: { id: string }) => r.id));
+            const already = unsyncedPhotos.filter((p) => onServer.has(p.id));
+            await Promise.all(
+              already.map((p) => offlineStorage.upsertPhoto({ ...p, synced: true })),
+            );
+            photosToUpload = unsyncedPhotos.filter((p) => !onServer.has(p.id));
+            if (already.length) {
+              console.log(`[PUSH] ${already.length} photo(s) already on the server — marked synced`);
+            }
+          }
+        } catch (e) {
+          console.error('[PUSH] photo reconcile failed:', e);
+        }
+        console.log(`[PUSH] ${photosToUpload.length} photo(s) actually need uploading`);
+      }
+
       // Rows BEFORE photos. photos.lot_id references lots(id), so a photo taken
       // on a lot catalogued offline fails its foreign key until that lot is on
       // the server — which is exactly the field-cataloguing case.
@@ -452,16 +482,25 @@ class SyncService {
       }));
 
       // Then the photos those rows belong to.
-      await this.runWithConcurrency(unsyncedPhotos, async (photo) => {
+      await this.runWithConcurrency(photosToUpload, async (photo) => {
         const blob = await offlineStorage.getPhotoBlob(photo.id);
-        if (blob) {
-          await PhotoService.uploadToSupabase(blob, photo.file_path);
-          await PhotoService.saveMetadataToSupabase(photo);
+        if (!blob) {
+          // No blob and not on the server: nothing to send, and leaving it
+          // flagged means retrying it on every sync forever.
+          console.warn(`[PUSH] photo ${photo.id} has no local blob — nothing to upload`);
+          return;
         }
+        const up = await PhotoService.uploadToSupabase(blob, photo.file_path);
+        if (!up.success) {
+          console.error(`[PUSH] photo upload failed (${photo.file_path}):`, up.error);
+          return;
+        }
+        await PhotoService.saveMetadataToSupabase(photo);
       });
 
       const left = (await offlineStorage.getPendingSyncItems()).length;
-      console.log(`[PUSH] done — ${left} row(s) still queued`);
+      const stillUnsynced = (await offlineStorage.getUnsyncedPhotos()).length;
+      console.log(`[PUSH] done — ${left} row(s), ${stillUnsynced} photo(s) still unsynced`);
     } finally {
       this.endOperation();
     }
