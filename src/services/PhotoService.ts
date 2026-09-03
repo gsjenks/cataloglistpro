@@ -3,6 +3,14 @@ import offlineStorage from './Offlinestorage';
 import { supabase } from '../lib/supabase';
 import type { Photo } from '../types';
 
+// Supabase storage answers a missing object in a PUBLIC bucket with HTTP 200 and
+// a JSON body ({"statusCode":"404","error":"not_found"}), so download() reports
+// no error and the ~88-byte error body gets cached as though it were the photo.
+// Nothing downstream can tell the difference — it is a non-empty Blob — so every
+// cache write and read has to check the type.
+export const isImageBlob = (b: Blob | undefined | null): b is Blob =>
+  !!b && b.size > 0 && b.type.startsWith('image/');
+
 interface PhotoMetadata {
   id: string;
   lot_id: string;
@@ -277,8 +285,15 @@ class PhotoService {
   private async _getPhotoObjectUrlInternal(photoId: string): Promise<string | null> {
     // Try local blob first (fastest)
     const blob = await this.getPhotoBlob(photoId);
-    if (blob) {
+    if (isImageBlob(blob)) {
       return URL.createObjectURL(blob);
+    }
+    if (blob) {
+      // A cached error body. Drop it and fall through to the remote URL so the
+      // bad cache entry cannot pin a broken thumbnail forever.
+      console.warn(`[PHOTO] Cached blob for ${photoId} is ${blob.type || 'unknown'}, not an image — discarding`);
+      await offlineStorage.deletePhotoBlob(photoId);
+      await offlineStorage.upsertPhoto({ ...(await offlineStorage.getPhoto(photoId))!, synced: false });
     }
     
     // Check signed URL cache

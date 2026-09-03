@@ -241,13 +241,14 @@ export default function LotDetail() {
         // Try to get local blobs
         for (const photo of localPhotos) {
           const blob = await offlineStorage.getPhotoBlob(photo.id);
-          if (blob && blob.size > 0) {
+          if (blob && blob.size > 0 && blob.type.startsWith("image/")) {
             const url = URL.createObjectURL(blob);
             createdBlobUrls.current.add(url);
             urls[photo.id] = url;
           } else if (blob) {
-            // Zero-byte cache entry: drop it so the next sync re-downloads.
-            console.warn(`[PHOTO] Discarding empty local blob for ${photo.id}`);
+            // Empty, or an error body cached as a photo. Drop it so the public
+            // URL is used and the next sync can re-fetch.
+            console.warn(`[PHOTO] Discarding bad local blob for ${photo.id} (${blob.size}b ${blob.type || 'unknown'})`);
             await offlineStorage.deletePhotoBlob(photo.id);
           }
         }
