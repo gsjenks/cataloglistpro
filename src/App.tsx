@@ -118,6 +118,19 @@ function AppContent() {
           }
         });
 
+        // Push BEFORE pulling. Two reasons: getting field work off the device
+        // matters more than refreshing the mirror, and the pull below is wrapped
+        // in a 30s race whose rejection jumps straight to catch — which skipped
+        // the push entirely on exactly the slow connections where unsynced work
+        // is most likely to be waiting.
+        //
+        // ConnectivityService only starts its interval on the `online` EVENT,
+        // which never fires for an app opened cold while already online, so this
+        // is the only thing that drains the queue on a normal start.
+        await SyncService.pushLocalChanges().catch((e) =>
+          console.error("Pushing queued offline changes failed:", e),
+        );
+
         // Perform priority sync with timeout protection
         await Promise.race([
           SyncService.performInitialSync(currentCompany.id),
@@ -125,14 +138,6 @@ function AppContent() {
             setTimeout(() => reject(new Error("Sync timeout")), 30000),
           ),
         ]);
-
-        // Drain anything written while offline. performInitialSync only pulls,
-        // and ConnectivityService starts its interval on the `online` EVENT —
-        // which never fires for an app opened cold while already online. Without
-        // this a lot catalogued offline sits queued and never reaches Supabase.
-        await SyncService.pushLocalChanges().catch((e) =>
-          console.error("Pushing queued offline changes failed:", e),
-        );
 
         if (syncTimeoutRef.current) {
           clearTimeout(syncTimeoutRef.current);

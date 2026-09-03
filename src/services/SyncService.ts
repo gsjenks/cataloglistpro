@@ -399,11 +399,17 @@ class SyncService {
     if (!navigator.onLine) return;
     this.startOperation();
     try {
-      await this.recoverUnqueuedLots();
+      const recovered = await this.recoverUnqueuedLots();
       const [unsyncedPhotos, pendingItems] = await Promise.all([
         offlineStorage.getUnsyncedPhotos(),
         offlineStorage.getPendingSyncItems()
       ]);
+      // Say what is being pushed. This ran silently, so a queue that never
+      // drained looked identical to one that had nothing to drain.
+      console.log(
+        `[PUSH] ${pendingItems.length} queued row(s), ${unsyncedPhotos.length} photo(s)` +
+        (recovered ? `, ${recovered} recovered` : ''),
+      );
 
       // Rows BEFORE photos. photos.lot_id references lots(id), so a photo taken
       // on a lot catalogued offline fails its foreign key until that lot is on
@@ -429,6 +435,9 @@ class SyncService {
           await PhotoService.saveMetadataToSupabase(photo);
         }
       });
+
+      const left = (await offlineStorage.getPendingSyncItems()).length;
+      console.log(`[PUSH] done — ${left} row(s) still queued`);
     } finally {
       this.endOperation();
     }
