@@ -39,6 +39,36 @@ import LotPhotoSection from "./LotPhotoSection";
 import LotForm from "./LotForm";
 import LotQRCode from "./LotQRCode";
 
+interface AIResearch {
+  researched: boolean;
+  basis: string;
+  notes: string;
+  sources: { title: string; uri: string }[];
+}
+
+// Re-encode a photo as a JPEG no larger than 1600px on its long side, as base64.
+// Full-size phone photos made the request several MB each for no gain in accuracy.
+async function toAIJpeg(blob: Blob): Promise<string> {
+  const MAX = 1600;
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+  } catch {
+    // Undecodable here (e.g. HEIC on some browsers): send the original bytes
+    return new Promise<string>((res) => {
+      const reader = new FileReader();
+      reader.onloadend = () => res((reader.result as string).split(",")[1]);
+      reader.readAsDataURL(blob);
+    });
+  }
+}
+
 function generateUUID(): string {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
@@ -87,6 +117,15 @@ export default function LotDetail() {
   useEffect(() => {
     lotRef.current = lot;
   }, [lot]);
+  // What the last AI run wrote, so a re-run can tell which fields the
+  // cataloger has since corrected and weight those above the photos.
+  const aiSnapshotRef = useRef<Partial<Lot> | null>(null);
+  const [aiResearch, setAiResearch] = useState<AIResearch | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  useEffect(() => {
+    aiSnapshotRef.current = null;
+    setAiResearch(null);
+  }, [lotId]);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [consignments, setConsignments] = useState<Consignment[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -737,6 +776,7 @@ export default function LotDetail() {
     }
 
     setSaving(true);
+    setAiBusy(true);
     try {
       const primaryPhoto = photos.find((p) => p.is_primary) || photos[0];
       const otherPhotos = photos
@@ -754,17 +794,7 @@ export default function LotDetail() {
         return;
       }
 
-      const base64Photos = await Promise.all(
-        photoBlobs.map(
-          (blob) =>
-            new Promise<string>((res) => {
-              const reader = new FileReader();
-              reader.onloadend = () =>
-                res((reader.result as string).split(",")[1]);
-              reader.readAsDataURL(blob);
-            }),
-        ),
-      );
+      const base64Photos = await Promise.all(photoBlobs.map(toAIJpeg));
 
       const categories = getLACategories().map((c) => c.name);
       const styles = getLAStyles().map((s) => s.name);
@@ -772,68 +802,78 @@ export default function LotDetail() {
       const creators = getLACreators().map((c) => c.name);
       const materials = getLAMaterials().map((m) => m.name);
 
-      const promptText = `You are an auction cataloger. Analyze these photos and respond with ONLY valid JSON (no markdown, no commentary). Use this exact schema, where every value is a STRING or NUMBER (never an array): {"title": string under 50 chars, "description": string, "category": string, "style": string, "origin": string, "creator": string, "materials": string, "condition": string, "estimate_low": number, "estimate_high": number, "starting_bid": number}. Use valid dropdown values from: CATEGORIES: ${categories.slice(0, 30).join(", ")}. STYLES: ${styles.slice(0, 25).join(", ")}. ORIGINS: ${origins.slice(0, 25).join(", ")}. CREATORS: ${creators.slice(0, 20).join(", ")}. MATERIALS: ${materials.slice(0, 25).join(", ")}.`;
+      // Send what the cataloger has already entered. Without this every run
+      // re-read the same photos and overwrote their corrections.
+      const current = lotRef.current;
+      const snapshot = aiSnapshotRef.current;
+      const known: [keyof Lot, string][] = [
+        ["name", "Title"],
+        ["creator", "Maker / artist"],
+        ["materials", "Materials"],
+        ["origin", "Origin"],
+        ["style", "Style / period"],
+        ["category", "Category"],
+        ["condition", "Condition"],
+        ["condition_report", "Condition report"],
+        ["quantity", "Quantity"],
+        ["description", "Description"],
+      ];
+      const corrected: string[] = [];
+      const entered: string[] = [];
+      for (const [key, label] of known) {
+        const val = current[key];
+        if (val === null || val === undefined || String(val).trim() === "")
+          continue;
+        const line = `${label}: ${String(val).trim()}`;
+        // Changed since the last AI run (or no AI run yet) = the cataloger's own
+        // input. With no run this session a description may be an old AI draft,
+        // so it is context only unless edited after a run.
+        const changed = snapshot
+          ? String(snapshot[key] ?? "") !== String(val)
+          : key !== "description";
+        if (changed)
+          corrected.push(line);
+        else entered.push(line);
+      }
+      const dims = [current.height, current.width, current.depth]
+        .filter((d) => d !== null && d !== undefined && d !== 0)
+        .join(" x ");
+      if (dims) entered.push(`Dimensions (H x W x D): ${dims} ${current.dimension_unit || "inches"}`);
+      if (current.weight) entered.push(`Weight: ${current.weight}`);
 
-      const response = await fetch(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" +
-          import.meta.env.VITE_GEMINI_API_KEY,
+      console.log("[AI] Cataloger context:", { corrected, entered });
+
+      // Research (Google Search) + formatting happen server-side in the
+      // `lot-enrich` edge function, which also keeps the Gemini key private.
+      const { data: result, error: fnError } = await supabase.functions.invoke(
+        "lot-enrich",
         {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: promptText },
-                  ...base64Photos.map((data) => ({
-                    inline_data: { mime_type: "image/jpeg", data },
-                  })),
-                ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.3,
-              maxOutputTokens: 4096,
-              thinkingConfig: { thinkingBudget: 0 },
-              responseMimeType: "application/json",
-            },
-          }),
+          body: {
+            photos: base64Photos.map((data) => ({ data, mimeType: "image/jpeg" })),
+            corrected,
+            entered,
+            lists: { categories, styles, origins, creators, materials },
+          },
         },
       );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Gemini API error:", response.status, errorText);
-        throw new Error(
-          `AI analysis failed: ${response.status} ${errorText.slice(0, 200)}`,
-        );
+      if (fnError || !result?.fields) {
+        let detail = result?.error || fnError?.message || "no response";
+        // FunctionsHttpError keeps the function's JSON body on `context`
+        const ctx = (fnError as { context?: Response } | null)?.context;
+        if (ctx && typeof ctx.json === "function") {
+          const errBody = await ctx.json().catch(() => null);
+          if (errBody?.error) detail = errBody.error;
+        }
+        throw new Error(`AI analysis failed: ${detail}`);
       }
-
-      const result = await response.json();
-      console.log("[AI] Gemini raw response:", result);
-      const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-      console.log("[AI] Gemini text content:", text);
-      if (!text) throw new Error("No text in Gemini response");
-
-      // With responseMimeType: 'application/json' the text should be clean JSON,
-      // but keep the fallbacks in case Gemini wraps it anyway
-      const cleanedText = text
-        .replace(/```json\s*/gi, "")
-        .replace(/```\s*/g, "")
-        .trim();
-      let aiData: Record<string, unknown>;
-      try {
-        aiData = JSON.parse(cleanedText);
-      } catch {
-        // Fallback: extract first JSON object via regex
-        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
-        if (!jsonMatch)
-          throw new Error(
-            "Failed to parse AI response. Got: " + text.slice(0, 200),
-          );
-        aiData = JSON.parse(jsonMatch[0]);
-      }
-      console.log("[AI] Parsed JSON:", aiData);
+      const aiData = result.fields as Record<string, unknown>;
+      console.log("[AI] Result:", result);
+      setAiResearch({
+        researched: !!result.researched,
+        basis: typeof aiData.valuation_basis === "string" ? aiData.valuation_basis : "",
+        notes: typeof result.research === "string" ? result.research : "",
+        sources: Array.isArray(result.sources) ? result.sources : [],
+      });
 
       // Defensive: Gemini sometimes returns arrays or non-strings even when prompted not to
       const findMatch = (val: unknown, list: string[]): string => {
@@ -869,25 +909,34 @@ export default function LotDetail() {
         return undefined;
       };
 
-      setLot((prev) => ({
-        ...prev,
-        name: toTitleCase(toStr(aiData.title).substring(0, 50)) || prev.name,
-        description: toStr(aiData.description) || prev.description,
-        category: findMatch(aiData.category, categories) || prev.category,
-        style: findMatch(aiData.style, styles) || prev.style,
-        origin: findMatch(aiData.origin, origins) || prev.origin,
-        creator: findMatch(aiData.creator, creators) || prev.creator,
-        materials: findMatch(aiData.materials, materials) || prev.materials,
-        condition: toStr(aiData.condition) || prev.condition,
-        estimate_low: toNum(aiData.estimate_low) ?? prev.estimate_low,
-        estimate_high: toNum(aiData.estimate_high) ?? prev.estimate_high,
-        starting_bid: toNum(aiData.starting_bid) ?? prev.starting_bid,
-      }));
-      alert("AI Detail Editor complete! Review and save.");
+      setLot((prev) => {
+        const next = {
+          ...prev,
+          name: toTitleCase(toStr(aiData.title).substring(0, 50)) || prev.name,
+          description: toStr(aiData.description) || prev.description,
+          category: findMatch(aiData.category, categories) || prev.category,
+          style: findMatch(aiData.style, styles) || prev.style,
+          origin: findMatch(aiData.origin, origins) || prev.origin,
+          creator: findMatch(aiData.creator, creators) || prev.creator,
+          materials: findMatch(aiData.materials, materials) || prev.materials,
+          condition: toStr(aiData.condition) || prev.condition,
+          estimate_low: toNum(aiData.estimate_low) ?? prev.estimate_low,
+          estimate_high: toNum(aiData.estimate_high) ?? prev.estimate_high,
+          starting_bid: toNum(aiData.starting_bid) ?? prev.starting_bid,
+        };
+        aiSnapshotRef.current = { ...next };
+        return next;
+      });
+      alert(
+        result.researched
+          ? "AI Detail Editor complete! Review the research below, then save."
+          : "AI Detail Editor complete (web research unavailable this time). Review and save.",
+      );
     } catch (e) {
       console.error("AI error:", e);
       alert(e instanceof Error ? e.message : "Failed to analyze item");
     } finally {
+      setAiBusy(false);
       setSaving(false);
     }
   }, [photos, isOnline]);
@@ -1172,9 +1221,69 @@ export default function LotDetail() {
         hasPhotos={photos.length > 0}
         saving={saving}
         onAIEnrich={handleAIEnrich}
+        aiBusy={aiBusy}
         consignments={consignments}
         contacts={contacts}
       />
+
+      {aiResearch && (
+        <div className="bg-white rounded-lg shadow-sm p-6 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold text-gray-900">AI research</h2>
+            <button
+              onClick={() => setAiResearch(null)}
+              className="text-sm text-gray-500 hover:text-gray-700"
+            >
+              Dismiss
+            </button>
+          </div>
+          {!aiResearch.researched && (
+            <p className="text-sm text-amber-700 bg-amber-50 rounded p-2">
+              Web research was unavailable for this run — the details and
+              estimate are from the photos and your entries only.
+            </p>
+          )}
+          {aiResearch.basis && (
+            <p className="text-sm text-gray-800">
+              <span className="font-medium">Estimate basis: </span>
+              {aiResearch.basis}
+            </p>
+          )}
+          {aiResearch.notes && (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-indigo-700 font-medium">
+                Research notes
+              </summary>
+              <p className="mt-2 whitespace-pre-wrap text-gray-700">
+                {aiResearch.notes}
+              </p>
+            </details>
+          )}
+          {aiResearch.sources.length > 0 && (
+            <div className="text-sm">
+              <div className="font-medium text-gray-800 mb-1">Sources</div>
+              <ul className="list-disc pl-5 space-y-0.5">
+                {aiResearch.sources.map((s) => (
+                  <li key={s.uri}>
+                    <a
+                      href={s.uri}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-700 hover:underline break-all"
+                    >
+                      {s.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="text-xs text-gray-500">
+            AI findings can be wrong — check the sources before relying on an
+            attribution or estimate. Research notes are not saved with the lot.
+          </p>
+        </div>
+      )}
 
       {/* QR code — links to the public lot page (existing lots only) */}
       {!isNewLot && saleId && lotId && (

@@ -24,6 +24,8 @@ interface LotFormProps {
   hasPhotos: boolean;
   saving: boolean;
   onAIEnrich: () => void;
+  // True while the AI Detail Editor is researching (it can take ~30s)
+  aiBusy?: boolean;
   // Auction lifecycle (#2): consignor assignment source. Optional so other callers
   // of LotForm keep working.
   consignments?: Consignment[];
@@ -43,6 +45,7 @@ function LotForm({
   hasPhotos,
   saving,
   onAIEnrich,
+  aiBusy,
   consignments,
   contacts,
 }: LotFormProps) {
@@ -95,10 +98,10 @@ function LotForm({
                 onClick={onAIEnrich}
                 disabled={saving}
                 className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-sm font-medium rounded-lg hover:from-indigo-600 hover:to-purple-600 disabled:opacity-50 transition-all shadow-sm"
-                title="Use AI to auto-fill item details"
+                title="Use AI to research the item and fill in its details"
               >
-                <Sparkles className="w-4 h-4" />
-                AI Detail Editor
+                <Sparkles className={`w-4 h-4 ${aiBusy ? "animate-pulse" : ""}`} />
+                {aiBusy ? "Researching…" : "AI Detail Editor"}
               </button>
 
               {/* Print Label Button */}
