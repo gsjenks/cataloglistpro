@@ -909,6 +909,38 @@ export default function LotDetail() {
         return undefined;
       };
 
+      // Pricing is only filled in silently when the lot has none yet. If the
+      // cataloger already has figures, show old vs new and let them choose.
+      const cur = lotRef.current;
+      const newPrice = {
+        estimate_low: toNum(aiData.estimate_low) ?? cur.estimate_low,
+        estimate_high: toNum(aiData.estimate_high) ?? cur.estimate_high,
+        starting_bid: toNum(aiData.starting_bid) ?? cur.starting_bid,
+      };
+      const hasPrice = [cur.estimate_low, cur.estimate_high, cur.starting_bid].some(
+        (v) => Number(v) > 0,
+      );
+      const money = (v: unknown) =>
+        Number(v) > 0 ? `$${Number(v).toLocaleString()}` : "—";
+      const priceChanged =
+        Number(newPrice.estimate_low ?? 0) !== Number(cur.estimate_low ?? 0) ||
+        Number(newPrice.estimate_high ?? 0) !== Number(cur.estimate_high ?? 0) ||
+        Number(newPrice.starting_bid ?? 0) !== Number(cur.starting_bid ?? 0);
+      const applyPrice =
+        !hasPrice ||
+        !priceChanged ||
+        confirm(
+          "The AI suggests different pricing for this lot.\n\n" +
+            `Current estimate: ${money(cur.estimate_low)} – ${money(cur.estimate_high)}\n` +
+            `Current starting bid: ${money(cur.starting_bid)}\n\n` +
+            `New estimate: ${money(newPrice.estimate_low)} – ${money(newPrice.estimate_high)}\n` +
+            `New starting bid: ${money(newPrice.starting_bid)}\n` +
+            (typeof aiData.valuation_basis === "string" && aiData.valuation_basis
+              ? `\nBasis: ${aiData.valuation_basis}\n`
+              : "") +
+            "\nOK = use the new pricing. Cancel = keep the current pricing.",
+        );
+
       setLot((prev) => {
         const next = {
           ...prev,
@@ -920,9 +952,7 @@ export default function LotDetail() {
           creator: findMatch(aiData.creator, creators) || prev.creator,
           materials: findMatch(aiData.materials, materials) || prev.materials,
           condition: toStr(aiData.condition) || prev.condition,
-          estimate_low: toNum(aiData.estimate_low) ?? prev.estimate_low,
-          estimate_high: toNum(aiData.estimate_high) ?? prev.estimate_high,
-          starting_bid: toNum(aiData.starting_bid) ?? prev.starting_bid,
+          ...(applyPrice ? newPrice : {}),
         };
         aiSnapshotRef.current = { ...next };
         return next;
