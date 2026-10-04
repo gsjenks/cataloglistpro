@@ -3,7 +3,7 @@
 // UPDATED: Added QR code generation on lot save
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { generateQRCodeForLot } from "../lib/qr";
 import { useFooter, type FooterAction } from "../context/FooterContext";
@@ -30,7 +30,9 @@ import {
 import type { Lot, Photo, Consignment, Contact } from "../types";
 import { listConsignments } from "../services/ConsignmentService";
 import { toTitleCase } from "../utils/titleCase";
-import { ArrowLeft, Save, Trash2, Upload, Camera } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Upload, Camera, ChevronLeft, ChevronRight } from "lucide-react";
+import { useLotNeighbors, type WalkMode } from "../hooks/useLotNeighbors";
+import { CROP_FILE_PREFIX } from "../services/RoomCaptureImportService";
 
 // Split components
 import WebcamModal from "./WebcamModal";
@@ -77,6 +79,27 @@ function generateUUID(): string {
   });
 }
 
+// The fields a cataloger edits, normalised, so moving to another lot can tell
+// whether this one has unsaved changes.
+const EDIT_FIELDS: (keyof Lot)[] = [
+  "name", "description", "quantity", "condition", "category", "style", "origin",
+  "creator", "materials", "estimate_low", "estimate_high", "starting_bid",
+  "reserve_price", "buy_now_price", "height", "width", "depth", "weight",
+  "dimension_unit", "consignment_id", "condition_report", "is_restricted",
+  "restricted_category",
+];
+const editKey = (l: Partial<Lot>) =>
+  JSON.stringify(
+    EDIT_FIELDS.map((f) => {
+      const v = l[f];
+      if (f === "quantity") return Number(v) || 1;
+      return v === null || v === undefined ? "" : v;
+    }),
+  );
+
+// A room-capture crop (cut from a walkthrough video or room photo at import).
+const isCaptureCrop = (p: Photo) => (p.file_name || "").startsWith(CROP_FILE_PREFIX);
+
 const queueLotUpsert = async (lot: Lot, type: "create" | "update") => {
   // Writing to IndexedDB is not enough: pushLocalChanges drains `pendingSync`,
   // so a lot saved offline but never queued is invisible to sync and simply
@@ -93,6 +116,11 @@ const queueLotUpsert = async (lot: Lot, type: "create" | "update") => {
 export default function LotDetail() {
   const { saleId, lotId } = useParams<{ saleId: string; lotId: string }>();
   const navigate = useNavigate();
+  // ?walk=photos: Previous/Next only visit lots that still need photos.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const walkMode: WalkMode = searchParams.get("walk") === "photos" ? "photos" : "all";
+  // editKey of the lot as loaded or last saved; anything else is unsaved.
+  const loadedKeyRef = useRef<string>("");
   const { setActions, clearActions } = useFooter();
   const [isOnline, setIsOnline] = useState(
     ConnectivityService.getConnectionStatus(),
@@ -248,11 +276,15 @@ export default function LotDetail() {
         if (error) throw error;
         if (data) {
           setLot(data);
+          loadedKeyRef.current = editKey(data);
           await offlineStorage.upsertLot(data);
         }
       } else {
         const offlineLot = await offlineStorage.getLot(lotId);
-        if (offlineLot) setLot(offlineLot);
+        if (offlineLot) {
+          setLot(offlineLot);
+          loadedKeyRef.current = editKey(offlineLot);
+        }
       }
     } catch (e) {
       console.error("Error loading lot:", e);
@@ -352,6 +384,33 @@ export default function LotDetail() {
   };
 
   // Photo handlers
+  // A new real photo becomes primary when the lot has no photos yet, or when its
+  // primary is only a room-capture crop; the crop then stays as an extra view.
+  const takesOverPrimary = useCallback(
+    () => photos.length === 0 || photos.some((p) => p.is_primary && isCaptureCrop(p)),
+    [photos],
+  );
+
+  const demoteCropPrimaries = useCallback(async () => {
+    const crops = photos.filter((p) => p.is_primary && isCaptureCrop(p));
+    if (crops.length === 0) return;
+    const ids = new Set(crops.map((c) => c.id));
+    setPhotos((prev) => prev.map((p) => (ids.has(p.id) ? { ...p, is_primary: false } : p)));
+    try {
+      for (const c of crops) {
+        const rec = await offlineStorage.getPhoto(c.id);
+        // Offline: mark unsynced so the next sync pushes the change to the server.
+        if (rec) await offlineStorage.upsertPhoto({ ...rec, is_primary: false, ...(isOnline ? {} : { synced: false }) });
+      }
+      if (isOnline) {
+        const { error } = await supabase.from("photos").update({ is_primary: false }).in("id", [...ids]);
+        if (error) console.error("Could not demote capture crop:", error);
+      }
+    } catch (e) {
+      console.error("Could not demote capture crop:", e);
+    }
+  }, [photos, isOnline]);
+
   const handleTakePhoto = useCallback(async () => {
     if (!lotId || isNewLot) {
       alert("Please save the lot first");
@@ -397,10 +456,11 @@ export default function LotDetail() {
       // Continuous capture mode for native camera
       let photoCount = 0;
       let keepCapturing = true;
+      const takeOver = takesOverPrimary();
 
       while (keepCapturing) {
         try {
-          const isPrimary = photos.length === 0 && photoCount === 0;
+          const isPrimary = takeOver && photoCount === 0;
           const result = await CameraService.takePhoto(lotId, isPrimary);
 
           if (!result.success) {
@@ -429,6 +489,7 @@ export default function LotDetail() {
               ...prev,
               [result.photoId!]: result.blobUrl!,
             }));
+            if (isPrimary) await demoteCropPrimaries();
             photoCount++;
 
             // Ask if user wants to take more photos
@@ -445,14 +506,14 @@ export default function LotDetail() {
     } else {
       setShowCameraModal(true);
     }
-  }, [lotId, isNewLot, photos.length, isOnline]);
+  }, [lotId, isNewLot, photos.length, isOnline, takesOverPrimary, demoteCropPrimaries]);
 
   const handleCaptureFromWebcam = useCallback(
     async (blob: Blob) => {
       if (!lotId) return;
       try {
         const photoId = generateUUID();
-        const isPrimary = photos.length === 0;
+        const isPrimary = takesOverPrimary();
         const blobUrl = URL.createObjectURL(blob);
 
         const metadata: Photo = {
@@ -469,6 +530,7 @@ export default function LotDetail() {
         await offlineStorage.savePhoto(metadata, blob);
         setPhotos((prev) => [...prev, metadata]);
         setPhotoUrls((prev) => ({ ...prev, [photoId]: blobUrl }));
+        if (isPrimary) await demoteCropPrimaries();
 
         if (isOnline) {
           setTimeout(async () => {
@@ -501,7 +563,7 @@ export default function LotDetail() {
         alert("Failed to save photo");
       }
     },
-    [lotId, photos.length, isOnline],
+    [lotId, photos.length, isOnline, takesOverPrimary, demoteCropPrimaries],
   );
 
   const handlePhotoUpload = useCallback(
@@ -514,14 +576,15 @@ export default function LotDetail() {
       }
 
       try {
-        const result = await CameraService.handleFileInput(files, lotId);
+        const takeOver = takesOverPrimary();
+        const result = await CameraService.handleFileInput(files, lotId, takeOver);
         if (result.success > 0) {
           const newPhotos = result.photos.map((p, i) => ({
             id: p.photoId,
             lot_id: lotId,
             file_path: `${lotId}/${p.photoId}.jpg`,
             file_name: `Photo_${Date.now()}_${i}.jpg`,
-            is_primary: photos.length === 0 && i === 0,
+            is_primary: takeOver && i === 0,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             synced: false,
@@ -532,6 +595,7 @@ export default function LotDetail() {
             newUrls[p.photoId] = p.blobUrl;
           });
           setPhotoUrls((prev) => ({ ...prev, ...newUrls }));
+          if (takeOver) await demoteCropPrimaries();
         }
         if (result.failed > 0)
           alert(`${result.failed} file(s) failed to upload`);
@@ -542,7 +606,7 @@ export default function LotDetail() {
         e.target.value = "";
       }
     },
-    [lotId, isNewLot, photos.length],
+    [lotId, isNewLot, photos.length, takesOverPrimary, demoteCropPrimaries],
   );
 
   const handleSetPrimary = useCallback(
@@ -972,15 +1036,17 @@ export default function LotDetail() {
   }, [photos, isOnline]);
 
   // Save/Delete handlers
-  const handleSave = useCallback(async () => {
+  // Resolves true when the lot was saved. `silent` skips the success alert (used
+  // when saving on the way to the next lot); a click passes an event, not options.
+  const handleSave = useCallback(async (opts?: { silent?: boolean }): Promise<boolean> => {
     const currentLot = lotRef.current;
     if (!currentLot.name) {
       alert("Please enter an item name");
-      return;
+      return false;
     }
     if (!saleId) {
       alert("No sale selected");
-      return;
+      return false;
     }
     setSaving(true);
     try {
@@ -1023,7 +1089,7 @@ export default function LotDetail() {
       } else {
         if (!currentLot.id || !currentLot.sale_id) {
           alert("Invalid lot data");
-          return;
+          return false;
         }
         const updatedLot: Lot = {
           ...currentLot,
@@ -1053,11 +1119,14 @@ export default function LotDetail() {
         } else {
           await queueLotUpsert(updatedLot, "update");
         }
-        alert("Item saved successfully");
+        loadedKeyRef.current = editKey(updatedLot);
+        if (opts?.silent !== true) alert("Item saved successfully");
       }
+      return true;
     } catch (e) {
       console.error("Error saving:", e);
       alert("Failed to save item");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -1109,6 +1178,23 @@ export default function LotDetail() {
     }
   }, [photos, lotId, saleId, isOnline, navigate]);
 
+  const neighbors = useLotNeighbors(saleId, isNewLot ? undefined : lotId, walkMode);
+
+  // Move to another lot of this sale, keeping the walk mode. Unsaved edits are
+  // saved first (or the move is cancelled); photos are already saved as taken.
+  const goToLot = useCallback(
+    async (id: string | null) => {
+      if (!id || saving) return;
+      if (!isNewLot && editKey(lotRef.current) !== loadedKeyRef.current) {
+        if (!window.confirm("Save your changes to this lot before moving on?\n\nOK saves and continues. Cancel stays here.")) return;
+        if (!(await handleSave({ silent: true }))) return;
+      }
+      navigate(`/sales/${saleId}/lots/${id}${walkMode === "photos" ? "?walk=photos" : ""}`);
+      window.scrollTo(0, 0);
+    },
+    [saving, isNewLot, handleSave, navigate, saleId, walkMode],
+  );
+
   // Footer actions
   useEffect(() => {
     const caps = CameraService.getPlatformCapabilities();
@@ -1135,6 +1221,14 @@ export default function LotDetail() {
     }
 
     if (!isNewLot) {
+      actions.push({
+        id: "next-lot",
+        label: "Next lot",
+        icon: <ChevronRight className="w-4 h-4" />,
+        onClick: () => goToLot(neighbors.nextId),
+        variant: "secondary",
+        disabled: !neighbors.nextId || saving,
+      });
       actions.push({
         id: "upload",
         label: "Choose Files",
@@ -1172,6 +1266,8 @@ export default function LotDetail() {
     handleSave,
     handleTakePhoto,
     handleDelete,
+    goToLot,
+    neighbors.nextId,
     navigate,
     setActions,
     clearActions,
@@ -1198,6 +1294,39 @@ export default function LotDetail() {
         onChange={handlePhotoUpload}
         className="hidden"
       />
+
+      {/* Walk the sale: previous / next lot, optionally only lots still needing photos */}
+      {!isNewLot && (
+        <div className="mb-4 flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => goToLot(neighbors.prevId)}
+            disabled={!neighbors.prevId || saving}
+            className="inline-flex items-center gap-1 px-3 py-2 text-sm border border-gray-300 rounded-md bg-white hover:bg-gray-50 disabled:opacity-40"
+          >
+            <ChevronLeft className="w-4 h-4" /> Previous
+          </button>
+          <span className="text-sm text-gray-600 min-w-[7rem] text-center">
+            {neighbors.ready && neighbors.position > 0
+              ? `${neighbors.position} of ${neighbors.count}${walkMode === "photos" ? " needing photos" : ""}`
+              : ""}
+          </span>
+          <button
+            onClick={() => goToLot(neighbors.nextId)}
+            disabled={!neighbors.nextId || saving}
+            className="inline-flex items-center gap-1 px-3 py-2 text-sm border border-gray-300 rounded-md bg-white hover:bg-gray-50 disabled:opacity-40"
+          >
+            Next <ChevronRight className="w-4 h-4" />
+          </button>
+          <label className="ml-auto inline-flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={walkMode === "photos"}
+              onChange={(e) => setSearchParams(e.target.checked ? { walk: "photos" } : {}, { replace: true })}
+            />
+            Only lots needing photos
+          </label>
+        </div>
+      )}
 
       {/* Lot badges */}
       <div className="mb-4 flex items-center gap-3 flex-wrap">
