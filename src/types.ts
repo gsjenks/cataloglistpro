@@ -6,6 +6,17 @@ export interface User {
   created_at?: string;
 }
 
+// A room in a sale's room list (sale_rooms). room_code is the type plus a
+// two-digit number (LR01); name is what this sale calls the room.
+export interface SaleRoom {
+  id: string;
+  sale_id: string;
+  room_code: string;
+  name: string;
+  sort_order: number;
+  created_at?: string;
+}
+
 export interface Company {
   id: string;
   name: string;
@@ -63,6 +74,11 @@ export interface Lot {
   estimate_low?: number;
   estimate_high?: number;
   starting_bid?: number;
+  // Room capture: room code (BD02), full location (BD02-5), and whether the
+  // item still needs a proper detail photo. See src/lib/roomCodes.ts.
+  room?: string | null;
+  zone?: string | null;
+  needs_detail?: boolean;
   // Lot tag (Niimbot B1): when a tag was last printed and the price on it.
   tag_printed_at?: string | null;
   tag_price?: number | null;

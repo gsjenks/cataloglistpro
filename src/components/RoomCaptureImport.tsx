@@ -124,6 +124,7 @@ export default function RoomCaptureImport({ saleId, consignments, consignorNames
         images,
         consignmentId: consignmentId || null,
         roomName: pkg?.room?.name,
+        roomCode: pkg?.room?.code,
         onProgress: setProgress,
       });
       setResult(res);

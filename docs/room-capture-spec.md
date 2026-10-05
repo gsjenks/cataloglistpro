@@ -377,9 +377,10 @@ Each step is usable on its own.
    Test `consolidate` on the office's 270 rows; target about 180 clusters.
    Reshoot the desk with a flip chart on it to prove wide ↔ overhead linking, and
    photograph one chart from the far side of the room to prove it reads.
-1. **Foundation.** Migration, private bucket, `roomCodes.ts`, sale room list,
-   flip-chart page printout, `room`/`zone`/`needs_detail` on lots and shown in the lot
-   screens, and the room-photo locator on each lot.
+1. **Foundation.** *Built 2026-10-06 (except as noted):* migration, `roomCodes.ts`, sale
+   room list, `room`/`zone`/`needs_detail` on lots and shown in the lot screens, room
+   filter, walking-order tags. Not yet: private bucket, flip-chart page printout, the
+   room-photo locator on each lot.
 2. **Capture.** Capture screen, IndexedDB v6 store, background upload.
 3. **Detect.** `room-detect` function (detect + consolidate), crops, `capture_items`.
 4. **Review.** List view (combine / split / drop / bulk price), then photo view

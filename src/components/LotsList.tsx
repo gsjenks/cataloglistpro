@@ -177,6 +177,19 @@ const LotCard = memo(({
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-600 text-white flex-shrink-0">
               #{lot.lot_number || 'TBD'}
             </span>
+            {(lot.zone || lot.room) && (
+              <span
+                className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 flex-shrink-0"
+                title="Room and location"
+              >
+                {lot.zone || lot.room}
+              </span>
+            )}
+            {lot.needs_detail && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 flex-shrink-0" title="Needs a detail photo">
+                Detail photo
+              </span>
+            )}
             <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 flex-1">
               {lot.name}
             </h3>

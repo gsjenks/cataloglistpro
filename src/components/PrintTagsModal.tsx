@@ -11,6 +11,7 @@ import { useApp } from '../context/AppContext';
 import { NiimbotB1, isWebBluetoothAvailable } from '../lib/niimbot';
 import { loadTagLogo, renderLotTag, tagBlocker, type TagBranding } from '../lib/lotTag';
 import type { Lot } from '../types';
+import { compareByLocation } from '../lib/roomCodes';
 
 // One printer connection for the whole session, so it survives closing the dialog.
 let printer: NiimbotB1 | null = null;
@@ -23,12 +24,14 @@ interface Props {
   lots: Lot[];
   /** Printed under each tag's QR code. */
   sale?: { name?: string | null; start_date?: string | null } | null;
+  /** The sale room codes in walking order; tags print room by room. */
+  roomOrder?: string[];
   onClose: () => void;
   /** Called after each tag prints and is recorded. */
   onPrinted?: (lotId: string, printedAt: string, price: number | null) => void;
 }
 
-export default function PrintTagsModal({ lots, sale, onClose, onPrinted }: Props) {
+export default function PrintTagsModal({ lots, sale, roomOrder, onClose, onPrinted }: Props) {
   const { currentCompany } = useApp();
   const [branding, setBranding] = useState<TagBranding | null>(null);
   const [connected, setConnected] = useState(() => !!printer?.isConnected());
@@ -45,9 +48,10 @@ export default function PrintTagsModal({ lots, sale, onClose, onPrinted }: Props
   const [useLogo, setUseLogo] = useState(() => localStorage.getItem(LOGO_KEY) === '1');
   const stopRef = useRef(false);
 
+  // Walking order: the sale room list, then location, then lot number.
   const sorted = useMemo(
-    () => [...lots].sort((a, b) => (Number(a.lot_number) || 0) - (Number(b.lot_number) || 0)),
-    [lots],
+    () => [...lots].sort(compareByLocation(roomOrder ?? [])),
+    [lots, roomOrder],
   );
   const printable = useMemo(() => sorted.filter((l) => !tagBlocker(l)), [sorted]);
   const heldBack = useMemo(() => sorted.filter((l) => !!tagBlocker(l)), [sorted]);

@@ -27,7 +27,8 @@ import {
   getLACreators,
   getLAMaterials,
 } from "../services/LiveAuctioneersData";
-import type { Lot, Photo, Consignment, Contact } from "../types";
+import type { Lot, Photo, Consignment, Contact, SaleRoom } from "../types";
+import { listSaleRooms } from "../services/SaleRoomService";
 import { listConsignments } from "../services/ConsignmentService";
 import { toTitleCase } from "../utils/titleCase";
 import { ArrowLeft, Save, Trash2, Upload, Camera, ChevronLeft, ChevronRight, Printer } from "lucide-react";
@@ -88,7 +89,7 @@ const EDIT_FIELDS: (keyof Lot)[] = [
   "creator", "materials", "estimate_low", "estimate_high", "starting_bid",
   "reserve_price", "buy_now_price", "height", "width", "depth", "weight",
   "dimension_unit", "consignment_id", "condition_report", "is_restricted",
-  "restricted_category",
+  "restricted_category", "room", "zone", "needs_detail",
 ];
 const editKey = (l: Partial<Lot>) =>
   JSON.stringify(
@@ -231,6 +232,7 @@ export default function LotDetail() {
 
   // Estate sales print Niimbot lot tags from here (auctions keep Avery sheets).
   const [isEstateSale, setIsEstateSale] = useState(false);
+  const [saleRooms, setSaleRooms] = useState<SaleRoom[]>([]);
   const [showPrintTag, setShowPrintTag] = useState(false);
   // Sale name and start date print under the tag's QR code.
   const [tagSale, setTagSale] = useState<{ name?: string | null; start_date?: string | null } | null>(null);
@@ -245,6 +247,12 @@ export default function LotDetail() {
       if (cancelled) return;
       setIsEstateSale(row?.sale_type === "estate_sale");
       setTagSale(row ? { name: row.name, start_date: row.start_date } : null);
+      // Estate sales: the room list for the Room / Location fields.
+      if (row?.sale_type === "estate_sale") {
+        listSaleRooms(saleId)
+          .then((rooms) => !cancelled && setSaleRooms(rooms))
+          .catch((e) => console.warn("Room list unavailable:", e));
+      }
     })();
     return () => {
       cancelled = true;
@@ -1522,6 +1530,7 @@ export default function LotDetail() {
         onPrintTag={isEstateSale ? openPrintTag : undefined}
         aiBusy={aiBusy}
         consignments={consignments}
+        rooms={isEstateSale ? saleRooms : undefined}
         contacts={contacts}
       />
 
