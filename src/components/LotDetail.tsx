@@ -384,12 +384,23 @@ export default function LotDetail() {
   };
 
   // Photo handlers
-  // A new real photo becomes primary when the lot has no photos yet, or when its
-  // primary is only a room-capture crop; the crop then stays as an extra view.
-  const takesOverPrimary = useCallback(
-    () => photos.length === 0 || photos.some((p) => p.is_primary && isCaptureCrop(p)),
-    [photos],
-  );
+  // A new real photo becomes primary when the lot has no real (non-crop) primary
+  // yet; a room-capture crop then stays as an extra view. The first capture claims
+  // primary synchronously, before it has saved, so a quick burst of captures
+  // ("Save & Take More") can't each decide they are the first.
+  const realPrimaryClaimed = useRef(false);
+  useEffect(() => {
+    realPrimaryClaimed.current = photos.some((p) => p.is_primary && !isCaptureCrop(p));
+  }, [photos]);
+  const takesOverPrimary = useCallback(() => {
+    if (realPrimaryClaimed.current) return false;
+    realPrimaryClaimed.current = true;
+    return true;
+  }, []);
+  // Give the claim back when the capture that took it produced no photo.
+  const releasePrimaryClaim = useCallback(() => {
+    realPrimaryClaimed.current = photos.some((p) => p.is_primary && !isCaptureCrop(p));
+  }, [photos]);
 
   const demoteCropPrimaries = useCallback(async () => {
     const crops = photos.filter((p) => p.is_primary && isCaptureCrop(p));
@@ -464,6 +475,7 @@ export default function LotDetail() {
           const result = await CameraService.takePhoto(lotId, isPrimary);
 
           if (!result.success) {
+            if (takeOver && photoCount === 0) releasePrimaryClaim();
             // User cancelled or error - exit loop
             if (photoCount > 0) {
               alert(
@@ -506,7 +518,7 @@ export default function LotDetail() {
     } else {
       setShowCameraModal(true);
     }
-  }, [lotId, isNewLot, photos.length, isOnline, takesOverPrimary, demoteCropPrimaries]);
+  }, [lotId, isNewLot, photos.length, isOnline, takesOverPrimary, demoteCropPrimaries, releasePrimaryClaim]);
 
   const handleCaptureFromWebcam = useCallback(
     async (blob: Blob) => {
@@ -596,6 +608,8 @@ export default function LotDetail() {
           });
           setPhotoUrls((prev) => ({ ...prev, ...newUrls }));
           if (takeOver) await demoteCropPrimaries();
+        } else if (takeOver) {
+          releasePrimaryClaim();
         }
         if (result.failed > 0)
           alert(`${result.failed} file(s) failed to upload`);
@@ -606,7 +620,7 @@ export default function LotDetail() {
         e.target.value = "";
       }
     },
-    [lotId, isNewLot, photos.length, takesOverPrimary, demoteCropPrimaries],
+    [lotId, isNewLot, photos.length, takesOverPrimary, demoteCropPrimaries, releasePrimaryClaim],
   );
 
   const handleSetPrimary = useCallback(
@@ -636,37 +650,77 @@ export default function LotDetail() {
     [photos, lotId, isOnline],
   );
 
-  const handleDeletePhoto = useCallback(
-    async (photoId: string) => {
-      if (!window.confirm("Delete this photo?")) return;
+  // Photo deletes take effect a few seconds later, behind an Undo bar, instead of
+  // a confirm() box (which froze the page while open). Pending deletes are
+  // committed when the timer runs out, on Undo-less navigation, or on unmount.
+  const pendingDeletes = useRef<Photo[]>([]);
+  const deleteTimer = useRef<number | null>(null);
+  const [pendingDeleteCount, setPendingDeleteCount] = useState(0);
+
+  const commitDeletes = useCallback(async () => {
+    if (deleteTimer.current) {
+      window.clearTimeout(deleteTimer.current);
+      deleteTimer.current = null;
+    }
+    const batch = pendingDeletes.current;
+    pendingDeletes.current = [];
+    setPendingDeleteCount(0);
+    let failed = 0;
+    for (const photo of batch) {
       try {
-        setPhotos((prev) => prev.filter((p) => p.id !== photoId));
-        setSelectedPhotos((prev) => {
-          const next = new Set(prev);
-          next.delete(photoId);
-          return next;
-        });
-        if (photoUrls[photoId]?.startsWith("blob:"))
-          URL.revokeObjectURL(photoUrls[photoId]);
-        setPhotoUrls((prev) => {
-          const next = { ...prev };
-          delete next[photoId];
-          return next;
-        });
-        await offlineStorage.deletePhoto(photoId);
-        if (isOnline) {
-          const photo = photos.find((p) => p.id === photoId);
-          if (photo) {
-            await supabase.storage.from("photos").remove([photo.file_path]);
-            await supabase.from("photos").delete().eq("id", photoId);
-          }
+        await offlineStorage.deletePhoto(photo.id);
+        if (ConnectivityService.getConnectionStatus()) {
+          await supabase.storage.from("photos").remove([photo.file_path]);
+          const { error } = await supabase.from("photos").delete().eq("id", photo.id);
+          if (error) throw error;
         }
       } catch (e) {
         console.error("Error deleting photo:", e);
-        alert("Failed to delete photo");
+        failed++;
       }
+    }
+    if (failed) alert(`${failed} photo${failed > 1 ? "s" : ""} could not be deleted`);
+  }, []);
+
+  const handleDeletePhoto = useCallback(
+    (photoId: string) => {
+      const photo = photos.find((p) => p.id === photoId);
+      if (!photo) return;
+      pendingDeletes.current.push(photo);
+      setPendingDeleteCount(pendingDeletes.current.length);
+      setPhotos((prev) => prev.filter((p) => p.id !== photoId));
+      setSelectedPhotos((prev) => {
+        const next = new Set(prev);
+        next.delete(photoId);
+        return next;
+      });
+      if (deleteTimer.current) window.clearTimeout(deleteTimer.current);
+      deleteTimer.current = window.setTimeout(() => {
+        commitDeletes();
+      }, 6000);
     },
-    [photos, photoUrls, isOnline],
+    [photos, commitDeletes],
+  );
+
+  const undoDeletes = useCallback(() => {
+    if (deleteTimer.current) {
+      window.clearTimeout(deleteTimer.current);
+      deleteTimer.current = null;
+    }
+    const batch = pendingDeletes.current;
+    pendingDeletes.current = [];
+    setPendingDeleteCount(0);
+    setPhotos((prev) =>
+      [...prev, ...batch].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || "")),
+    );
+  }, []);
+
+  // Moving to another lot or leaving the screen commits anything still pending.
+  useEffect(
+    () => () => {
+      if (pendingDeletes.current.length) commitDeletes();
+    },
+    [lotId, commitDeletes],
   );
 
   // Photo selection handlers
@@ -1294,6 +1348,17 @@ export default function LotDetail() {
         onChange={handlePhotoUpload}
         className="hidden"
       />
+
+      {pendingDeleteCount > 0 && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 bg-gray-900 text-white text-sm rounded-full px-4 py-2 shadow-lg">
+          <span>
+            {pendingDeleteCount} photo{pendingDeleteCount > 1 ? "s" : ""} deleted
+          </span>
+          <button onClick={undoDeletes} className="font-semibold text-indigo-300 hover:text-indigo-200">
+            Undo
+          </button>
+        </div>
+      )}
 
       {/* Walk the sale: previous / next lot, optionally only lots still needing photos */}
       {!isNewLot && (
