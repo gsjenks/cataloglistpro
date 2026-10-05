@@ -1097,6 +1097,7 @@ export default function SaleDetail() {
       {showRoomCapture && (
         <RoomCaptureImport
           saleId={saleId!}
+          saleContext={sale?.location ? `Estate sale in ${sale.location}` : ''}
           consignments={consignments}
           consignorNames={consignorNames}
           onClose={() => setShowRoomCapture(false)}
