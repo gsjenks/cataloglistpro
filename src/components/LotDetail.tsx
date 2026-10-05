@@ -340,6 +340,29 @@ export default function LotDetail() {
 
         if (error) throw error;
 
+        // The server is the authority for photos this device has already
+        // uploaded (synced === true): one deleted elsewhere goes here too, and the
+        // primary flag follows the server. Unuploaded local photos are kept as-is.
+        const remoteById = new Map((remotePhotos || []).map((r) => [r.id, r]));
+        const kept: Photo[] = [];
+        for (const p of photoData) {
+          const remote = remoteById.get(p.id);
+          if (p.synced === true && !remote) {
+            await offlineStorage.deletePhoto(p.id).catch(() => undefined);
+            if (urls[p.id]?.startsWith("blob:")) URL.revokeObjectURL(urls[p.id]);
+            delete urls[p.id];
+            continue;
+          }
+          if (p.synced === true && remote && remote.is_primary !== p.is_primary) {
+            const updated = { ...p, is_primary: remote.is_primary };
+            await offlineStorage.upsertPhoto(updated).catch(() => undefined);
+            kept.push(updated);
+            continue;
+          }
+          kept.push(p);
+        }
+        photoData = kept;
+
         if (remotePhotos?.length) {
           // Merge remote photos with local (in case any are missing locally)
           const localIds = new Set(photoData.map((p) => p.id));
@@ -375,7 +398,9 @@ export default function LotDetail() {
         `[PHOTO] Final: ${photoData.length} photos, ${Object.keys(urls).length} URLs`,
       );
       if (run !== photoRunId.current) return; // superseded by a newer run
-      setPhotos(photoData);
+      // Photos deleted behind the Undo bar stay hidden until the delete commits.
+      const pending = new Set(pendingDeletes.current.map((d) => d.id));
+      setPhotos(pending.size ? photoData.filter((p) => !pending.has(p.id)) : photoData);
       setPhotoUrls(urls);
       setPhotoFallbackUrls(fallbacks);
     } catch (e) {
@@ -554,15 +579,20 @@ export default function LotDetail() {
                 .from("photos")
                 .upload(`${lotId}/${photoId}.jpg`, file, { upsert: true });
               if (!error) {
-                await supabase.from("photos").upsert({
+                const { error: rowError } = await supabase.from("photos").upsert({
                   id: photoId,
                   lot_id: lotId,
                   file_path: `${lotId}/${photoId}.jpg`,
                   file_name: metadata.file_name,
                   is_primary: isPrimary,
                 });
-                metadata.synced = true;
-                await offlineStorage.updatePhoto(metadata);
+                // Left unsynced on failure so the normal photo sync retries it.
+                if (!rowError) {
+                  metadata.synced = true;
+                  await offlineStorage.updatePhoto(metadata);
+                } else {
+                  console.error("Webcam photo row failed, will retry:", rowError);
+                }
               }
             } catch (e) {
               console.error("Background sync failed:", e);
@@ -626,10 +656,14 @@ export default function LotDetail() {
   const handleSetPrimary = useCallback(
     async (photoId: string) => {
       try {
-        const updated = photos.map((p) => ({
-          ...p,
-          is_primary: p.id === photoId,
-        }));
+        // Offline, mark changed photos unsynced so the next sync sends them; the
+        // server otherwise wins when photos are next loaded online.
+        const updated = photos.map((p) => {
+          const is_primary = p.id === photoId;
+          return is_primary === p.is_primary || isOnline
+            ? { ...p, is_primary }
+            : { ...p, is_primary, synced: false };
+        });
         setPhotos(updated);
         await Promise.all(updated.map((p) => offlineStorage.upsertPhoto(p)));
         if (isOnline) {
