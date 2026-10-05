@@ -33,6 +33,7 @@ import { toTitleCase } from "../utils/titleCase";
 import { ArrowLeft, Save, Trash2, Upload, Camera, ChevronLeft, ChevronRight } from "lucide-react";
 import { useLotNeighbors, type WalkMode } from "../hooks/useLotNeighbors";
 import { CROP_FILE_PREFIX } from "../services/RoomCaptureImportService";
+import { deleteLotOnServer } from "../services/LotDeleteService";
 
 // Split components
 import WebcamModal from "./WebcamModal";
@@ -1224,44 +1225,38 @@ export default function LotDetail() {
     if (!window.confirm("Delete this item? Cannot be undone.")) return;
     setSaving(true);
     try {
-      if (isOnline) SyncService.startOperation();
-      for (const photo of photos) {
-        await offlineStorage.deletePhoto(photo.id);
-        if (isOnline)
-          await supabase.storage.from("photos").remove([photo.file_path]);
-      }
-      await offlineStorage.upsertLot({
-        ...lotRef.current,
-        id: lotId,
-        deleted: true,
-      } as Lot & { deleted: boolean });
-      // Queue the delete so it reaches Supabase. Marking the local row deleted
-      // only hides it on this device — without this the lot stayed on the server
-      // and every other device kept showing it.
-      const queueDelete = async () => {
-        try {
-          await offlineStorage.addPendingSyncItem({
-            id: lotId, type: "delete", table: "lots", data: { id: lotId },
-          });
-        } catch (e) {
-          console.error("Could not queue lot delete:", e);
-        }
-      };
+      if (!lotId) return;
+      const markDeletedLocally = () =>
+        offlineStorage.upsertLot({
+          ...lotRef.current,
+          id: lotId,
+          deleted: true,
+        } as Lot & { deleted: boolean });
       if (isOnline) {
-        const { error: delErr } = await supabase.from("lots").delete().eq("id", lotId);
-        if (delErr) {
-          console.error("Lot delete failed, queued for sync:", delErr.message);
-          await queueDelete();
+        // Online: delete for real, or say why not and stay on the lot. (A failure
+        // used to be queued silently, so the lot just stayed in the list.)
+        SyncService.startOperation();
+        try {
+          await deleteLotOnServer(lotId);
+        } finally {
+          SyncService.endOperation();
         }
-        SyncService.endOperation();
+        await markDeletedLocally();
       } else {
-        await queueDelete();
+        // Offline: hide it here and queue the delete; the sync runs the same
+        // server delete when the connection returns.
+        for (const photo of photos) {
+          await offlineStorage.deletePhoto(photo.id);
+        }
+        await markDeletedLocally();
+        await offlineStorage.addPendingSyncItem({
+          id: lotId, type: "delete", table: "lots", data: { id: lotId },
+        });
       }
       navigate(`/sales/${saleId}`);
     } catch (e) {
       console.error("Error deleting:", e);
-      alert("Failed to delete item");
-      if (isOnline) SyncService.endOperation();
+      alert(e instanceof Error ? e.message : "Failed to delete item");
       setSaving(false);
     }
   }, [photos, lotId, saleId, isOnline, navigate]);

@@ -6,6 +6,7 @@ import type { Lot, Sale } from '../types';
 import { Edit2, Trash2, Package } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { supabase } from '../lib/supabase';
+import { deleteLotOnServer } from '../services/LotDeleteService';
 import PhotoService from '../services/PhotoService';
 import SyncService from '../services/SyncService';
 import InventoryStatusControl from './InventoryStatusControl';
@@ -411,18 +412,7 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
 
     setDeleting(lot.id);
     try {
-      // Delete photos in parallel
-      const { data: photos } = await supabase
-        .from('photos')
-        .select('file_path')
-        .eq('lot_id', lot.id);
-
-      if (photos && photos.length > 0) {
-        await supabase.storage.from('photos').remove(photos.map(p => p.file_path));
-      }
-
-      const { error } = await supabase.from('lots').delete().eq('id', lot.id);
-      if (error) throw error;
+      await deleteLotOnServer(lot.id);
 
       // Clean up cached URL
       if (photoCache.current.has(lot.id)) {
@@ -433,7 +423,7 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
       onRefresh();
     } catch (error) {
       console.error('Error deleting lot:', error);
-      alert('Failed to delete lot');
+      alert(error instanceof Error ? error.message : 'Failed to delete lot');
     } finally {
       setDeleting(null);
     }
