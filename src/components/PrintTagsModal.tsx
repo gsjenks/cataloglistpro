@@ -85,8 +85,18 @@ export default function PrintTagsModal({ lots, onClose, onPrinted }: Props) {
       setPrinterName(name);
       setConnected(true);
     } catch (e) {
-      // Closing the picker without choosing is not an error worth showing.
-      if ((e as Error).name !== 'NotFoundError') setError((e as Error).message);
+      const err = e as Error;
+      // NotFoundError: the picker was closed without choosing, often because the
+      // printer never appeared in it. Say what to check rather than nothing.
+      if (err.name === 'NotFoundError') {
+        setError(
+          'No printer was chosen. Check the B1 is switched on and nearby, Bluetooth is on, and Chrome is allowed "Nearby devices" (Android Settings > Apps > Chrome > Permissions), then tap Connect printer again.',
+        );
+      } else if (err.name === 'SecurityError' || err.name === 'NotAllowedError') {
+        setError('Chrome was not allowed to use Bluetooth. Allow "Nearby devices" for Chrome, then try again.');
+      } else {
+        setError(err.message);
+      }
       setConnected(false);
     } finally {
       setConnecting(false);
@@ -181,7 +191,7 @@ export default function PrintTagsModal({ lots, onClose, onPrinted }: Props) {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
               >
                 <Bluetooth className="w-4 h-4" />
-                {connecting ? 'Connecting…' : connected ? 'Change' : 'Connect B1'}
+                {connecting ? 'Connecting…' : connected ? 'Change' : 'Connect printer'}
               </button>
             </div>
           )}
@@ -266,6 +276,16 @@ export default function PrintTagsModal({ lots, onClose, onPrinted }: Props) {
                   Stop
                 </button>
               </>
+            ) : supported && !connected && printable.length > 0 ? (
+              // Not connected yet: the main button connects, so it is never a dead tap.
+              <button
+                onClick={connect}
+                disabled={connecting}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-md font-semibold hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400"
+              >
+                <Bluetooth className="w-4 h-4" />
+                {connecting ? 'Connecting…' : 'Connect printer'}
+              </button>
             ) : (
               <button
                 onClick={print}
