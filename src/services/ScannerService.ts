@@ -51,7 +51,8 @@ export async function decodeFrame(
 }
 
 export interface ScannedLot {
-  saleId: string;
+  /** Null for a short-link tag (/l/:lotId), which carries only the lot id. */
+  saleId: string | null;
   lotId: string;
   raw: string;
 }
@@ -61,15 +62,19 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 // route (/sales/:id/lots/:id). Legacy lot-number tags are intentionally not
 // matched — they cannot resolve to a lot UUID without a lookup.
 const LOT_URL_RE = new RegExp(`/sales?/(${UUID})/lots?/(${UUID})`, 'i');
+// Niimbot lot tags encode the short link /l/:lotId (lotTag.shortLotUrl).
+const SHORT_LOT_URL_RE = new RegExp(`/l/(${UUID})(?:[/?#]|$)`, 'i');
 
 /**
  * Parse a scanned QR value (a lot URL) into sale + lot ids, or null if it is
- * not a recognizable lot tag.
+ * not a recognizable lot tag. Short links give the lot id only (saleId null).
  */
 export function parseLotUrl(raw: string): ScannedLot | null {
   const match = raw.match(LOT_URL_RE);
-  if (!match) return null;
-  return { saleId: match[1], lotId: match[2], raw };
+  if (match) return { saleId: match[1], lotId: match[2], raw };
+  const short = raw.trim().match(SHORT_LOT_URL_RE);
+  if (short) return { saleId: null, lotId: short[1], raw };
+  return null;
 }
 
 const BASKET_URL_RE = new RegExp(`/sales?/(${UUID})/basket`, 'i');

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck, Banknote, Images } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck, Banknote, Images, Printer } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import offlineStorage from '../services/Offlinestorage';
 import { useFooter } from '../context/FooterContext';
@@ -14,6 +14,8 @@ import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
 import AssignToBasketModal from './AssignToBasketModal';
 import RoomCaptureImport from './RoomCaptureImport';
+import PrintTagsModal from './PrintTagsModal';
+import { tagOutOfDate } from '../lib/lotTag';
 import SaleCloseSummary from './SaleCloseSummary';
 import QRScanner from './QRScanner';
 import PointOfSale from './PointOfSale';
@@ -94,6 +96,9 @@ export default function SaleDetail() {
   // combination of Available / Held / Sold.
   type InvStatus = 'available' | 'held' | 'sold';
   const [statusFilter, setStatusFilter] = useState<Set<InvStatus>>(new Set());
+  // Estate: only lots whose Niimbot tag is missing or shows an old price.
+  const [tagFilter, setTagFilter] = useState(false);
+  const [printTagLots, setPrintTagLots] = useState<Lot[] | null>(null);
   const toggleStatusFilter = (s: InvStatus) =>
     setStatusFilter((prev) => {
       const next = new Set(prev);
@@ -377,7 +382,8 @@ export default function SaleDetail() {
   const handleScanned = useCallback(
     (scanned: ScannedLot) => {
       setShowScanner(false);
-      navigate(`/sales/${scanned.saleId}/lots/${scanned.lotId}`);
+      // A short-link tag (/l/:id) carries no sale id; /l/ resolves it.
+      navigate(scanned.saleId ? `/sales/${scanned.saleId}/lots/${scanned.lotId}` : `/l/${scanned.lotId}`);
     },
     [navigate],
   );
@@ -548,6 +554,10 @@ export default function SaleDetail() {
     // Apply inventory-status filter (any combination of Available/Held/Sold).
     if (statusFilter.size > 0) {
       filtered = filtered.filter(lot => statusFilter.has((lot.inventory_status ?? 'available') as InvStatus));
+    }
+
+    if (tagFilter) {
+      filtered = filtered.filter(tagOutOfDate);
     }
 
     // Apply sort
@@ -946,6 +956,33 @@ export default function SaleDetail() {
               )}
             </div>
 
+            {/* Estate: Niimbot lot tags. Filter to tags never printed or printed
+                with an old price, then print whatever list is showing. */}
+            {isEstate && lots.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 -mt-2 mb-4">
+                <span className="text-xs font-medium text-gray-500 mr-1">Tags:</span>
+                <button
+                  onClick={() => setTagFilter((v) => !v)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                    tagFilter
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white text-indigo-700 border-indigo-300 hover:bg-indigo-50'
+                  }`}
+                  title="Tag never printed, or the price changed since it was"
+                >
+                  Needs tag <span className="opacity-70">({lots.filter(tagOutOfDate).length})</span>
+                </button>
+                <button
+                  onClick={() => setPrintTagLots(filteredLots)}
+                  disabled={filteredLots.length === 0}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print {filteredLots.length === lots.length ? 'all' : filteredLots.length} tag{filteredLots.length === 1 ? '' : 's'}
+                </button>
+              </div>
+            )}
+
             <LotsList
               lots={filteredLots}
               saleId={saleId!}
@@ -958,7 +995,7 @@ export default function SaleDetail() {
             />
             
             {/* Show "No results" message when a search/filter hides everything */}
-            {(searchQueries.items || statusFilter.size > 0 || activeFilters.items) && filteredLots.length === 0 && lots.length > 0 && (
+            {(searchQueries.items || statusFilter.size > 0 || tagFilter || activeFilters.items) && filteredLots.length === 0 && lots.length > 0 && (
               <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
                 <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-500 text-lg mb-2">No items found</p>
@@ -1094,6 +1131,16 @@ export default function SaleDetail() {
         />
       )}
 
+      {printTagLots && (
+        <PrintTagsModal
+          lots={printTagLots}
+          onClose={() => setPrintTagLots(null)}
+          onPrinted={(lotId, printedAt, price) =>
+            setLots((prev) => prev.map((l) => (l.id === lotId ? { ...l, tag_printed_at: printedAt, tag_price: price } : l)))
+          }
+        />
+      )}
+
       {showRoomCapture && (
         <RoomCaptureImport
           saleId={saleId!}
@@ -1127,4 +1174,4 @@ export default function SaleDetail() {
       )}
     </div>
   );
-}
+}

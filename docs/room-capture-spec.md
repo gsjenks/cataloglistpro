@@ -274,24 +274,28 @@ QR labels, Disposition Report.
 Thermal tags printed on the floor from the phone, replacing Avery sheets for estate
 sales (Avery stays for auctions).
 
-**Printer.** Niimbot B1, 203 dpi, **50 × 30 mm** labels (400 × 240 dots). No official
-SDK; printed over **Web Bluetooth** with an open-source driver (candidates:
-niimbluelib, `iscarelli/niimbot-web-bluetooth`, `slastra/nblib`; pick one after
-checking its licence). Works in Chrome on Android and desktop; **not on iPhone Safari**
-(no Web Bluetooth), which would need the native app plus a BLE plugin later. Pair once;
-printing needs no internet connection.
+**Printer.** Niimbot B1, 203 dpi, **50 × 30 mm** labels. The print head is 48 mm
+(384 dots), so a tag is **384 × 240 dots**. No official SDK; printed over **Web
+Bluetooth** by `src/lib/niimbot.ts`, a lean port of the B1 path of niimbluelib (MIT,
+attribution in the file). The package itself is not installed: every release depends
+on Capacitor 8 and its BLE plugin, and the app is pinned to Capacitor 7. Works in
+Chrome on Android and desktop; **not on iPhone Safari** and **not in the installed
+Capacitor Android app** (neither has Web Bluetooth), which would need a BLE plugin later.
+Pair once; printing needs no internet connection.
 
 **Layout** (rendered to a 1-bit canvas):
 - QR code on the left, about 22 mm square.
-- Right side: company **one-colour logo**, or the company name in bold if there is no
-  logo; **Lot number**; **title** (2 lines, cut with "…"); **price** large.
+- Right side: the company name in bold (or, if switched on in the print dialog, the
+  company logo trimmed of its white border; a one-colour wordmark prints best, a colour
+  crest does not); **Lot number**; **title** (2 lines, bold); **description** (up to 3 lines, cut with "…"); **price** large.
 - QR encodes a short link, `/l/<lot id>`, which redirects to the lot. Fewer characters
   means larger QR modules and easier scanning. Existing `/view/sales/:saleId/lots/:lotId`
   codes keep working.
 
 **Printing.** *Print tag* on a lot; *Print tags* for a room or a filter, in location order.
 - `lots.tag_printed_at` and `lots.tag_price` record what was printed. The Items tab
-  gets a *Price changed since tag printed* filter with **Reprint changed tags**.
+  gets a **Needs tag** filter (never printed, or the price changed since) and a
+  **Print tags** button that prints whatever list is showing, in lot-number order.
 - Lots with a temporary (offline) lot number are held back from printing until they sync.
 
 **Stock.** Use **removable (low-tack)** labels, or stick the label to a string tag, on
@@ -380,10 +384,12 @@ Each step is usable on its own.
 4. **Review.** List view (combine / split / drop / bulk price), then photo view
    (adjust / draw boxes).
 5. **Create lots.** Lots, photos, QR, location-sorted labels, *Needs detail* filter.
-5a. **Lot tags.** Niimbot B1 printing (single and by room), `/l/<id>` short link,
-   reprint-changed-tags. Can start right after the security fix, independent of capture.
-5b. **Scan views.** The security fix above, then the staff / own-buyer / public lot page.
-   The security fix should ship first, on its own, since it affects the live app now.
+5a. **Lot tags.** *Built 2026-10-05:* Niimbot B1 printing (single and by filter),
+   `/l/<id>` short link, *Needs tag* filter. By room waits for room/zone columns (step 1).
+5b. **Scan views.** *Security fix shipped 2026-10-05 (#46); routing built with 5a:*
+   `/l/<id>` sends staff to the lot screen and everyone else to the public page, which
+   shows a verified shopper their own hold or purchase. A compact staff floor summary
+   (sale, stage, hold, buyer, delivery, history in one card) is still to do.
 5c. **Fulfillment QR codes.** Manifest, pickup slip and receipt QRs; scan-to-load,
    scan-to-hand-over; `fulfillment_events`.
 6. **Voice notes.** Hold-to-talk, native permissions, transcript on the review screen.

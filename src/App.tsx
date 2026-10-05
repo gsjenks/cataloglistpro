@@ -6,6 +6,7 @@
 import PublicLotDetail from "./pages/PublicLotDetail";
 import PublicBasket from "./pages/PublicBasket";
 import PublicSale from "./pages/PublicSale";
+import ShortLotLink from "./pages/ShortLotLink";
 import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -350,6 +351,8 @@ function App() {
         />
         <Route path="/view/sales/:saleId/basket" element={<PublicBasket />} />
         <Route path="/view/sales/:saleId" element={<PublicSale />} />
+        {/* Lot tag QR short link: staff get the lot screen, everyone else the public page */}
+        <Route path="/l/:lotId" element={<ShortLotLink />} />
 
         {/* Authenticated routes */}
         <Route
