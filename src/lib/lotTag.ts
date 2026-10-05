@@ -1,7 +1,7 @@
 // src/lib/lotTag.ts
 // Lot price tags for the Niimbot B1 (50 x 30 mm labels). Drawn on a 1-bit
 // canvas: QR code on the left, then the company logo (or name), lot number,
-// title and price. See docs/room-capture-spec.md, Lot tags.
+// title (2 lines), description (up to 3 lines) and price. See docs/room-capture-spec.md, Lot tags.
 //
 // The label is 50 mm across but the B1 print head is 48 mm (384 dots), so the
 // tag is 384 x 240 dots (203 dpi).
@@ -144,7 +144,7 @@ function fitFont(ctx: CanvasRenderingContext2D, text: string, width: number, max
 
 /** Draws one tag. Pixels are pure black or white, ready for the printer. */
 export function renderLotTag(
-  lot: Pick<Lot, 'id' | 'lot_number' | 'name' | 'starting_bid'>,
+  lot: Pick<Lot, 'id' | 'lot_number' | 'name' | 'starting_bid'> & { description?: string | null },
   branding: TagBranding,
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -193,23 +193,39 @@ export function renderLotTag(
   y += 8;
 
   // Lot number.
-  ctx.font = `bold 24px ${FONT}`;
+  ctx.font = `bold 22px ${FONT}`;
   ctx.fillText(`Lot ${lot.lot_number ?? ''}`, x, y);
-  y += 30;
+  y += 25;
 
   // Title, two lines.
-  ctx.font = `20px ${FONT}`;
+  ctx.font = `bold 18px ${FONT}`;
   for (const line of wrap(ctx, lot.name || '', w, 2)) {
     ctx.fillText(line, x, y);
-    y += 23;
+    y += 20;
+  }
+  y += 2;
+
+  // Price, as large as fits, along the bottom. Measured first so the
+  // description stops above it.
+  const price = formatPrice(lot.starting_bid);
+  const priceSize = price ? fitFont(ctx, price, w, 46, 24) : 0;
+  const priceTop = price ? TAG_HEIGHT - MARGIN - Math.round(priceSize * 0.78) : TAG_HEIGHT - MARGIN;
+
+  // Description, up to three lines, in the space left above the price.
+  const DESC_LINE = 17;
+  const descLines = Math.min(3, Math.floor((priceTop - 4 - y) / DESC_LINE));
+  if (lot.description && descLines > 0) {
+    ctx.font = `15px ${FONT}`;
+    for (const line of wrap(ctx, lot.description, w, descLines)) {
+      ctx.fillText(line, x, y);
+      y += DESC_LINE;
+    }
   }
 
-  // Price, as large as fits, along the bottom.
-  const price = formatPrice(lot.starting_bid);
   if (price) {
-    const size = fitFont(ctx, price, w, 52, 24);
+    ctx.font = `bold ${priceSize}px ${FONT}`;
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(price, x, TAG_HEIGHT - MARGIN - Math.round(size * 0.05));
+    ctx.fillText(price, x, TAG_HEIGHT - MARGIN - Math.round(priceSize * 0.05));
   }
 
   // Threshold to 1-bit so antialiasing does not print as grey speckle.

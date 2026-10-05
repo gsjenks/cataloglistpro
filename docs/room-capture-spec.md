@@ -287,7 +287,7 @@ Pair once; printing needs no internet connection.
 - QR code on the left, about 22 mm square.
 - Right side: the company name in bold (or, if switched on in the print dialog, the
   company logo trimmed of its white border; a one-colour wordmark prints best, a colour
-  crest does not); **Lot number**; **title** (2 lines, cut with "…"); **price** large.
+  crest does not); **Lot number**; **title** (2 lines, bold); **description** (up to 3 lines, cut with "…"); **price** large.
 - QR encodes a short link, `/l/<lot id>`, which redirects to the lot. Fewer characters
   means larger QR modules and easier scanning. Existing `/view/sales/:saleId/lots/:lotId`
   codes keep working.
