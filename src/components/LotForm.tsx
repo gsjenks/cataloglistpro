@@ -24,6 +24,8 @@ interface LotFormProps {
   hasPhotos: boolean;
   saving: boolean;
   onAIEnrich: () => void;
+  /** Estate sales: opens the Niimbot tag printer in place of the 4x6 browser label. */
+  onPrintTag?: () => void;
   // True while the AI Detail Editor is researching (it can take ~30s)
   aiBusy?: boolean;
   // Auction lifecycle (#2): consignor assignment source. Optional so other callers
@@ -45,6 +47,7 @@ function LotForm({
   hasPhotos,
   saving,
   onAIEnrich,
+  onPrintTag,
   aiBusy,
   consignments,
   contacts,
@@ -104,7 +107,8 @@ function LotForm({
                 {aiBusy ? "Researching…" : "AI Detail Editor"}
               </button>
 
-              {/* Print Label Button */}
+              {/* Print Label Button (auctions: 4x6 sheet via the browser) */}
+              {!onPrintTag && (
               <button
                 onClick={handlePrintLabel}
                 disabled={saving || !lot.qr_code_url}
@@ -118,7 +122,20 @@ function LotForm({
                 <Printer className="w-4 h-4" />
                 Print Label
               </button>
+              )}
             </>
+          )}
+          {/* Estate sales: Niimbot B1 tag (same as the footer's Print tag) */}
+          {onPrintTag && !isNewLot && (
+            <button
+              onClick={onPrintTag}
+              disabled={saving}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+              title="Print a price tag on the Niimbot B1"
+            >
+              <Printer className="w-4 h-4" />
+              Print tag
+            </button>
           )}
         </div>
       </div>

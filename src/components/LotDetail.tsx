@@ -1296,6 +1296,15 @@ export default function LotDetail() {
     [saving, isNewLot, handleSave, navigate, saleId, walkMode],
   );
 
+  // The tag shows the saved price, so save edits first rather than print a stale one.
+  const openPrintTag = useCallback(async () => {
+    if (editKey(lotRef.current) !== loadedKeyRef.current) {
+      if (!window.confirm("Save your changes before printing the tag?\n\nOK saves and prints. Cancel stays here.")) return;
+      if (!(await handleSave({ silent: true }))) return;
+    }
+    setShowPrintTag(true);
+  }, [handleSave]);
+
   // Footer actions
   useEffect(() => {
     const caps = CameraService.getPlatformCapabilities();
@@ -1326,14 +1335,7 @@ export default function LotDetail() {
         id: "print-tag",
         label: "Print tag",
         icon: <Printer className="w-4 h-4" />,
-        onClick: async () => {
-          // The tag shows the saved price; save edits first so it is not stale.
-          if (editKey(lotRef.current) !== loadedKeyRef.current) {
-            if (!window.confirm("Save your changes before printing the tag?\n\nOK saves and prints. Cancel stays here.")) return;
-            if (!(await handleSave({ silent: true }))) return;
-          }
-          setShowPrintTag(true);
-        },
+        onClick: openPrintTag,
         variant: "secondary",
         disabled: saving,
       });
@@ -1391,6 +1393,7 @@ export default function LotDetail() {
     setActions,
     clearActions,
     isEstateSale,
+    openPrintTag,
   ]);
 
   if (loading) {
@@ -1511,6 +1514,7 @@ export default function LotDetail() {
         hasPhotos={photos.length > 0}
         saving={saving}
         onAIEnrich={handleAIEnrich}
+        onPrintTag={isEstateSale ? openPrintTag : undefined}
         aiBusy={aiBusy}
         consignments={consignments}
         contacts={contacts}
