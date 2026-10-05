@@ -1,12 +1,14 @@
 // src/pages/PublicBasket.tsx
-// Dedicated, bookmarkable/shareable basket page. The basket is server-backed and
-// live; ?b=<basketId> lets a shared link (or staff) open the exact same basket.
-// A basket QR lets staff pull it up / (Phase 4c step 2) load it into the register.
+// Dedicated, bookmarkable basket page. The basket is server-backed and live.
+//   ?b=<shopperId>            identifies the basket (staff scan this from the QR).
+//   ?b=<shopperId>&t=<token>  the "save your basket" link: the token is what
+//                             actually opens it, so it works on another device.
+// The shopper id alone shows nothing — it is not a credential.
 
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { ShoppingBasket } from 'lucide-react';
-import { supabasePublic } from '../lib/publicClient';
+import { fetchPublicSale } from '../lib/publicLots';
 import { useServerBasket } from '../hooks/useServerBasket';
 import { useShopper } from '../hooks/useShopper';
 import BasketContents from '../components/BasketContents';
@@ -17,25 +19,33 @@ export default function PublicBasket() {
   const { saleId } = useParams<{ saleId: string }>();
   const [searchParams] = useSearchParams();
   const bParam = searchParams.get('b') || undefined;
-  const { shopperId, name, email, phone } = useShopper();
-  const basketId = bParam ?? shopperId ?? undefined;
+  const tParam = searchParams.get('t') || undefined;
+  const { shopperId, token: myToken, name, email, phone, register } = useShopper();
+  // A link's own token wins; otherwise this device's token, but only for its
+  // own basket (or no ?b= at all).
+  const token = tParam ?? (!bParam || bParam === shopperId ? myToken : null);
+  const basket = useServerBasket(saleId, token);
   // We only hold this shopper's own contact info (in localStorage), so only show
-  // the name/phone/email header when viewing your own basket — not a shared ?b= link.
-  const isOwnBasket = !!shopperId && (!bParam || bParam === shopperId);
-  const basket = useServerBasket(saleId, basketId);
+  // the name/phone/email header when viewing your own basket.
+  const isOwnBasket = !!myToken && !!basket.basketId && basket.basketId === shopperId;
   const [saleName, setSaleName] = useState('');
 
+  // Opening a saved basket link on a device with no shopper signs that device
+  // in as the link's shopper, so items added from here land in the same basket.
+  useEffect(() => {
+    if (tParam && !myToken && basket.basketId) {
+      register(basket.basketId, tParam, basket.shopperName ?? '');
+    }
+  }, [tParam, myToken, basket.basketId, basket.shopperName, register]);
+
   const base = import.meta.env.VITE_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '');
+  // Staff-facing QR: the basket id only. Save link: id + token.
   const basketUrl = `${base}/view/sales/${saleId}/basket?b=${basket.basketId}`;
+  const saveUrl = token ? `${basketUrl}&t=${encodeURIComponent(token)}` : basketUrl;
 
   useEffect(() => {
     if (!saleId) return;
-    supabasePublic
-      .from('sales')
-      .select('name')
-      .eq('id', saleId)
-      .single()
-      .then(({ data }) => setSaleName((data as { name?: string } | null)?.name ?? ''));
+    fetchPublicSale(saleId).then((sale) => setSaleName(sale?.name ?? ''));
   }, [saleId]);
 
   const handleRemove = (lotId: string) => {
@@ -49,7 +59,11 @@ export default function PublicBasket() {
           <ShoppingBasket className="w-5 h-5 text-indigo-600 shrink-0" />
           <div className="min-w-0">
             <h1 className="text-lg font-bold text-gray-900 leading-tight">
-              {isOwnBasket && name ? `${name}'s Basket` : 'Your Basket'}
+              {isOwnBasket && name
+                ? `${name}'s Basket`
+                : basket.shopperName
+                  ? `${basket.shopperName}'s Basket`
+                  : 'Your Basket'}
             </h1>
             {isOwnBasket && (phone || email) && (
               <p className="text-xs text-gray-500 truncate">
@@ -66,7 +80,7 @@ export default function PublicBasket() {
             <p className="text-sm text-indigo-900 font-medium text-center mb-3">
               Save your basket so you can come back to it.
             </p>
-            <SaveBasketButtons url={basketUrl} title={saleName ? `My basket — ${saleName}` : 'My basket'} />
+            <SaveBasketButtons url={saveUrl} title={saleName ? `My basket — ${saleName}` : 'My basket'} />
             <p className="mt-3 text-xs text-indigo-700 text-center">
               Text or email the link to yourself — tapping it reopens your basket.
             </p>
@@ -74,6 +88,14 @@ export default function PublicBasket() {
         )}
 
         {saleName && <p className="text-sm text-gray-500 mb-4">{saleName}</p>}
+
+        {(!token || basket.invalidToken) && bParam && (
+          <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900 text-center">
+            This basket opens on the phone that started it, or from the link that
+            was saved from it. If that was you, tap Add to Basket on any item and
+            register with the same email or phone to get your basket back.
+          </div>
+        )}
 
         {basket.items.length === 0 ? (
           <div className="text-center text-gray-500 py-16">
