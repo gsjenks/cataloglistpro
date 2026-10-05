@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck, Banknote } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck, Banknote, Images } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import offlineStorage from '../services/Offlinestorage';
 import { useFooter } from '../context/FooterContext';
@@ -13,6 +13,7 @@ import type { ScannedLot } from '../services/ScannerService';
 import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
 import AssignToBasketModal from './AssignToBasketModal';
+import RoomCaptureImport from './RoomCaptureImport';
 import SaleCloseSummary from './SaleCloseSummary';
 import QRScanner from './QRScanner';
 import PointOfSale from './PointOfSale';
@@ -57,6 +58,7 @@ export default function SaleDetail() {
   const [showScanner, setShowScanner] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
   const [showBaskets, setShowBaskets] = useState(false);
+  const [showRoomCapture, setShowRoomCapture] = useState(false);
   // Set when handing a basket from the Baskets tool straight to the register.
   const [checkoutBasketId, setCheckoutBasketId] = useState<string | null>(null);
   // The lot being put into a customer's basket via the item-list "Held" control.
@@ -160,6 +162,13 @@ export default function SaleDetail() {
                   label: 'Scan',
                   icon: <ScanLine className="w-4 h-4" />,
                   onClick: () => setShowScanner(true),
+                  variant: 'secondary' as const,
+                },
+                {
+                  id: 'room-capture',
+                  label: 'Room capture',
+                  icon: <Images className="w-4 h-4" />,
+                  onClick: () => setShowRoomCapture(true),
                   variant: 'secondary' as const,
                 },
                 {
@@ -1082,6 +1091,16 @@ export default function SaleDetail() {
             setCheckoutBasketId(shopperId);
             setShowRegister(true);
           }}
+        />
+      )}
+
+      {showRoomCapture && (
+        <RoomCaptureImport
+          saleId={saleId!}
+          consignments={consignments}
+          consignorNames={consignorNames}
+          onClose={() => setShowRoomCapture(false)}
+          onImported={loadLots}
         />
       )}
 

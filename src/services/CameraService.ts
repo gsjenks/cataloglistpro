@@ -390,7 +390,7 @@ class CameraService {
   /**
    * WEB/DESKTOP: File upload
    */
-  async handleFileInput(files: FileList, lotId: string): Promise<FileUploadResult> {
+  async handleFileInput(files: FileList, lotId: string, firstIsPrimary: boolean = true): Promise<FileUploadResult> {
     const result: FileUploadResult = {
       success: 0,
       failed: 0,
@@ -426,7 +426,9 @@ class CameraService {
         result.photos.push({ photoId, blobUrl });
         result.success++;
 
-        const isPrimary = i === 0 && result.photos.length === 1;
+        // Only when the caller says so: a lot that already has a primary photo
+        // must not get a second one.
+        const isPrimary = firstIsPrimary && i === 0 && result.photos.length === 1;
         this.savePhotoToIndexedDB(photoId, lotId, blob, isPrimary).catch(err => {
           console.error('Failed to save file to IndexedDB:', err);
         });
@@ -468,13 +470,14 @@ class CameraService {
     photoId: string,
     lotId: string,
     blob: Blob,
-    isPrimary: boolean
+    isPrimary: boolean,
+    fileName: string = `Photo_${Date.now()}.jpg`
   ): Promise<void> {
     const photoMetadata = {
       id: photoId,
       lot_id: lotId,
       file_path: `${lotId}/${photoId}.jpg`,
-      file_name: `Photo_${Date.now()}.jpg`,
+      file_name: fileName,
       is_primary: isPrimary,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -492,7 +495,8 @@ class CameraService {
     photoId: string,
     lotId: string,
     blob: Blob,
-    isPrimary: boolean
+    isPrimary: boolean,
+    displayName: string = `Photo_${Date.now()}.jpg`
   ): Promise<void> {
     SyncService.startOperation();
     try {
@@ -517,7 +521,7 @@ class CameraService {
           id: photoId,
           lot_id: lotId,
           file_path: fileName,
-          file_name: `Photo_${Date.now()}.jpg`,
+          file_name: displayName,
           is_primary: isPrimary,
         }, {
           onConflict: 'id'
@@ -543,6 +547,21 @@ class CameraService {
   }
 
   /**
+   * Add an existing image (e.g. a room-capture crop) to a lot through the same
+   * IndexedDB-then-upload path as a camera photo. Resolves once the upload has been
+   * attempted; a failed upload stays unsynced and is retried by the normal photo sync.
+   */
+  async addPhotoBlob(lotId: string, blob: Blob, isPrimary: boolean, fileName?: string): Promise<string> {
+    const photoId = generateUUID();
+    const name = fileName || `Photo_${Date.now()}.jpg`;
+    await this.savePhotoToIndexedDB(photoId, lotId, blob, isPrimary, name);
+    if (ConnectivityService.getConnectionStatus()) {
+      await this.syncPhotoToSupabase(photoId, lotId, blob, isPrimary, name);
+    }
+    return photoId;
+  }
+
+  /**
    * Sync all unsynced photos
    */
   async syncUnsyncedPhotos(): Promise<void> {
@@ -561,7 +580,8 @@ class CameraService {
             photo.id,
             photo.lot_id,
             blob,
-            photo.is_primary
+            photo.is_primary,
+            photo.file_name
           );
         }
       }
