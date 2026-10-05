@@ -1,8 +1,7 @@
 // src/lib/lotTag.ts
 // Lot price tags for the Niimbot B1 (50 x 30 mm labels). Drawn on a 1-bit
 // canvas: QR code top left with the sale name and start date under it; on the
-// right the company logo (or name), lot number, title (2 lines), description
-// (up to 3 lines) and price. See docs/room-capture-spec.md, Lot tags.
+// right the company logo (or name), lot number, the full item name and price. See docs/room-capture-spec.md, Lot tags.
 //
 // The label is 50 mm across but the B1 print head is 48 mm (384 dots), so the
 // tag is 384 x 240 dots (203 dpi).
@@ -158,7 +157,7 @@ function fitFont(ctx: CanvasRenderingContext2D, text: string, width: number, max
 
 /** Draws one tag. Pixels are pure black or white, ready for the printer. */
 export function renderLotTag(
-  lot: Pick<Lot, 'id' | 'lot_number' | 'name' | 'starting_bid'> & { description?: string | null },
+  lot: Pick<Lot, 'id' | 'lot_number' | 'name' | 'starting_bid'>,
   branding: TagBranding,
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -228,29 +227,32 @@ export function renderLotTag(
   ctx.fillText(`Lot ${lot.lot_number ?? ''}`, x, y);
   y += 25;
 
-  // Title, two lines.
-  ctx.font = `bold 18px ${FONT}`;
-  for (const line of wrap(ctx, lot.name || '', w, 2)) {
-    ctx.fillText(line, x, y);
-    y += 20;
-  }
-  y += 2;
-
-  // Price, as large as fits, along the bottom. Measured first so the
-  // description stops above it.
+  // Price, as large as fits, along the bottom. Measured first so the item
+  // name can use everything above it.
   const price = formatPrice(lot.starting_bid);
   const priceSize = price ? fitFont(ctx, price, w, 46, 24) : 0;
   const priceTop = price ? TAG_HEIGHT - MARGIN - Math.round(priceSize * 0.78) : TAG_HEIGHT - MARGIN;
 
-  // Description, up to three lines, in the space left above the price.
-  const DESC_LINE = 17;
-  const descLines = Math.min(3, Math.floor((priceTop - 4 - y) / DESC_LINE));
-  if (lot.description && descLines > 0) {
-    ctx.font = `15px ${FONT}`;
-    for (const line of wrap(ctx, lot.description, w, descLines)) {
-      ctx.fillText(line, x, y);
-      y += DESC_LINE;
+  // The full item name: the largest font (18 down to 13 px) at which every word
+  // fits above the price. Only a name too long even at 13 px is cut with "…".
+  const name = (lot.name || '').trim();
+  const room = priceTop - 4 - y;
+  let nameLines: string[] = [];
+  let lineHeight = 20;
+  for (let size = 18; size >= 13; size--) {
+    ctx.font = `bold ${size}px ${FONT}`;
+    lineHeight = size + 2;
+    const maxLines = Math.max(1, Math.floor(room / lineHeight));
+    nameLines = wrap(ctx, name, w, maxLines);
+    const all = wrap(ctx, name, w, 99);
+    if (all.length <= maxLines && !all.some((l) => l.endsWith('…'))) {
+      nameLines = all;
+      break;
     }
+  }
+  for (const line of nameLines) {
+    ctx.fillText(line, x, y);
+    y += lineHeight;
   }
 
   if (price) {
