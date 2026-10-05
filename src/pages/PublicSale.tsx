@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Package } from 'lucide-react';
-import { supabasePublic } from '../lib/publicClient';
+import { fetchPublicSale, fetchPublicSaleLots, photoUrl, subscribeSaleLots } from '../lib/publicLots';
 import { effectiveStatus } from '../lib/holds';
 import { useShopper } from '../hooks/useShopper';
 import { useServerBasket } from '../hooks/useServerBasket';
@@ -41,40 +41,27 @@ export default function PublicSale() {
   const [saleName, setSaleName] = useState('');
   const [saleType, setSaleType] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const { shopperId } = useShopper();
-  const basket = useServerBasket(saleId, shopperId ?? undefined);
+  const { token } = useShopper();
+  const basket = useServerBasket(saleId, token);
 
   const load = useCallback(async () => {
     if (!saleId) return;
-    const [{ data: sale }, { data: lotRows }] = await Promise.all([
-      supabasePublic.from('sales').select('name, sale_type').eq('id', saleId).single(),
-      supabasePublic
-        .from('lots')
-        .select('id, lot_number, name, starting_bid, inventory_status, held_until')
-        .eq('sale_id', saleId)
-        .order('lot_number', { ascending: true }),
-    ]);
-    const saleRow = sale as { name?: string; sale_type?: string } | null;
-    setSaleName(saleRow?.name ?? '');
-    setSaleType(saleRow?.sale_type ?? null);
-    const rows = (lotRows as CatalogLot[] | null) || [];
-
-    // Fetch primary photos for all lots in one query, map lot_id -> public URL.
-    const ids = rows.map((l) => l.id);
-    const imageByLot: Record<string, string> = {};
-    if (ids.length) {
-      const { data: photos } = await supabasePublic
-        .from('photos')
-        .select('lot_id, file_path, is_primary')
-        .in('lot_id', ids)
-        .order('is_primary', { ascending: false });
-      for (const p of (photos as { lot_id: string; file_path: string }[] | null) || []) {
-        if (!imageByLot[p.lot_id]) {
-          imageByLot[p.lot_id] = supabasePublic.storage.from('photos').getPublicUrl(p.file_path).data.publicUrl;
-        }
-      }
-    }
-    setLots(rows.map((l) => ({ ...l, imageUrl: imageByLot[l.id] })));
+    // Public columns only, via SECURITY DEFINER functions — anon cannot read
+    // the lots/sales tables (buyer, holder, sold price, delivery stay private).
+    const [sale, rows] = await Promise.all([fetchPublicSale(saleId), fetchPublicSaleLots(saleId)]);
+    setSaleName(sale?.name ?? '');
+    setSaleType(sale?.sale_type ?? null);
+    setLots(
+      rows.map((l) => ({
+        id: l.id,
+        lot_number: l.lot_number,
+        name: l.name,
+        starting_bid: l.starting_bid,
+        inventory_status: l.inventory_status,
+        held_until: l.held_until,
+        imageUrl: l.primary_file_path ? photoUrl(l.primary_file_path) : undefined,
+      })),
+    );
     setLoading(false);
   }, [saleId]);
 
@@ -85,14 +72,17 @@ export default function PublicSale() {
   // Keep statuses live during the sale.
   useEffect(() => {
     if (!saleId) return;
-    const channel = supabasePublic
-      .channel(`catalog:${saleId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'lots', filter: `sale_id=eq.${saleId}` }, () => load())
-      .subscribe();
-    return () => {
-      supabasePublic.removeChannel(channel);
-    };
+    return subscribeSaleLots(saleId, () => load());
   }, [saleId, load]);
+
+  // A suspended mobile tab drops the socket; refresh when the shopper returns.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [load]);
 
   if (loading) {
     return (

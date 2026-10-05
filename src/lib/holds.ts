@@ -1,7 +1,9 @@
 // src/lib/holds.ts
 // Buyer-basket hold helpers (Phase 4a). Holds are placed/released through
-// SECURITY DEFINER RPCs (see the phase4a migration) so anonymous buyers can
-// hold items without direct write access to the lots table.
+// SECURITY DEFINER RPCs so anonymous buyers can hold items without access to
+// the lots table. The buyer-side RPCs take the shopper's TOKEN (issued by the
+// shopper-verify function), never the bare shopper id — see migration
+// 20261004000000_lots_public_access. lots.held_by is still the shopper id.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -44,6 +46,7 @@ export type HoldError =
   | 'sold'
   | 'held_by_other'
   | 'not_held_by_you'
+  | 'invalid_token'
   | 'unknown';
 
 export interface HoldResult {
@@ -55,9 +58,9 @@ export interface HoldResult {
 export async function holdLot(
   client: SupabaseClient,
   lotId: string,
-  basketId: string,
+  token: string,
 ): Promise<HoldResult> {
-  const { data, error } = await client.rpc('hold_lot', { p_lot_id: lotId, p_basket_id: basketId });
+  const { data, error } = await client.rpc('hold_lot', { p_lot_id: lotId, p_token: token });
   if (error) return { success: false, error: 'unknown' };
   const d = data as { success: boolean; held_until?: string; error?: HoldError };
   return { success: d.success, heldUntil: d.held_until, error: d.error };
@@ -66,12 +69,28 @@ export async function holdLot(
 export async function releaseLot(
   client: SupabaseClient,
   lotId: string,
-  basketId: string,
+  token: string,
 ): Promise<HoldResult> {
-  const { data, error } = await client.rpc('release_lot', { p_lot_id: lotId, p_basket_id: basketId });
+  const { data, error } = await client.rpc('release_lot', { p_lot_id: lotId, p_token: token });
   if (error) return { success: false, error: 'unknown' };
   const d = data as { success: boolean; error?: HoldError };
   return { success: d.success, error: d.error };
+}
+
+/**
+ * Reset every live hold in the token's basket for a sale to a fresh 30 minutes
+ * (buyer side; the staff equivalent is renewBasketHolds). Never revives an
+ * expired hold.
+ */
+export async function renewMyBasket(
+  client: SupabaseClient,
+  saleId: string,
+  token: string,
+): Promise<HoldResult> {
+  const { data, error } = await client.rpc('renew_my_basket', { p_sale_id: saleId, p_token: token });
+  if (error) return { success: false, error: 'unknown' };
+  const d = data as { success: boolean; held_until?: string; error?: HoldError };
+  return { success: d.success, heldUntil: d.held_until, error: d.error };
 }
 
 /**

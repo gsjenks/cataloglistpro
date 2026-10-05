@@ -2,7 +2,8 @@
 // Shopper registration + verification for estate-sale self-checkout.
 //   action:"request" -> find/create shopper, issue a 6-digit code, send via
 //                       email (Resend) or SMS (Twilio).
-//   action:"verify"  -> check the code, mark the channel verified.
+//   action:"verify"  -> check the code, mark the channel verified, and issue a
+//                       shopper token (stored hashed in shopper_tokens).
 // If a provider key is missing, runs in TEST MODE and returns the code so the
 // flow is testable before Resend/Twilio are configured.
 //
@@ -47,6 +48,12 @@ async function sha256(s: string) {
 
 function genCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+// 32 random bytes, base64url (43 chars).
+function genToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 interface SendResult {
@@ -294,7 +301,16 @@ serve(async (req) => {
         .eq("id", shopperId)
         .select("id, name")
         .single();
-      return json({ success: true, shopper });
+
+      // The shopper's secret for this device. Only its hash is stored; the
+      // basket/hold functions (hold_lot, my_basket, my_lot…) take the token,
+      // never the bare shopper id, which is not a credential.
+      const token = genToken();
+      const { error: tokErr } = await supabase
+        .from("shopper_tokens")
+        .insert({ shopper_id: shopperId, token_hash: await sha256(token) });
+      if (tokErr) return json({ success: false, error: "token_failed" }, 500);
+      return json({ success: true, shopper, token });
     }
 
     return json({ error: "unknown action" }, 400);

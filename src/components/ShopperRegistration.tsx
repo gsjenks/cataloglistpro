@@ -1,7 +1,8 @@
 // src/components/ShopperRegistration.tsx
 // Two-step shopper registration for self-checkout: enter name + email/phone,
 // receive a code (email via Resend or SMS via Twilio), enter it to verify. On
-// success the caller gets the verified shopper id (the basket key).
+// success the caller gets the verified shopper id (the basket key) and the
+// shopper token, the device's secret for holds and basket reads.
 
 import { useState } from 'react';
 import { X } from 'lucide-react';
@@ -9,7 +10,7 @@ import { supabasePublic } from '../lib/publicClient';
 
 interface Props {
   saleId: string;
-  onVerified: (shopperId: string, name: string, email?: string, phone?: string) => void;
+  onVerified: (shopperId: string, token: string, name: string, email?: string, phone?: string) => void;
   onClose: () => void;
 }
 
@@ -67,7 +68,7 @@ export default function ShopperRegistration({ saleId, onVerified, onClose }: Pro
       body: { action: 'verify', shopperId, code: code.trim() },
     });
     setLoading(false);
-    if (fnErr || !data?.success) {
+    if (fnErr || !data?.success || !data?.token) {
       setError(
         data?.error === 'expired'
           ? 'That code expired — send a new one.'
@@ -77,6 +78,7 @@ export default function ShopperRegistration({ saleId, onVerified, onClose }: Pro
     }
     onVerified(
       shopperId,
+      data.token,
       data.shopper?.name ?? name.trim(),
       hasEmail ? email.trim() : undefined,
       hasPhone ? phone.trim() : undefined,
