@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import offlineStorage from './Offlinestorage';
 import PhotoService, { isImageBlob } from './PhotoService';
 import { reassignTemporaryNumbers } from './LotNumberService';
+import { deleteLotOnServer } from './LotDeleteService';
 import type { Company, Sale, Lot, Photo } from '../types';
 
 const TOTAL_STEPS = 7;
@@ -541,6 +542,17 @@ class SyncService {
           // Honour the operation. This always upserted, so a queued delete
           // would have RE-CREATED the row it was meant to remove.
           const rowId = (item.data as { id?: string })?.id ?? item.id;
+          if (item.type === 'delete' && item.table === 'lots') {
+            // Lots need their photo rows removed first (no cascade).
+            try {
+              await deleteLotOnServer(rowId);
+            } catch (e) {
+              console.error('Sync delete on lots failed:', e instanceof Error ? e.message : e);
+              return;
+            }
+            await offlineStorage.markSynced(item.id);
+            return;
+          }
           const { error } = item.type === 'delete'
             ? await supabase.from(item.table).delete().eq('id', rowId)
             : await supabase.from(item.table).upsert(item.data);

@@ -26,6 +26,10 @@ function WebcamModal({ onCapture, onClose }: WebcamModalProps) {
     "environment",
   );
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
+  // A save is in flight (canvas.toBlob is async, ~50-100 ms). Clicks that land in
+  // that window used to save the same photo again; 26 duplicates in one sale.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
 
   // Refresh the multi-camera check. Called both on mount and after permission
   // is granted, because browsers often hide additional cameras until the user
@@ -145,7 +149,9 @@ function WebcamModal({ onCapture, onClose }: WebcamModalProps) {
   };
 
   const confirm = () => {
-    if (!capturedImage || !canvasRef.current) return;
+    if (!capturedImage || !canvasRef.current || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     canvasRef.current.toBlob(
       (blob) => {
         if (blob) {
@@ -154,6 +160,8 @@ function WebcamModal({ onCapture, onClose }: WebcamModalProps) {
           setCapturedImage(null);
           startCamera(facingMode);
         }
+        savingRef.current = false;
+        setSaving(false);
       },
       "image/jpeg",
       0.9,
@@ -251,14 +259,18 @@ function WebcamModal({ onCapture, onClose }: WebcamModalProps) {
               </button>
               <button
                 onClick={confirm}
+                disabled={saving}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-medium"
               >
                 <Plus className="w-5 h-5" />
                 Save & Take More
               </button>
               <button
+                disabled={saving}
                 onClick={() => {
-                  if (canvasRef.current) {
+                  if (canvasRef.current && !savingRef.current) {
+                    savingRef.current = true;
+                    setSaving(true);
                     canvasRef.current.toBlob(
                       (blob) => {
                         if (blob) onCapture(blob);
