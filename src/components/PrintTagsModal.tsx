@@ -21,12 +21,14 @@ const LOGO_KEY = 'tag_use_logo';
 
 interface Props {
   lots: Lot[];
+  /** Printed under each tag's QR code. */
+  sale?: { name?: string | null; start_date?: string | null } | null;
   onClose: () => void;
   /** Called after each tag prints and is recorded. */
   onPrinted?: (lotId: string, printedAt: string, price: number | null) => void;
 }
 
-export default function PrintTagsModal({ lots, onClose, onPrinted }: Props) {
+export default function PrintTagsModal({ lots, sale, onClose, onPrinted }: Props) {
   const { currentCompany } = useApp();
   const [branding, setBranding] = useState<TagBranding | null>(null);
   const [connected, setConnected] = useState(() => !!printer?.isConnected());
@@ -54,12 +56,19 @@ export default function PrintTagsModal({ lots, onClose, onPrinted }: Props) {
     let cancelled = false;
     localStorage.setItem(LOGO_KEY, useLogo ? '1' : '0');
     loadTagLogo(useLogo ? currentCompany?.logo_url : null).then((logo) => {
-      if (!cancelled) setBranding({ companyName: currentCompany?.name ?? '', logo });
+      if (!cancelled) {
+        setBranding({
+          companyName: currentCompany?.name ?? '',
+          logo,
+          saleName: sale?.name ?? null,
+          saleStartDate: sale?.start_date ?? null,
+        });
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [currentCompany?.logo_url, currentCompany?.name, useLogo]);
+  }, [currentCompany?.logo_url, currentCompany?.name, useLogo, sale?.name, sale?.start_date]);
 
   useEffect(() => {
     if (printer) printer.onDisconnect = () => setConnected(false);

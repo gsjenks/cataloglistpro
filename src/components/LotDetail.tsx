@@ -232,14 +232,19 @@ export default function LotDetail() {
   // Estate sales print Niimbot lot tags from here (auctions keep Avery sheets).
   const [isEstateSale, setIsEstateSale] = useState(false);
   const [showPrintTag, setShowPrintTag] = useState(false);
+  // Sale name and start date print under the tag's QR code.
+  const [tagSale, setTagSale] = useState<{ name?: string | null; start_date?: string | null } | null>(null);
   useEffect(() => {
     if (!saleId) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.from("sales").select("sale_type").eq("id", saleId).maybeSingle();
-      const type = (data as { sale_type?: string } | null)?.sale_type
-        ?? (await offlineStorage.getSale(saleId).catch(() => undefined))?.sale_type;
-      if (!cancelled) setIsEstateSale(type === "estate_sale");
+      type SaleRow = { sale_type?: string; name?: string; start_date?: string | null };
+      const { data } = await supabase.from("sales").select("sale_type, name, start_date").eq("id", saleId).maybeSingle();
+      const row: SaleRow | undefined =
+        (data as SaleRow | null) ?? (await offlineStorage.getSale(saleId).catch(() => undefined));
+      if (cancelled) return;
+      setIsEstateSale(row?.sale_type === "estate_sale");
+      setTagSale(row ? { name: row.name, start_date: row.start_date } : null);
     })();
     return () => {
       cancelled = true;
@@ -1604,6 +1609,7 @@ export default function LotDetail() {
       {showPrintTag && lotId && (
         <PrintTagsModal
           lots={[{ ...(lot as Lot), id: lotId }]}
+          sale={tagSale}
           onClose={() => setShowPrintTag(false)}
           onPrinted={(_id, printedAt, price) =>
             setLot((prev) => ({ ...prev, tag_printed_at: printedAt, tag_price: price }))

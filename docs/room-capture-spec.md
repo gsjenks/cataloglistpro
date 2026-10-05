@@ -284,10 +284,11 @@ Capacitor Android app** (neither has Web Bluetooth), which would need a BLE plug
 Pair once; printing needs no internet connection.
 
 **Layout** (rendered to a 1-bit canvas):
-- QR code on the left, about 22 mm square.
+- QR code top left, about 18 mm square, with the **sale name** (2 lines) and **start
+  date** under it.
 - Right side: the company name in bold (or, if switched on in the print dialog, the
   company logo trimmed of its white border; a one-colour wordmark prints best, a colour
-  crest does not); **Lot number**; **title** (2 lines, bold); **description** (up to 3 lines, cut with "…"); **price** large.
+  crest does not); **Lot number**; the **full item name** in bold (the font steps down to fit; only an extreme name is cut with "…"); **price** large. No description.
 - QR encodes a short link, `/l/<lot id>`, which redirects to the lot. Fewer characters
   means larger QR modules and easier scanning. Existing `/view/sales/:saleId/lots/:lotId`
   codes keep working.
