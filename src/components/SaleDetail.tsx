@@ -1134,6 +1134,7 @@ export default function SaleDetail() {
       {printTagLots && (
         <PrintTagsModal
           lots={printTagLots}
+          sale={sale}
           onClose={() => setPrintTagLots(null)}
           onPrinted={(lotId, printedAt, price) =>
             setLots((prev) => prev.map((l) => (l.id === lotId ? { ...l, tag_printed_at: printedAt, tag_price: price } : l)))

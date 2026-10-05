@@ -284,7 +284,8 @@ Capacitor Android app** (neither has Web Bluetooth), which would need a BLE plug
 Pair once; printing needs no internet connection.
 
 **Layout** (rendered to a 1-bit canvas):
-- QR code on the left, about 22 mm square.
+- QR code top left, about 18 mm square, with the **sale name** (2 lines) and **start
+  date** under it.
 - Right side: the company name in bold (or, if switched on in the print dialog, the
   company logo trimmed of its white border; a one-colour wordmark prints best, a colour
   crest does not); **Lot number**; **title** (2 lines, bold); **description** (up to 3 lines, cut with "…"); **price** large.
