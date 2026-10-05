@@ -27,6 +27,7 @@ import { AuctionRoom } from "./components/AuctionRoom";
 */
 import { AuctionRoom3D } from "./components/AuctionRoom3D";
 import { ClerkPanel } from "./components/ClerkPanel";
+import UpdateBanner from "./components/UpdateBanner";
 
 function AppContent() {
   // Get context - use try-catch to handle missing properties gracefully
@@ -341,6 +342,8 @@ function AppContent() {
 function App() {
   return (
     <BrowserRouter>
+      {/* On every route, public pages included: a cached old build is never silent. */}
+      <UpdateBanner />
       <Routes>
         {/* Public routes - no auth needed */}
         <Route path="/auction/:saleId" element={<AuctionRoom3D />} />

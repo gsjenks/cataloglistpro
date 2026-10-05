@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
 import ConnectivityService from '../services/ConnectivityService';
 import SyncService from '../services/SyncService';
+import { CHECK_UPDATE_EVENT } from './UpdateBanner';
 
 export default function StatusBar() {
   const [isOnline, setIsOnline] = useState(true);
@@ -44,7 +45,15 @@ export default function StatusBar() {
     <div className="bg-gray-900 text-white px-4 py-1 flex items-center justify-between text-xs safe-area-top">
       {/* Left: Connection Status */}
       <div className="flex items-center gap-1.5">
-        <span className="text-gray-500 mr-1" title="Build currently running">{__BUILD_ID__}</span>
+        {/* Build currently running (UTC). Tap to check for a newer version. */}
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event(CHECK_UPDATE_EVENT))}
+          className="text-gray-500 mr-1 underline decoration-dotted underline-offset-2 hover:text-gray-300"
+          title="Build currently running. Tap to check for updates."
+        >
+          {__BUILD_ID__}
+        </button>
         {isOnline ? (
           <>
             <Wifi className="w-3.5 h-3.5 text-green-400" />
