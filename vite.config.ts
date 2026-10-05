@@ -18,8 +18,13 @@ export default defineConfig({
     // come from the network. This caches the shell so field cataloguing (photos
     // + lot metadata) survives a dead signal.
     VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // 'prompt': a new version installs in the background and waits; the app
+      // shows UpdateBanner and reloads only when the user taps Update now, so an
+      // update never lands in the middle of an unsaved edit. ('autoUpdate' left
+      // phones on old builds with no way to tell, then reloaded without asking.)
+      registerType: 'prompt',
+      // Registered by UpdateBanner via virtual:pwa-register/react.
+      injectRegister: false,
       // public/manifest.json is already written and linked from index.html;
       // keep it as the single source of truth instead of generating a second one.
       manifest: false,
