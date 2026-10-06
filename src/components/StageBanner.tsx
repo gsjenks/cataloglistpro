@@ -18,9 +18,10 @@ interface Props {
   documents: Document[];
   onChanged: () => void;      // refetch the sale after an advance
   onOpenSetup?: () => void;   // jump to the Setup tab
+  canAdvance?: boolean;       // false for roles that may not move stages (staff)
 }
 
-export default function StageBanner({ sale, lots, consignments, documents, onChanged, onOpenSetup }: Props) {
+export default function StageBanner({ sale, lots, consignments, documents, onChanged, onOpenSetup, canAdvance = true }: Props) {
   const current = sale.stage || 'intake';
   const derived = computeDerived({ lots, consignments, documents });
   const gate = gateStatus(current, sale.stage_progress, derived, sale.sale_type);
@@ -96,7 +97,7 @@ export default function StageBanner({ sale, lots, consignments, documents, onCha
           )}
         </div>
 
-        {target && (
+        {target && canAdvance && (
           <button
             onClick={handleAdvanceClick}
             disabled={advancing}

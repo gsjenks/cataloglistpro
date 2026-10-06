@@ -5,6 +5,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, RefreshCw, Wifi, WifiOff, Edit2, Upload, Building2 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { supabase } from '../lib/supabase';
+import { useRole } from '../context/RoleContext';
+import { ROLE_LABELS, normalizeRole, type StaffRole } from '../lib/roles';
+import ViewAsPanel from './ViewAsPanel';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -48,28 +51,14 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     { id: string; email: string; role: string; status: string; accepted_by: string | null }[]
   >([]);
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('member');
+  const [inviteRole, setInviteRole] = useState<StaffRole>('staff');
   const [sendingInvite, setSendingInvite] = useState(false);
   // Result of the last invite: the record always lands, but the email can
   // fail silently (unverified Resend sender), so say so instead of pretending.
   const [inviteNotice, setInviteNotice] = useState<{ ok: boolean; text: string } | null>(null);
-  const [myRole, setMyRole] = useState<string | null>(null);
-
-  // Determine the current user's role in the current company (for gating admin
-  // actions like invites, edit, and delete).
-  useEffect(() => {
-    if (!isOpen || !currentCompany || !user) {
-      setMyRole(null);
-      return;
-    }
-    supabase
-      .from('user_companies')
-      .select('role')
-      .eq('company_id', currentCompany.id)
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => setMyRole((data as { role?: string } | null)?.role ?? null));
-  }, [isOpen, currentCompany, user]);
+  // The current user's role in the current company (the "View as" role while
+  // previewing), for gating team management and deleting the business.
+  const { can } = useRole();
 
   const loadInvites = useCallback(async () => {
     if (!currentCompany) return;
@@ -88,8 +77,8 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   if (!isOpen) return null;
 
   // Role-based permissions for the current company.
-  const isOwner = currentCompany?.user_id === user?.id || myRole === 'owner';
-  const isAdmin = isOwner || myRole === 'admin';
+  const isOwner = can('business');
+  const isAdmin = can('team');
 
   const handleRefresh = async () => {
     if (!currentCompany) {
@@ -285,7 +274,7 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         ? { ok: false, text: `${email} is invited, but the email couldn't be sent (${mailError}). Ask them to sign up at ${window.location.origin} with this exact address — they'll be added automatically.` }
         : { ok: true, text: `Invitation emailed to ${email}.` });
       setInviteEmail('');
-      setInviteRole('member');
+      setInviteRole('staff');
       await loadInvites();
     } catch (error: unknown) {
       console.error('Error sending invite:', error);
@@ -306,6 +295,32 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     } catch (error: unknown) {
       console.error('Error sending reset email:', error);
       alert('Failed to send reset email: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
+  };
+
+  // Pending invite: just the invite row. Joined member: their membership too,
+  // through a SECURITY DEFINER RPC (another user's user_companies row).
+  const handleChangeRole = async (
+    inv: { id: string; email: string; status: string; accepted_by: string | null },
+    newRole: StaffRole,
+  ) => {
+    if (!currentCompany) return;
+    try {
+      if (inv.status === 'accepted' && inv.accepted_by) {
+        const { error } = await supabase.rpc('set_company_member_role', {
+          p_company_id: currentCompany.id,
+          p_user_id: inv.accepted_by,
+          p_role: newRole,
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('company_invites').update({ role: newRole }).eq('id', inv.id);
+        if (error) throw error;
+      }
+      await loadInvites();
+    } catch (error: unknown) {
+      console.error('Error changing role:', error);
+      alert(`Could not change ${inv.email}'s role: ` + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 
@@ -892,10 +907,11 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   />
                   <select
                     value={inviteRole}
-                    onChange={(e) => setInviteRole(e.target.value)}
+                    onChange={(e) => setInviteRole(e.target.value as StaffRole)}
                     className="px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   >
-                    <option value="member">Member</option>
+                    <option value="staff">Staff</option>
+                    <option value="manager">Manager</option>
                     <option value="admin">Admin</option>
                   </select>
                   <button
@@ -929,7 +945,20 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <li key={inv.id} className="flex items-center justify-between px-3 py-2.5">
                       <div className="min-w-0">
                         <p className="text-sm text-gray-800 truncate">{inv.email}</p>
-                        <p className="text-xs text-gray-500 capitalize">{inv.role}</p>
+                        {isAdmin && normalizeRole(inv.role) !== 'owner' ? (
+                          <select
+                            value={normalizeRole(inv.role)}
+                            onChange={(e) => handleChangeRole(inv, e.target.value as StaffRole)}
+                            className="mt-0.5 text-xs text-gray-600 border border-gray-200 rounded px-1 py-0.5"
+                            title="Change this member's role"
+                          >
+                            <option value="staff">Staff</option>
+                            <option value="manager">Manager</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        ) : (
+                          <p className="text-xs text-gray-500">{ROLE_LABELS[normalizeRole(inv.role)]}</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <span
@@ -1016,6 +1045,8 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 >
                   {savingProfile ? 'Saving...' : 'Save Profile'}
                 </button>
+
+                <ViewAsPanel />
               </div>
             </div>
           )}

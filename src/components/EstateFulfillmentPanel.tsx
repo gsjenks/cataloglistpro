@@ -9,6 +9,7 @@ import { Truck, Printer, MapPin, Calendar, User, Phone, Mail, AlertTriangle, Pen
 import DeliveryMoverManifest from './DeliveryMoverManifest';
 import { supabase } from '../lib/supabase';
 import type { Lot } from '../types';
+import { useRole } from '../context/RoleContext';
 
 interface Props {
   saleId: string;
@@ -61,6 +62,8 @@ const emptyForm = { address: '', date: '', estimate: '', company: '', phone: '',
 const emptyDelivery = (): Delivery => ({ address: null, date: null, estimate: null, company: null, phone: null, email: null });
 
 export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Props) {
+  // The sale-wide total is a sale figure: not shown to staff.
+  const canMoney = useRole().can('money');
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [editKey, setEditKey] = useState<string | null>(null);
@@ -234,7 +237,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
                 <Truck className="w-5 h-5 text-gray-500" /> Deliveries
               </h2>
               <p className="text-sm text-gray-500">
-                {groups.length} delivery{groups.length === 1 ? '' : ' groups'} · {itemCount} item{itemCount === 1 ? '' : 's'} · {money(grandTotal)}
+                {groups.length} delivery{groups.length === 1 ? '' : ' groups'} · {itemCount} item{itemCount === 1 ? '' : 's'}{canMoney && <> · {money(grandTotal)}</>}
               </p>
               <p className="hidden print:block text-xs text-gray-500 mt-0.5">{saleName}</p>
             </div>

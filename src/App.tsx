@@ -11,6 +11,8 @@ import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider, useApp } from "./context/AppContext";
 import { FooterProvider } from "./context/FooterContext";
+import { RoleProvider } from "./context/RoleContext";
+import ViewAsBar from "./components/ViewAsBar";
 import Auth from "./components/Auth";
 import CompanySetup from "./components/CompanySetup";
 import HelpAssistant from "./components/HelpAssistant";
@@ -324,6 +326,7 @@ function AppContent() {
         className="transition-all duration-200"
       >
         <Header />
+        <ViewAsBar />
         <main className="content-with-footer">
           <Routes>
             <Route path="/" element={<Dashboard />} />
@@ -362,9 +365,11 @@ function App() {
           path="/*"
           element={
             <AppProvider>
-              <FooterProvider>
-                <AppContent />
-              </FooterProvider>
+              <RoleProvider>
+                <FooterProvider>
+                  <AppContent />
+                </FooterProvider>
+              </RoleProvider>
             </AppProvider>
           }
         />

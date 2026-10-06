@@ -24,6 +24,7 @@ import PackingInvoice from './PackingInvoice';
 import ShipperManifest from './ShipperManifest';
 import AuctionPackingList from './AuctionPackingList';
 import BuyerInvoices from './BuyerInvoices';
+import { useRole } from '../context/RoleContext';
 
 interface Props {
   saleId: string;
@@ -75,6 +76,8 @@ function groupStatus(g: Group): Status {
 }
 
 export default function FulfillmentPanel({ saleId, companyId, saleName, lots, onChanged }: Props) {
+  // Invoices and house charges are money: managers and admins only.
+  const canMoney = useRole().can('money');
   const { currentCompany } = useApp();
   // Only trust the active company when it's the one that owns this sale.
   const company = currentCompany && currentCompany.id === companyId ? currentCompany : null;
@@ -309,6 +312,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
           >
             <ListOrdered className="w-3.5 h-3.5" /> Packing list
           </button>
+          {canMoney && (
           <button
             onClick={() => setInvoicesFor('')}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
@@ -316,6 +320,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
           >
             <Receipt className="w-3.5 h-3.5" /> Buyer invoices
           </button>
+          )}
           <button
             onClick={printLabels}
             disabled={busy === 'labels'}
@@ -346,6 +351,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
                 <li key={g.key} className="border border-gray-200 rounded-lg p-4 flex items-start justify-between gap-3">
                   <GroupInfo g={g} onEditBuyer={() => openBuyer(g)} />
                   <div className="flex items-center gap-2 shrink-0">
+                  {canMoney && (
                   <button
                     onClick={() => setChargesFor(g)}
                     className={`px-2 py-1 text-xs rounded border ${
@@ -357,6 +363,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
                   >
                     {chargeByBuyer.has(g.key) ? `+${money(houseTotalOf(chargeByBuyer.get(g.key)!))}` : 'Charges'}
                   </button>
+                  )}
                   <select
                     value=""
                     onChange={(e) => {
@@ -462,9 +469,10 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
                     <button onClick={() => setInvoiceFor(g)} className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50" title="Packing slip (contents + signature)">
                       Slip
                     </button>
-                    <button onClick={() => setInvoicesFor(g.key)} className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50" title="Buyer invoice (hammer, premium, tax, total)">
+                    {canMoney && <button onClick={() => setInvoicesFor(g.key)} className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50" title="Buyer invoice (hammer, premium, tax, total)">
                       Invoice
-                    </button>
+                    </button>}
+                    {canMoney && (
                     <button
                       onClick={() => setChargesFor(g)}
                       className={`px-2 py-1 text-xs rounded border ${
@@ -476,6 +484,7 @@ export default function FulfillmentPanel({ saleId, companyId, saleName, lots, on
                     >
                       {chargeByBuyer.has(g.key) ? `+${money(houseTotalOf(chargeByBuyer.get(g.key)!))}` : 'Charges'}
                     </button>
+                    )}
                     <button onClick={() => run(`reset:${g.key}`, () => resetFulfillment(ids(g)))} disabled={busy === `reset:${g.key}`} className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50" title="Reset (unassign)">
                       <Undo2 className="w-3.5 h-3.5" />
                     </button>
