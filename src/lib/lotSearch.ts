@@ -21,18 +21,26 @@ export function searchTokens(q: string): string[] {
 // for a numeric token) for a PostgREST .or() call.
 export function tokenOrClause(token: string): string {
   const like = `%${token}%`;
-  const ors = [`name.ilike.${like}`, `description.ilike.${like}`];
+  // zone covers "BD02-5" and, as a prefix, the room "BD02" (needs the
+  // 20261006000003_room_locations migration; room alone is matched via zone or room).
+  const ors = [`name.ilike.${like}`, `description.ilike.${like}`, `zone.ilike.${like}`, `room.ilike.${like}`];
   if (/^\d+$/.test(token)) ors.push(`lot_number.eq.${token}`);
   return ors.join(',');
 }
 
 // In-memory equivalent of the DB search, for lists already loaded on the
 // client (e.g. the Item Lookup tab). Every token must appear in the name,
-// description, or lot number.
+// description, lot number, or room / location (BD02-5).
 export function lotMatchesTokens(
-  lot: { name?: string | null; description?: string | null; lot_number?: number | string | null },
+  lot: {
+    name?: string | null;
+    description?: string | null;
+    lot_number?: number | string | null;
+    room?: string | null;
+    zone?: string | null;
+  },
   tokens: string[],
 ): boolean {
-  const hay = `${lot.name ?? ''} ${lot.description ?? ''} ${lot.lot_number ?? ''}`.toLowerCase();
+  const hay = `${lot.name ?? ''} ${lot.description ?? ''} ${lot.lot_number ?? ''} ${lot.zone ?? ''} ${lot.room ?? ''}`.toLowerCase();
   return tokens.every((t) => hay.includes(t.toLowerCase()));
 }

@@ -157,7 +157,7 @@ function fitFont(ctx: CanvasRenderingContext2D, text: string, width: number, max
 
 /** Draws one tag. Pixels are pure black or white, ready for the printer. */
 export function renderLotTag(
-  lot: Pick<Lot, 'id' | 'lot_number' | 'name' | 'starting_bid'>,
+  lot: Pick<Lot, 'id' | 'lot_number' | 'name' | 'starting_bid'> & { room?: string | null; zone?: string | null },
   branding: TagBranding,
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -225,6 +225,18 @@ export function renderLotTag(
   // Lot number.
   ctx.font = `bold 22px ${FONT}`;
   ctx.fillText(`Lot ${lot.lot_number ?? ''}`, x, y);
+  // Where it is (BD02-5, or the room alone), right-aligned on the same line.
+  const where = lot.zone || lot.room;
+  if (where) {
+    const lotWidth = ctx.measureText(`Lot ${lot.lot_number ?? ''}`).width;
+    ctx.font = `bold 16px ${FONT}`;
+    const ww = ctx.measureText(where).width;
+    if (lotWidth + 8 + ww <= w) {
+      ctx.textAlign = 'right';
+      ctx.fillText(where, x + w, y + 4);
+      ctx.textAlign = 'left';
+    }
+  }
   y += 25;
 
   // Price, as large as fits, along the bottom. Measured first so the item

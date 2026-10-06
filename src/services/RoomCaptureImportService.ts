@@ -11,6 +11,8 @@ import CameraService from './CameraService';
 import ConnectivityService from './ConnectivityService';
 import { getNextLotNumber } from './LotNumberService';
 import type { Lot } from '../types';
+import { isRoomCode } from '../lib/roomCodes';
+import { ensureSaleRoom } from './SaleRoomService';
 
 export const CROP_FILE_PREFIX = 'roomcapture_';
 
@@ -124,13 +126,22 @@ export async function importCaptureLots(opts: {
   images: Map<string, File>;
   consignmentId: string | null;
   roomName?: string;
+  /** The package room code (OF01); set on every lot and added to the sale room list. */
+  roomCode?: string;
   onProgress?: (p: ImportProgress) => void;
 }): Promise<ImportResult> {
   const { saleId, lots, images, consignmentId, roomName, onProgress } = opts;
+  const roomCode = opts.roomCode?.toUpperCase();
+  const room = roomCode && isRoomCode(roomCode) ? roomCode : null;
   if (!ConnectivityService.getConnectionStatus()) {
     throw new Error('Importing needs a connection. Try again when you are back online.');
   }
   if (lots.length === 0) throw new Error('Nothing selected to import.');
+
+  if (room) {
+    // Best effort: the lots still carry the room code if this fails.
+    await ensureSaleRoom(saleId, room, roomName).catch((e) => console.warn('Could not add the room to the sale:', e));
+  }
 
   const first = await getNextLotNumber(saleId, true);
   if (!first || first < 1) throw new Error('Could not get the next lot number for this sale.');
@@ -149,6 +160,8 @@ export async function importCaptureLots(opts: {
     is_restricted: l.possibly_restricted,
     restricted_category: l.possibly_restricted ? 'Possible restricted material (verify)' : undefined,
     consignment_id: consignmentId || undefined,
+    room,
+    needs_detail: !!l.needs_detail,
     created_at: now,
     updated_at: now,
   }));
