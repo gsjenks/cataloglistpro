@@ -66,6 +66,39 @@ What the sale gives room capture:
 A sale's room list is built once (from the catalog) and reused by capture, tags,
 labels, the walk lists and reports.
 
+## Capture step as built: narrated walkthrough videos (2026-10-05)
+
+The 4 Oct video test beat stills for this crew, so the first in-app capture path is
+video. Room capture → **Walkthrough videos** → name the room → record or choose clips
+(one per wall, from the doorway, narrated) → **Process** → **Review** → the existing
+review/create-lots screen.
+
+Per clip (`RoomCaptureVideoService.processClip`):
+1. **Upload straight to Gemini.** `room-capture` `start_upload` opens a resumable
+   upload session with the API key; the browser sends the file in 8 MiB chunks
+   (Gemini's required granularity) directly to Google, so the key stays server-side and
+   the video never passes through an edge function. Google's reply to the *final*
+   chunk has no CORS headers, so the browser can't read it; the file is found by its
+   unique display name instead (`find_file`).
+2. `file_status` until ACTIVE, then `analyze`: transcript and every item with
+   timestamp, box, wall, price, flags, narration (the prompt from the 4 Oct test).
+3. **Frames and crops on the device:** the sharpest of 5 frames within ±0.4 s of each
+   timestamp (Laplacian variance), then **`refine`**: those frames go back to Gemini as
+   *stills* in batches of 20 and get a tight box. Video-pass boxes were often loose or
+   offset (the model samples about 1 frame per second); on the desk clip, refining
+   turned rug-and-desk-edge crops into the clock, urns, lamp and boxes.
+4. The uploaded video is deleted from Gemini.
+
+Then `consolidate` merges all clips of the room (rows + 384 px crop thumbnails) into lots,
+as in the test (139 rows → 102 lots for the office), honouring "validation only" clips and
+pairs split across walls. A single clip skips that call and joins pairs by group. Rows the
+merge leaves out are kept as their own lots.
+
+Model: `ROOM_CAPTURE_MODEL` (default `gemini-3.8-flash`), falling back to
+`gemini-2.5-flash` if the key can't use it. Processing needs a connection; analysed clips
+live only in the open dialog until lots are created (closing asks first), and the screen
+is kept awake while it works.
+
 ## Crew workflow
 
 1. Pick the room in the app (e.g. **OF01 — Office**) and set the flip charts to that
@@ -406,6 +439,7 @@ Each step is usable on its own.
   since 2.5 is already closed to new keys
 
 ## Deploy checklist
+- [ ] `supabase functions deploy room-capture` (needed for Walkthrough videos; uses the existing `GEMINI_API_KEY`, `DB_URL`, `DB_SERVICE_KEY` secrets)
 - [ ] Migration applied
 - [ ] `room-captures` bucket created (private)
 - [ ] `supabase functions deploy room-detect`

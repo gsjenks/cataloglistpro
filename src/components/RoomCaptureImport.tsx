@@ -4,7 +4,7 @@
 // and re-price rows before anything is written. See docs/room-capture-spec.md.
 
 import { useEffect, useMemo, useState } from 'react';
-import { X, FolderOpen, Files, Combine, Check, Ban, Mic, AlertTriangle, Camera } from 'lucide-react';
+import { X, FolderOpen, Files, Combine, Check, Ban, Mic, AlertTriangle, Camera, Video } from 'lucide-react';
 import type { Consignment } from '../types';
 import {
   readCapturePackage,
@@ -15,9 +15,12 @@ import {
   type ImportProgress,
   type ImportResult,
 } from '../services/RoomCaptureImportService';
+import RoomCaptureVideoStep from './RoomCaptureVideoStep';
 
 interface Props {
   saleId: string;
+  /** Where the sale is, for the AI's pricing (e.g. "Estate sale in Richmond, VA"). */
+  saleContext?: string;
   consignments: Consignment[];
   consignorNames: Record<string, string>;
   onClose: () => void;
@@ -34,7 +37,7 @@ const inputCls = 'px-2 py-1 text-sm border border-gray-300 rounded-md focus:outl
 // Folder picking: not in React's input typings.
 const folderProps = { webkitdirectory: '', directory: '' } as Record<string, string>;
 
-export default function RoomCaptureImport({ saleId, consignments, consignorNames, onClose, onImported }: Props) {
+export default function RoomCaptureImport({ saleId, saleContext = '', consignments, consignorNames, onClose, onImported }: Props) {
   const [pkg, setPkg] = useState<CapturePackage | null>(null);
   const [images, setImages] = useState<Map<string, File>>(new Map());
   const [rows, setRows] = useState<Row[]>([]);
@@ -44,6 +47,8 @@ export default function RoomCaptureImport({ saleId, consignments, consignorNames
   const [consignmentId, setConsignmentId] = useState<string>(consignments.length === 1 ? consignments[0].id : '');
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
+  // Walkthrough videos analysed here, instead of a ready-made package.
+  const [videoMode, setVideoMode] = useState(false);
 
   // One object URL per image, released when the dialog closes.
   const thumbs = useMemo(() => {
@@ -55,14 +60,18 @@ export default function RoomCaptureImport({ saleId, consignments, consignorNames
   }, [images]);
   useEffect(() => () => thumbs.forEach((u) => URL.revokeObjectURL(u)), [thumbs]);
 
+  const loadPackage = (p: CapturePackage, imgs: Map<string, File>) => {
+    setPkg(p);
+    setImages(imgs);
+    setRows(p.lots.map((l) => ({ ...l, included: !l.not_for_sale, selected: false })));
+  };
+
   const pick = async (list: FileList | null) => {
     if (!list || list.length === 0) return;
     setError(null);
     try {
       const loaded = await readCapturePackage(Array.from(list));
-      setPkg(loaded.pkg);
-      setImages(loaded.images);
-      setRows(loaded.pkg.lots.map((l) => ({ ...l, included: !l.not_for_sale, selected: false })));
+      loadPackage(loaded.pkg, loaded.images);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read the package.');
     }
@@ -138,8 +147,14 @@ export default function RoomCaptureImport({ saleId, consignments, consignorNames
 
   const busy = progress !== null;
 
+  // Analysed clips live only in this dialog until lots are created.
+  const close = () => {
+    if (!result && (videoMode || pkg) && !window.confirm('Close room capture? Anything not yet created as lots will be lost.')) return;
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 sm:p-4 cursor-pointer" onClick={busy ? undefined : onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 sm:p-4 cursor-pointer" onClick={busy ? undefined : close}>
       <div
         className="bg-white rounded-lg w-full max-w-6xl max-h-[94vh] flex flex-col cursor-default"
         onClick={(e) => e.stopPropagation()}
@@ -150,10 +165,12 @@ export default function RoomCaptureImport({ saleId, consignments, consignorNames
             <p className="text-sm text-gray-500 truncate">
               {pkg
                 ? `${pkg.room?.name || 'Room'}${pkg.room?.code ? ` (${pkg.room.code})` : ''} · ${pkg.source || ''}`
-                : 'Pick the capture folder (lots.json and its crops).'}
+                : videoMode
+                  ? 'Walkthrough videos: one clip per wall, narrated.'
+                  : 'Record walkthrough videos, or pick a capture folder.'}
             </p>
           </div>
-          <button onClick={onClose} disabled={busy} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30">
+          <button onClick={close} disabled={busy} className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -179,8 +196,18 @@ export default function RoomCaptureImport({ saleId, consignments, consignorNames
               Done
             </button>
           </div>
+        ) : !pkg && videoMode ? (
+          <RoomCaptureVideoStep saleContext={saleContext} onReady={loadPackage} />
         ) : !pkg ? (
           <div className="p-6 flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => setVideoMode(true)}
+              className="flex-1 flex flex-col items-center gap-2 border-2 border-indigo-300 bg-indigo-50/50 rounded-lg p-6 hover:border-indigo-500"
+            >
+              <Video className="w-8 h-8 text-indigo-500" />
+              <span className="text-sm font-medium text-gray-700">Walkthrough videos</span>
+              <span className="text-xs text-gray-500">Record or choose narrated clips; the AI finds the items</span>
+            </button>
             <label className="flex-1 flex flex-col items-center gap-2 border-2 border-dashed border-gray-300 rounded-lg p-6 cursor-pointer hover:border-indigo-400">
               <FolderOpen className="w-8 h-8 text-gray-400" />
               <span className="text-sm font-medium text-gray-700">Choose capture folder</span>
