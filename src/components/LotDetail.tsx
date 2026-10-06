@@ -30,7 +30,7 @@ import {
 import type { Lot, Photo, Consignment, Contact } from "../types";
 import { listConsignments } from "../services/ConsignmentService";
 import { toTitleCase } from "../utils/titleCase";
-import { ArrowLeft, Save, Trash2, Upload, Camera, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Upload, Camera, ChevronLeft, ChevronRight, Printer } from "lucide-react";
 import { useLotNeighbors, type WalkMode } from "../hooks/useLotNeighbors";
 import { CROP_FILE_PREFIX } from "../services/RoomCaptureImportService";
 import { deleteLotOnServer } from "../services/LotDeleteService";
@@ -41,6 +41,7 @@ import PhotoPreviewModal from "./PhotoPreviewModal";
 import LotPhotoSection from "./LotPhotoSection";
 import LotForm from "./LotForm";
 import LotQRCode from "./LotQRCode";
+import PrintTagsModal from "./PrintTagsModal";
 
 interface AIResearch {
   researched: boolean;
@@ -227,6 +228,28 @@ export default function LotDetail() {
   useEffect(() => {
     if (!isNewLot && lotId) loadPhotos();
   }, [lotId, isNewLot]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Estate sales print Niimbot lot tags from here (auctions keep Avery sheets).
+  const [isEstateSale, setIsEstateSale] = useState(false);
+  const [showPrintTag, setShowPrintTag] = useState(false);
+  // Sale name and start date print under the tag's QR code.
+  const [tagSale, setTagSale] = useState<{ name?: string | null; start_date?: string | null } | null>(null);
+  useEffect(() => {
+    if (!saleId) return;
+    let cancelled = false;
+    (async () => {
+      type SaleRow = { sale_type?: string; name?: string; start_date?: string | null };
+      const { data } = await supabase.from("sales").select("sale_type, name, start_date").eq("id", saleId).maybeSingle();
+      const row: SaleRow | undefined =
+        (data as SaleRow | null) ?? (await offlineStorage.getSale(saleId).catch(() => undefined));
+      if (cancelled) return;
+      setIsEstateSale(row?.sale_type === "estate_sale");
+      setTagSale(row ? { name: row.name, start_date: row.start_date } : null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [saleId]);
 
   // Sync completion reload
   useEffect(() => {
@@ -1278,6 +1301,15 @@ export default function LotDetail() {
     [saving, isNewLot, handleSave, navigate, saleId, walkMode],
   );
 
+  // The tag shows the saved price, so save edits first rather than print a stale one.
+  const openPrintTag = useCallback(async () => {
+    if (editKey(lotRef.current) !== loadedKeyRef.current) {
+      if (!window.confirm("Save your changes before printing the tag?\n\nOK saves and prints. Cancel stays here.")) return;
+      if (!(await handleSave({ silent: true }))) return;
+    }
+    setShowPrintTag(true);
+  }, [handleSave]);
+
   // Footer actions
   useEffect(() => {
     const caps = CameraService.getPlatformCapabilities();
@@ -1300,6 +1332,17 @@ export default function LotDetail() {
         icon: <Camera className="w-4 h-4" />,
         onClick: handleTakePhoto,
         variant: "secondary",
+      });
+    }
+
+    if (!isNewLot && isEstateSale) {
+      actions.push({
+        id: "print-tag",
+        label: "Print tag",
+        icon: <Printer className="w-4 h-4" />,
+        onClick: openPrintTag,
+        variant: "secondary",
+        disabled: saving,
       });
     }
 
@@ -1354,6 +1397,8 @@ export default function LotDetail() {
     navigate,
     setActions,
     clearActions,
+    isEstateSale,
+    openPrintTag,
   ]);
 
   if (loading) {
@@ -1474,6 +1519,7 @@ export default function LotDetail() {
         hasPhotos={photos.length > 0}
         saving={saving}
         onAIEnrich={handleAIEnrich}
+        onPrintTag={isEstateSale ? openPrintTag : undefined}
         aiBusy={aiBusy}
         consignments={consignments}
         contacts={contacts}
@@ -1557,6 +1603,17 @@ export default function LotDetail() {
           progressText={progressText}
           onAccept={handleAcceptEnhancements}
           onReject={handleRejectEnhancements}
+        />
+      )}
+
+      {showPrintTag && lotId && (
+        <PrintTagsModal
+          lots={[{ ...(lot as Lot), id: lotId }]}
+          sale={tagSale}
+          onClose={() => setShowPrintTag(false)}
+          onPrinted={(_id, printedAt, price) =>
+            setLot((prev) => ({ ...prev, tag_printed_at: printedAt, tag_price: price }))
+          }
         />
       )}
 

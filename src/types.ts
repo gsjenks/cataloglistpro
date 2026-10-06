@@ -63,6 +63,9 @@ export interface Lot {
   estimate_low?: number;
   estimate_high?: number;
   starting_bid?: number;
+  // Lot tag (Niimbot B1): when a tag was last printed and the price on it.
+  tag_printed_at?: string | null;
+  tag_price?: number | null;
   reserve_price?: number;
   buy_now_price?: number;
   sold_price?: number;
@@ -472,4 +475,4 @@ export interface Consignment {
   payout_note?: string;
   created_at?: string;
   updated_at?: string;
-}
+}

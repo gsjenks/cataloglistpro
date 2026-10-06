@@ -1,8 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, ShoppingBasket } from "lucide-react";
-import type { Lot } from "../types/auction";
 import { supabasePublic } from "../lib/publicClient";
+import {
+  fetchMyLot,
+  fetchPublicLot,
+  fetchPublicSale,
+  subscribeSaleLots,
+  type MyLot,
+  type PublicLot,
+} from "../lib/publicLots";
 import LotQRCode from "../components/LotQRCode";
 import BuyerBasket from "../components/BuyerBasket";
 import BasketIcon from "../components/BasketIcon";
@@ -25,7 +32,7 @@ interface Photo {
 export default function PublicLotDetail() {
   const { saleId, lotId } = useParams<{ saleId: string; lotId: string }>();
   const navigate = useNavigate();
-  const [lot, setLot] = useState<Lot | null>(null);
+  const [lot, setLot] = useState<PublicLot | null>(null);
   const [saleType, setSaleType] = useState<string | null>(null);
   const [checkoutEnabled, setCheckoutEnabled] = useState(false);
   const [checkoutOpensAt, setCheckoutOpensAt] = useState<string | null>(null);
@@ -37,8 +44,10 @@ export default function PublicLotDetail() {
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [showReg, setShowReg] = useState(false);
   const [pendingAddLotId, setPendingAddLotId] = useState<string | null>(null);
-  const { shopperId, register } = useShopper();
-  const basket = useServerBasket(saleId, shopperId ?? undefined);
+  const { token, register } = useShopper();
+  const basket = useServerBasket(saleId, token);
+  // This shopper's own hold or purchase of the lot (null for everyone else).
+  const [myLot, setMyLot] = useState<MyLot | null>(null);
 
   const loadLotData = useCallback(async () => {
     if (!lotId || !saleId) {
@@ -50,15 +59,13 @@ export default function PublicLotDetail() {
     try {
       setLoading(true);
 
-      const { data: lotData, error: lotError } = await supabasePublic
-        .from("lots")
-        .select("*")
-        .eq("id", lotId)
-        .eq("sale_id", saleId)
-        .single();
-
-      if (lotError) {
-        console.error("Error loading lot:", lotError);
+      // Public columns only (no buyer, holder, sold price or delivery) — anon
+      // cannot read the lots/sales tables directly.
+      const [lotData, saleRow] = await Promise.all([
+        fetchPublicLot(lotId),
+        fetchPublicSale(saleId),
+      ]);
+      if (!lotData || lotData.sale_id !== saleId) {
         throw new Error("Item not found");
       }
 
@@ -66,11 +73,6 @@ export default function PublicLotDetail() {
 
       // Sale type controls pricing display (estate = fixed price on starting_bid);
       // checkout fields gate the buyer self-checkout / basket.
-      const { data: saleRow } = await supabasePublic
-        .from("sales")
-        .select("sale_type, online_checkout_enabled, online_checkout_opens_at")
-        .eq("id", saleId)
-        .single();
       setSaleType(saleRow?.sale_type ?? null);
       setCheckoutEnabled(saleRow?.online_checkout_enabled ?? false);
       setCheckoutOpensAt(saleRow?.online_checkout_opens_at ?? null);
@@ -105,21 +107,25 @@ export default function PublicLotDetail() {
     loadLotData();
   }, [loadLotData]);
 
+  const loadMyLot = useCallback(async () => {
+    if (!lotId) return;
+    setMyLot(await fetchMyLot(lotId, token));
+  }, [lotId, token]);
+
+  useEffect(() => {
+    loadMyLot();
+  }, [loadMyLot]);
+
   // Keep the lot (esp. its status) live so a buyer sees it sell in real time.
   useEffect(() => {
-    if (!lotId) return;
-    const channel = supabasePublic
-      .channel(`public-lot:${lotId}`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "lots", filter: `id=eq.${lotId}` },
-        (payload) => setLot((prev) => (prev ? { ...prev, ...(payload.new as Lot) } : prev)),
-      )
-      .subscribe();
-    return () => {
-      supabasePublic.removeChannel(channel);
-    };
-  }, [lotId]);
+    if (!saleId || !lotId) return;
+    return subscribeSaleLots(saleId, async (changedLotId) => {
+      if (changedLotId && changedLotId !== lotId) return;
+      const fresh = await fetchPublicLot(lotId);
+      if (fresh) setLot(fresh);
+      loadMyLot();
+    });
+  }, [saleId, lotId, loadMyLot]);
 
   if (loading) {
     return (
@@ -183,7 +189,8 @@ export default function PublicLotDetail() {
     held_until?: string | null;
   };
   const eff = effectiveStatus(l.inventory_status, l.held_until);
-  const inMyBasket = basket.has(l.id);
+  const inMyBasket = basket.has(l.id) || myLot?.relation === "holder";
+  const myPurchase = myLot?.relation === "buyer" ? myLot : null;
   const displayStatus = inMyBasket ? "in_basket" : eff;
   const checkoutOpen =
     isEstate &&
@@ -212,7 +219,7 @@ export default function PublicLotDetail() {
   const handleAdd = async () => {
     if (!lotId) return;
     // Must be a registered shopper first — the basket keys to the person.
-    if (!shopperId) {
+    if (!token) {
       setPendingAddLotId(lotId);
       setShowReg(true);
       return;
@@ -232,14 +239,14 @@ export default function PublicLotDetail() {
     }
   };
 
-  const handleVerified = async (id: string, nm: string, em?: string, ph?: string) => {
-    register(id, nm, em, ph);
+  const handleVerified = async (id: string, tok: string, nm: string, em?: string, ph?: string) => {
+    register(id, tok, nm, em, ph);
     setShowReg(false);
     const toAdd = pendingAddLotId;
     setPendingAddLotId(null);
     if (toAdd) {
-      const res = await holdLot(supabasePublic, toAdd, id);
-      // The basket refreshes automatically now that its key is this shopper id.
+      const res = await holdLot(supabasePublic, toAdd, tok);
+      // The basket refreshes automatically now that this device holds a token.
       if (res.success && saleId && !localStorage.getItem(`basket_prompted_${saleId}`)) {
         setShowSavePrompt(true);
         localStorage.setItem(`basket_prompted_${saleId}`, "1");
@@ -277,7 +284,7 @@ export default function PublicLotDetail() {
       {/* Main Content */}
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Status banner so buyers aren't confused about availability */}
-        {isEstate && !inMyBasket && eff !== "available" && (
+        {isEstate && !inMyBasket && !myPurchase && eff !== "available" && (
           <div
             className={`mb-6 rounded-lg p-4 text-center font-semibold ${
               eff === "sold"
@@ -358,8 +365,33 @@ export default function PublicLotDetail() {
             </p>
           </div>
 
+          {/* The shopper's own purchase: only my_lot() can return this. */}
+          {myPurchase && (
+            <div className="mb-6 rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+              <p className="font-semibold mb-1">You bought this item</p>
+              <p>
+                {myPurchase.price != null && `$${Number(myPurchase.price).toLocaleString()} · `}
+                {new Date(myPurchase.purchased_at).toLocaleDateString()}
+                {" · "}
+                {myPurchase.fulfillment === "delivery" ? "For delivery" : "Carry out"}
+              </p>
+              {myPurchase.delivery && (
+                <div className="mt-2 space-y-0.5">
+                  {myPurchase.delivery.address && <p>Deliver to: {myPurchase.delivery.address}</p>}
+                  {myPurchase.delivery.date && <p>Delivery date: {myPurchase.delivery.date}</p>}
+                  {myPurchase.delivery.company && (
+                    <p>
+                      Mover: {myPurchase.delivery.company}
+                      {myPurchase.delivery.company_phone && ` · ${myPurchase.delivery.company_phone}`}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Buyer self-checkout: add to basket (estate sales only) */}
-          {isEstate && (
+          {isEstate && !myPurchase && (
             <div className="mb-6">
               {inMyBasket ? (
                 <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 text-center text-sm font-medium text-indigo-800">
@@ -432,14 +464,6 @@ export default function PublicLotDetail() {
               <div>
                 <p className="text-sm text-gray-600 font-medium mb-1">Style</p>
                 <p className="text-gray-900">{lot.style}</p>
-              </div>
-            )}
-            {lot.quantity && lot.quantity > 1 && (
-              <div>
-                <p className="text-sm text-gray-600 font-medium mb-1">
-                  Quantity
-                </p>
-                <p className="text-gray-900">{lot.quantity}</p>
               </div>
             )}
           </div>
