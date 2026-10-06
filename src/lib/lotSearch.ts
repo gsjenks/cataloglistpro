@@ -22,7 +22,7 @@ export function searchTokens(q: string): string[] {
 export function tokenOrClause(token: string): string {
   const like = `%${token}%`;
   // zone covers "BD02-5" and, as a prefix, the room "BD02" (needs the
-  // 20261006000000_room_locations migration; room alone is matched via zone or room).
+  // 20261006000003_room_locations migration; room alone is matched via zone or room).
   const ors = [`name.ilike.${like}`, `description.ilike.${like}`, `zone.ilike.${like}`, `room.ilike.${like}`];
   if (/^\d+$/.test(token)) ors.push(`lot_number.eq.${token}`);
   return ors.join(',');
