@@ -7,6 +7,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { generateQRCodeForLot } from "../lib/qr";
 import { useFooter, type FooterAction } from "../context/FooterContext";
+import { useRole } from "../context/RoleContext";
 import ConnectivityService from "../services/ConnectivityService";
 import SyncService from "../services/SyncService";
 import {
@@ -125,6 +126,7 @@ export default function LotDetail() {
   // editKey of the lot as loaded or last saved; anything else is unsaved.
   const loadedKeyRef = useRef<string>("");
   const { setActions, clearActions } = useFooter();
+  const canDelete = useRole().can("delete");
   const [isOnline, setIsOnline] = useState(
     ConnectivityService.getConnectionStatus(),
   );
@@ -1380,7 +1382,7 @@ export default function LotDetail() {
       variant: "secondary",
     });
 
-    if (!isNewLot) {
+    if (!isNewLot && canDelete) {
       actions.push({
         id: "delete",
         label: "Delete",
@@ -1407,6 +1409,7 @@ export default function LotDetail() {
     clearActions,
     isEstateSale,
     openPrintTag,
+    canDelete,
   ]);
 
   if (loading) {

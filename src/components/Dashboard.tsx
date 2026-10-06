@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useFooter } from '../context/FooterContext';
+import { useRole } from '../context/RoleContext';
 import { supabase } from '../lib/supabase';
 import offlineStorage from '../services/Offlinestorage';
 import type { Sale, Contact, Document } from '../types';
@@ -28,6 +29,7 @@ import EOAImportModal from './EOAImportModal';
 
 export default function Dashboard() {
   const { user, currentCompany } = useApp();
+  const { can } = useRole();
   const { setActions, clearActions } = useFooter();
   const [activeTab, setActiveTab] = useState('sales');
   const [sales, setSales] = useState<Sale[]>([]);
@@ -177,13 +179,18 @@ export default function Dashboard() {
   useEffect(() => {
     switch (activeTab) {
       case 'sales':
-        setActions([{
-          id: 'add-sale',
-          label: 'New Sale',
-          icon: <Plus className="w-4 h-4" />,
-          onClick: () => setShowSaleModal(true),
-          variant: 'primary'
-        }]);
+        // Creating a sale is setup: managers and admins only.
+        if (can('saleInfo')) {
+          setActions([{
+            id: 'add-sale',
+            label: 'New Sale',
+            icon: <Plus className="w-4 h-4" />,
+            onClick: () => setShowSaleModal(true),
+            variant: 'primary'
+          }]);
+        } else {
+          clearActions();
+        }
         break;
       case 'contacts':
         setActions([{
@@ -213,7 +220,7 @@ export default function Dashboard() {
         clearActions();
     }
     return () => clearActions();
-  }, [activeTab, setActions, clearActions]);
+  }, [activeTab, setActions, clearActions, can]);
 
   // Memoized handlers
   const handleSearch = useCallback((tabId: string, query: string) => {
@@ -332,7 +339,14 @@ export default function Dashboard() {
     { id: 'contacts', label: 'Contacts', icon: <Users className="w-4 h-4" />, count: filteredContacts.length },
     { id: 'documents', label: 'Documents', icon: <FileText className="w-4 h-4" />, count: filteredDocuments.length },
     { id: 'reports', label: 'Reports & Tools', icon: <FileUp className="w-4 h-4" />, count: 0 },
-  ], [filteredSales.length, filteredContacts.length, filteredDocuments.length]);
+  // Documents (contracts, certificates) are manager-only, in the database too.
+  ].filter((t) => can('saleInfo') || t.id !== 'documents'),
+  [filteredSales.length, filteredContacts.length, filteredDocuments.length, can]);
+
+  // A role that cannot see the current tab falls back to Sales.
+  useEffect(() => {
+    if (!can('saleInfo') && activeTab === 'documents') setActiveTab('sales');
+  }, [activeTab, can]);
 
   // Static tab filters config
   const tabFilters = useMemo(() => ({
@@ -460,6 +474,7 @@ export default function Dashboard() {
           <div className="p-6">
             {activeTab === 'sales' && (
               <div className="space-y-4">
+                {can('saleInfo') && (
                 <div className="flex justify-end">
                   <button
                     onClick={() => setShowImport(true)}
@@ -468,6 +483,7 @@ export default function Dashboard() {
                     <FileUp className="w-4 h-4" /> Import LiveAuctioneers auction
                   </button>
                 </div>
+                )}
                 <SalesList sales={filteredSales} onRefresh={loadDashboardData} salesWithContract={salesWithContract} />
               </div>
             )}

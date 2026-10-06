@@ -4,6 +4,7 @@ import type { Sale } from "../types";
 import { Calendar, MapPin, Edit, Trash2, FileCheck, FileWarning } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useApp } from "../context/AppContext";
+import { useRole } from "../context/RoleContext";
 import SaleModal from "../components/SaleModal";
 
 interface SalesListProps {
@@ -16,6 +17,7 @@ interface SalesListProps {
 export default function SalesList({ sales, onRefresh, salesWithContract }: SalesListProps) {
   const navigate = useNavigate();
   const { currentCompany } = useApp();
+  const { can } = useRole();
   const [showModal, setShowModal] = useState(false);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
 
@@ -96,6 +98,7 @@ export default function SalesList({ sales, onRefresh, salesWithContract }: Sales
             >
               {/* Action buttons - Top Right */}
               <div className="absolute top-4 right-4 flex items-center gap-1 z-10">
+                {can("saleInfo") && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -107,6 +110,8 @@ export default function SalesList({ sales, onRefresh, salesWithContract }: Sales
                 >
                   <Edit className="w-4 h-4" />
                 </button>
+                )}
+                {can("delete") && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -117,6 +122,7 @@ export default function SalesList({ sales, onRefresh, salesWithContract }: Sales
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
+                )}
               </div>
 
               <div className="mb-3">

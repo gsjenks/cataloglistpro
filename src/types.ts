@@ -314,7 +314,7 @@ export interface SocialClaim {
 export interface UserCompany {
   user_id: string;
   company_id: string;
-  role: 'owner' | 'admin' | 'member';
+  role: 'owner' | 'admin' | 'manager' | 'staff' | 'member'; // 'member' = staff (older rows); see lib/roles.ts
   created_at?: string;
 }
 

@@ -15,6 +15,7 @@ import LiveAuctioneersUpload from "./LiveAuctioneersUpload";
 import EOAProcessing from "./EOAProcessing";
 import { QRCodeLabelGenerator } from "./QRCodeLabelGenerator";
 import EstateDispositionReport from "./EstateDispositionReport";
+import { useRole } from "../context/RoleContext";
 
 type ToolView =
   | "menu"
@@ -56,6 +57,10 @@ export default function SaleReportsTools({
   // (end-of-auction) tools; the QR price-tag tool still applies.
   const isEstate = saleType === "estate_sale";
   const LA_TOOL_IDS = new Set(["la-export", "la-import", "invoice-import"]);
+  // EOA processing sets prices and the Disposition Report totals the money:
+  // managers and admins only.
+  const MONEY_TOOL_IDS = new Set(["invoice-import", "dispo-report"]);
+  const canMoney = useRole().can("money");
 
   // Tool menu items
   const tools = [
@@ -101,7 +106,9 @@ export default function SaleReportsTools({
           view: "dispo-report" as ToolView,
         }]
       : []),
-  ].filter((t) => !(isEstate && LA_TOOL_IDS.has(t.id)));
+  ]
+    .filter((t) => !(isEstate && LA_TOOL_IDS.has(t.id)))
+    .filter((t) => canMoney || !MONEY_TOOL_IDS.has(t.id));
 
   if (activeView === "dispo-report") {
     return <EstateDispositionReport saleId={_saleId} saleName={saleName} lots={lots} onBack={() => setActiveView("menu")} />;

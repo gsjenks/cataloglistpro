@@ -34,7 +34,7 @@ serve(async (req) => {
         to: email,
         subject: `You're invited to join ${companyName}`,
         html: `<div style="font-family:sans-serif;max-width:480px">
-          <p>You've been invited to join <strong>${companyName}</strong> on CatalogListPro${role ? ` as ${role === "admin" ? "an admin" : "a member"}` : ""}.</p>
+          <p>You've been invited to join <strong>${companyName}</strong> on CatalogListPro${role ? ` as ${role === "admin" ? "an admin" : role === "manager" ? "a manager" : "a staff member"}` : ""}.</p>
           <p>To accept, sign in or create an account using <strong>${email}</strong>:</p>
           <p><a href="${link}" style="display:inline-block;background:#4f46e5;color:#fff;padding:11px 22px;border-radius:6px;text-decoration:none;font-weight:600">Open CatalogListPro</a></p>
           <p style="color:#888;font-size:12px;margin-top:16px">You'll be added to ${companyName} automatically the first time you sign in with this email address.</p>

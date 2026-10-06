@@ -7,6 +7,7 @@ import { Edit2, Trash2, Package } from 'lucide-react';
 import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { supabase } from '../lib/supabase';
 import { deleteLotOnServer } from '../services/LotDeleteService';
+import { useRole } from '../context/RoleContext';
 import PhotoService from '../services/PhotoService';
 import SyncService from '../services/SyncService';
 import InventoryStatusControl from './InventoryStatusControl';
@@ -133,7 +134,7 @@ const LotCard = memo(({
   lot: Lot;
   deleting: string | null;
   onEdit: (lotId: string) => void;
-  onDelete: (lot: Lot) => void;
+  onDelete?: (lot: Lot) => void;
   loadPhoto: (lotId: string) => Promise<{ url: string | null; fallback: string | null }>;
   refreshKey: number;
   showInventory: boolean;
@@ -301,6 +302,7 @@ const LotCard = memo(({
             >
               <Edit2 className="w-4 h-4" />
             </button>
+            {onDelete && (
             <button
               onClick={() => onDelete(lot)}
               disabled={deleting === lot.id}
@@ -313,6 +315,7 @@ const LotCard = memo(({
                 <Trash2 className="w-4 h-4" />
               )}
             </button>
+            )}
           </div>
 
           <LazyImage lotId={lot.id} alt={lot.name} loadPhoto={loadPhoto} refreshKey={refreshKey} onClick={() => onEdit(lot.id)} />
@@ -337,6 +340,7 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
   const showInventory = saleType === 'estate_sale';
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState<string | null>(null);
+  const { can } = useRole();
   const [refreshKey, setRefreshKey] = useState(0);
   
   // Cache for loaded photo URLs
@@ -460,13 +464,13 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
           lot={lot}
           deleting={deleting}
           onEdit={handleEdit}
-          onDelete={handleDelete}
+          onDelete={can('delete') ? handleDelete : undefined}
           loadPhoto={loadPhoto}
           refreshKey={refreshKey}
           showInventory={showInventory}
           onInventoryChange={onInventoryChange}
           onHold={onHoldLot ? () => onHoldLot(lot) : undefined}
-          onRefund={onRefundLot ? () => onRefundLot(lot) : undefined}
+          onRefund={onRefundLot && can('refund') ? () => onRefundLot(lot) : undefined}
           saleId={saleId}
           consignorName={lot.consignment_id ? consignorNames?.[lot.consignment_id] : undefined}
         />

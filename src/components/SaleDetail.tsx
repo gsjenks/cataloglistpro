@@ -38,11 +38,17 @@ import EstateFulfillmentPanel from './EstateFulfillmentPanel';
 import ReconciliationPanel from './ReconciliationPanel';
 import { listConsignments } from '../services/ConsignmentService';
 import { formatContactName } from '../utils/contactName';
+import { useRole } from '../context/RoleContext';
+
+// Tabs holding sale-level information (setup, client and contract details,
+// dispositions, reports). Staff do not see them.
+const SALE_INFO_TABS = new Set(['setup', 'contacts', 'documents', 'unsold', 'reports']);
 
 export default function SaleDetail() {
   const { saleId } = useParams<{ saleId: string }>();
   const navigate = useNavigate();
   const { setActions, clearActions } = useFooter();
+  const { can } = useRole();
   const [sale, setSale] = useState<Sale | null>(null);
   const [lots, setLots] = useState<Lot[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -172,13 +178,16 @@ export default function SaleDetail() {
           // Estate sales: open the register, or scan a tag to jump to a lot.
           ...(sale?.sale_type === 'estate_sale'
             ? [
-                {
-                  id: 'register',
-                  label: 'Register',
-                  icon: <ShoppingCart className="w-4 h-4" />,
-                  onClick: () => setShowRegister(true),
-                  variant: 'primary' as const,
-                },
+                // The register is the cashier counter: managers and admins only.
+                ...(can('register')
+                  ? [{
+                      id: 'register',
+                      label: 'Register',
+                      icon: <ShoppingCart className="w-4 h-4" />,
+                      onClick: () => setShowRegister(true),
+                      variant: 'primary' as const,
+                    }]
+                  : []),
                 {
                   id: 'scan-lot',
                   label: 'Scan',
@@ -274,7 +283,16 @@ export default function SaleDetail() {
     return () => {
       clearActions();
     };
-  }, [activeTab, saleId, sale?.sale_type, setActions, clearActions, navigate]);
+  }, [activeTab, saleId, sale?.sale_type, setActions, clearActions, navigate, can]);
+
+  // A role that cannot see the current tab (e.g. View as Staff while on
+  // Reconciliation) falls back to Items rather than a blank page.
+  useEffect(() => {
+    const hidden =
+      (!can('money') && (activeTab === 'payments' || activeTab === 'reconciliation')) ||
+      (!can('saleInfo') && SALE_INFO_TABS.has(activeTab));
+    if (hidden) setActiveTab('items');
+  }, [activeTab, can]);
 
   const loadSale = async () => {
     if (!saleId) return;
@@ -754,7 +772,11 @@ export default function SaleDetail() {
       label: 'Reports & Tools',
       icon: <BarChart3 className="w-4 h-4" />,
     },
-  ].filter((t) => !(isEstate && t.id === 'payments'));
+  ]
+    .filter((t) => !(isEstate && t.id === 'payments'))
+    // Staff: no money tabs and no sale-level tabs; they keep Items and Fulfillment.
+    .filter((t) => can('money') || (t.id !== 'payments' && t.id !== 'reconciliation'))
+    .filter((t) => can('saleInfo') || !SALE_INFO_TABS.has(t.id));
 
   // Define filters for each tab
   const tabFilters = {
@@ -860,7 +882,7 @@ export default function SaleDetail() {
           `}>
             {sale.status?.charAt(0).toUpperCase() + sale.status?.slice(1)}
           </span>
-          {documents.some((doc) => doc.document_type === 'contract') ? (
+          {!can('saleInfo') ? null : documents.some((doc) => doc.document_type === 'contract') ? (
             <span
               className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-green-50 text-green-700 border border-green-200"
               title="Contract on file for this sale"
@@ -882,15 +904,18 @@ export default function SaleDetail() {
         </div>
       </div>
 
-      {/* Auction lifecycle stage banner (#2) */}
+      {/* Auction lifecycle stage banner (#2). Sale-level: not shown to staff. */}
+      {can('saleInfo') && (
       <StageBanner
         sale={sale}
         lots={lots}
         consignments={consignments}
         documents={documents}
         onChanged={loadSale}
-        onOpenSetup={() => setActiveTab('setup')}
+        onOpenSetup={can('saleInfo') ? () => setActiveTab('setup') : undefined}
+        canAdvance={can('stages')}
       />
+      )}
 
       {/* Scrollable Tabs with Search, Filter, and Sort */}
       <ScrollableTabs
@@ -1018,12 +1043,14 @@ export default function SaleDetail() {
                 >
                   Needs detail photo <span className="opacity-70">({lots.filter((l) => l.needs_detail).length})</span>
                 </button>
+                {can('saleInfo') && (
                 <button
                   onClick={() => setShowRooms(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
                 >
                   <DoorOpen className="w-3.5 h-3.5" /> {saleRooms.length ? 'Rooms…' : 'Set up rooms'}
                 </button>
+                )}
               </div>
             )}
 
@@ -1176,7 +1203,7 @@ export default function SaleDetail() {
         <QRScanner onScan={handleScanned} onClose={() => setShowScanner(false)} />
       )}
 
-      {showRegister && (
+      {showRegister && can('register') && (
         <PointOfSale
           saleId={saleId!}
           companyId={sale?.company_id ?? null}
@@ -1194,11 +1221,11 @@ export default function SaleDetail() {
           companyId={sale?.company_id ?? null}
           onClose={() => setShowBaskets(false)}
           onChanged={loadLots}
-          onCheckout={(shopperId) => {
+          onCheckout={can('register') ? (shopperId) => {
             setShowBaskets(false);
             setCheckoutBasketId(shopperId);
             setShowRegister(true);
-          }}
+          } : undefined}
         />
       )}
 
