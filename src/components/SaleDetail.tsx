@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck, Banknote, Images, Printer } from 'lucide-react';
+import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck, Banknote, Images, Printer, DoorOpen } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import offlineStorage from '../services/Offlinestorage';
 import { useFooter } from '../context/FooterContext';
-import type { Sale, Lot, Contact, Document, Consignment } from '../types';
+import type { Sale, Lot, Contact, Document, Consignment, SaleRoom } from '../types';
+import SaleRoomsManager from './SaleRoomsManager';
+import { listSaleRooms } from '../services/SaleRoomService';
+import { compareByLocation } from '../lib/roomCodes';
 import { useLotInventoryRealtime } from '../hooks/useLotInventoryRealtime';
 import { reclaimExpiredHolds } from '../lib/holds';
 import { isSoldLot } from '../lib/lotState';
@@ -98,6 +101,12 @@ export default function SaleDetail() {
   const [statusFilter, setStatusFilter] = useState<Set<InvStatus>>(new Set());
   // Estate: only lots whose Niimbot tag is missing or shows an old price.
   const [tagFilter, setTagFilter] = useState(false);
+  // Estate: the sale room list, and a filter to one room ('' = all, NO_ROOM = unassigned).
+  const [saleRooms, setSaleRooms] = useState<SaleRoom[]>([]);
+  const [roomFilter, setRoomFilter] = useState('');
+  const [detailFilter, setDetailFilter] = useState(false);
+  const [showRooms, setShowRooms] = useState(false);
+  const NO_ROOM = '__none__';
   const [printTagLots, setPrintTagLots] = useState<Lot[] | null>(null);
   const toggleStatusFilter = (s: InvStatus) =>
     setStatusFilter((prev) => {
@@ -132,6 +141,14 @@ export default function SaleDetail() {
     loadDocuments();
     loadConsignments();
   }, [saleId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Estate sales: the room list (room filter, lot locations, tag order).
+  useEffect(() => {
+    if (!saleId || sale?.sale_type !== 'estate_sale') return;
+    listSaleRooms(saleId)
+      .then(setSaleRooms)
+      .catch((e) => console.warn('Room list unavailable:', e));
+  }, [saleId, sale?.sale_type]);
 
   // Load export stats when Reports tab is active
   useEffect(() => {
@@ -541,7 +558,9 @@ export default function SaleDetail() {
         lot.width?.toString().includes(query) ||
         lot.depth?.toString().includes(query) ||
         lot.weight?.toString().includes(query) ||
-        lot.quantity?.toString().includes(query)
+        lot.quantity?.toString().includes(query) ||
+        lot.zone?.toLowerCase().includes(query) ||
+        lot.room?.toLowerCase().includes(query)
       );
     }
     
@@ -558,6 +577,13 @@ export default function SaleDetail() {
 
     if (tagFilter) {
       filtered = filtered.filter(tagOutOfDate);
+    }
+
+    if (roomFilter) {
+      filtered = filtered.filter((lot) => (roomFilter === NO_ROOM ? !lot.room : lot.room === roomFilter));
+    }
+    if (detailFilter) {
+      filtered = filtered.filter((lot) => !!lot.needs_detail);
     }
 
     // Apply sort
@@ -599,6 +625,9 @@ export default function SaleDetail() {
           });
           break;
       }
+    } else if (roomFilter && roomFilter !== NO_ROOM) {
+      // One room: walking order (location from the doorway, then lot number).
+      filtered.sort(compareByLocation(saleRooms.map((r) => r.room_code)));
     }
     
     return filtered;
@@ -956,6 +985,48 @@ export default function SaleDetail() {
               )}
             </div>
 
+            {/* Estate: rooms. Filter to one room (walking order), find items still
+                needing a detail photo, and manage the sale room list. */}
+            {isEstate && (
+              <div className="flex flex-wrap items-center gap-2 -mt-2 mb-4">
+                <span className="text-xs font-medium text-gray-500 mr-1">Room:</span>
+                {[
+                  { key: '', label: 'All' },
+                  ...saleRooms.map((r) => ({ key: r.room_code, label: `${r.room_code} ${r.name}` })),
+                  ...(lots.some((l) => !l.room) && saleRooms.length > 0 ? [{ key: NO_ROOM, label: 'No room' }] : []),
+                ].map(({ key, label }) => {
+                  const active = roomFilter === key;
+                  const count = key === '' ? lots.length : lots.filter((l) => (key === NO_ROOM ? !l.room : l.room === key)).length;
+                  return (
+                    <button
+                      key={key || 'all'}
+                      onClick={() => setRoomFilter(key)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                        active ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      {label} <span className="opacity-70">({count})</span>
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => setDetailFilter((v) => !v)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                    detailFilter ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50'
+                  }`}
+                  title="Items flagged as needing a proper detail photo"
+                >
+                  Needs detail photo <span className="opacity-70">({lots.filter((l) => l.needs_detail).length})</span>
+                </button>
+                <button
+                  onClick={() => setShowRooms(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                >
+                  <DoorOpen className="w-3.5 h-3.5" /> {saleRooms.length ? 'Rooms…' : 'Set up rooms'}
+                </button>
+              </div>
+            )}
+
             {/* Estate: Niimbot lot tags. Filter to tags never printed or printed
                 with an old price, then print whatever list is showing. */}
             {isEstate && lots.length > 0 && (
@@ -995,7 +1066,7 @@ export default function SaleDetail() {
             />
             
             {/* Show "No results" message when a search/filter hides everything */}
-            {(searchQueries.items || statusFilter.size > 0 || tagFilter || activeFilters.items) && filteredLots.length === 0 && lots.length > 0 && (
+            {(searchQueries.items || statusFilter.size > 0 || tagFilter || roomFilter || detailFilter || activeFilters.items) && filteredLots.length === 0 && lots.length > 0 && (
               <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
                 <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-500 text-lg mb-2">No items found</p>
@@ -1131,10 +1202,24 @@ export default function SaleDetail() {
         />
       )}
 
+      {showRooms && (
+        <SaleRoomsManager
+          saleId={saleId!}
+          rooms={saleRooms}
+          lotCounts={lots.reduce<Record<string, number>>((m, l) => {
+            if (l.room) m[l.room] = (m[l.room] ?? 0) + 1;
+            return m;
+          }, {})}
+          onChanged={setSaleRooms}
+          onClose={() => setShowRooms(false)}
+        />
+      )}
+
       {printTagLots && (
         <PrintTagsModal
           lots={printTagLots}
           sale={sale}
+          roomOrder={saleRooms.map((r) => r.room_code)}
           onClose={() => setPrintTagLots(null)}
           onPrinted={(lotId, printedAt, price) =>
             setLots((prev) => prev.map((l) => (l.id === lotId ? { ...l, tag_printed_at: printedAt, tag_price: price } : l)))

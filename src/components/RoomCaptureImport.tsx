@@ -133,6 +133,7 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
         images,
         consignmentId: consignmentId || null,
         roomName: pkg?.room?.name,
+        roomCode: pkg?.room?.code,
         onProgress: setProgress,
       });
       setResult(res);

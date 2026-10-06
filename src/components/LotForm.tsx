@@ -13,7 +13,8 @@ import {
   getLACreators,
   getLAMaterials,
 } from "../services/LiveAuctioneersData";
-import type { Lot, Consignment, Contact } from "../types";
+import type { Lot, Consignment, Contact, SaleRoom } from "../types";
+import { MAX_LOCATION, formatZone, parseZone } from "../lib/roomCodes";
 import { formatContactName } from "../utils/contactName";
 
 interface LotFormProps {
@@ -32,6 +33,8 @@ interface LotFormProps {
   // of LotForm keep working.
   consignments?: Consignment[];
   contacts?: Contact[];
+  /** Estate sales: the sale room list. When given, the form shows Room / Location. */
+  rooms?: SaleRoom[];
 }
 
 const formatPrice = (value: number | undefined | null): string => {
@@ -51,6 +54,7 @@ function LotForm({
   aiBusy,
   consignments,
   contacts,
+  rooms,
 }: LotFormProps) {
   const updateField = useCallback(
     <K extends keyof Lot>(field: K, value: Lot[K]) => {
@@ -170,6 +174,11 @@ function LotForm({
               placeholder="Detailed description including condition, provenance, and notable features..."
             />
           </div>
+
+          {/* Estate sales: where the item is (room + location from the flip charts). */}
+          {rooms && (
+            <RoomLocationFields lot={lot} rooms={rooms} onChange={onChange} />
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -504,3 +513,72 @@ function LotForm({
 }
 
 export default memo(LotForm);
+
+// Room picker + location number (1-20) -> lots.room and lots.zone ("BD02-5"),
+// plus the needs-detail-photo flag that room capture sets.
+function RoomLocationFields({
+  lot,
+  rooms,
+  onChange,
+}: {
+  lot: Partial<Lot>;
+  rooms: SaleRoom[];
+  onChange: (lot: Partial<Lot>) => void;
+}) {
+  const room = lot.room ?? parseZone(lot.zone)?.room ?? "";
+  const location = parseZone(lot.zone)?.location;
+  // Keep a room the lot already has even if it is no longer in the list.
+  const options = room && !rooms.some((r) => r.room_code === room)
+    ? [...rooms, { id: room, room_code: room, name: "(not in this sale’s room list)" } as SaleRoom]
+    : rooms;
+
+  const setRoom = (code: string) =>
+    onChange({ ...lot, room: code || null, zone: code ? formatZone(code, location) : null });
+  const setLocation = (value: string) => {
+    const n = value === "" ? undefined : parseInt(value, 10);
+    onChange({ ...lot, room: room || null, zone: room ? formatZone(room, n) : null });
+  };
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="col-span-2 md:col-span-1">
+        <label className="block text-sm font-medium text-gray-700 mb-1">Room</label>
+        <select
+          value={room}
+          onChange={(e) => setRoom(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600"
+        >
+          <option value="">{rooms.length ? "No room" : "No rooms yet (Items tab → Rooms)"}</option>
+          {options.map((r) => (
+            <option key={r.room_code} value={r.room_code}>
+              {r.room_code} — {r.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={MAX_LOCATION}
+          value={location ?? ""}
+          onChange={(e) => setLocation(e.target.value)}
+          disabled={!room}
+          placeholder={room ? "1–20" : "Pick a room"}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600 disabled:bg-gray-50"
+        />
+        {lot.zone && <p className="mt-1 text-xs font-mono text-indigo-700">{lot.zone}</p>}
+      </div>
+      <label className="flex items-center gap-2 text-sm text-gray-700 md:mt-7">
+        <input
+          type="checkbox"
+          checked={!!lot.needs_detail}
+          onChange={(e) => onChange({ ...lot, needs_detail: e.target.checked })}
+        />
+        Needs a detail photo
+      </label>
+    </div>
+  );
+}
