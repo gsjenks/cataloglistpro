@@ -1176,4 +1176,4 @@ export default function SaleDetail() {
       )}
     </div>
   );
-}
+}
