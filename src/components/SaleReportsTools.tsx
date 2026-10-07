@@ -10,11 +10,13 @@ import {
   FileText,
   QrCode,
   ClipboardList,
+  Images,
 } from "lucide-react";
 import LiveAuctioneersUpload from "./LiveAuctioneersUpload";
 import EOAProcessing from "./EOAProcessing";
 import { QRCodeLabelGenerator } from "./QRCodeLabelGenerator";
 import EstateDispositionReport from "./EstateDispositionReport";
+import EstateSalesNetExport from "./EstateSalesNetExport";
 import { useRole } from "../context/RoleContext";
 
 type ToolView =
@@ -23,7 +25,8 @@ type ToolView =
   | "la-export"
   | "invoice-import"
   | "qr-labels"
-  | "dispo-report";
+  | "dispo-report"
+  | "esn-photos";
 
 interface SaleReportsToolsProps {
   saleId: string;
@@ -104,11 +107,22 @@ export default function SaleReportsTools({
             "Whole-sale summary of every lot — sold (to whom), returned, charity, cleanout, unsold, and refunds. Printable.",
           icon: <ClipboardList className="w-6 h-6 text-indigo-600" />,
           view: "dispo-report" as ToolView,
+        }, {
+          id: "esn-photos",
+          title: "EstateSales.net photos",
+          description:
+            "Download the primary photo of every lot as one ZIP, in walking order, ready to upload to your EstateSales.net listing.",
+          icon: <Images className="w-6 h-6 text-indigo-600" />,
+          view: "esn-photos" as ToolView,
         }]
       : []),
   ]
     .filter((t) => !(isEstate && LA_TOOL_IDS.has(t.id)))
     .filter((t) => canMoney || !MONEY_TOOL_IDS.has(t.id));
+
+  if (activeView === "esn-photos") {
+    return <EstateSalesNetExport saleId={_saleId} saleName={saleName} lots={lots} onBack={() => setActiveView("menu")} />;
+  }
 
   if (activeView === "dispo-report") {
     return <EstateDispositionReport saleId={_saleId} saleName={saleName} lots={lots} onBack={() => setActiveView("menu")} />;
