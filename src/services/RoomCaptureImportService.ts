@@ -84,12 +84,12 @@ export function findImage(images: Map<string, File>, path: string): File | undef
   return images.get(path) || images.get(baseName(path));
 }
 
-export function lotDescription(l: CaptureLot, roomName?: string): string {
+// The item description only. The narration is shown on the review screen (and
+// the AI already folds what was said into the description), and the location
+// lives in lots.room / lots.zone, so neither is repeated here.
+export function lotDescription(l: CaptureLot): string {
   const lines: string[] = [];
   if (l.description) lines.push(l.description);
-  if (l.narration) lines.push(`Narration: ${l.narration}`);
-  const where = [roomName, l.location].filter(Boolean).join(' — ');
-  if (where) lines.push(`Location: ${where}`);
   return lines.join('\n\n');
 }
 
@@ -155,7 +155,7 @@ export async function importCaptureLots(opts: {
     sale_id: saleId,
     lot_number: first + i,
     name: l.name.trim() || 'Untitled item',
-    description: lotDescription(l, roomName),
+    description: lotDescription(l),
     quantity: Math.max(1, Math.round(l.quantity || 1)),
     category: l.category || undefined,
     starting_bid: l.price > 0 ? Math.round(l.price) : undefined,
