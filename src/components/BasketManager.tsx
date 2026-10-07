@@ -101,6 +101,8 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
   const [editShopper, setEditShopper] = useState<{ name: string; phone: string; email: string } | null>(null);
   const [selectedLot, setSelectedLot] = useState<LotRow | null>(null);
   const [lotPhotoUrl, setLotPhotoUrl] = useState<string | null>(null);
+  // The detail card was opened from a basket row, so Back returns to that basket.
+  const [lotFromBasket, setLotFromBasket] = useState(false);
   const [lotBuyer, setLotBuyer] = useState<string | null>(null);
   const [lotFulfillment, setLotFulfillment] = useState<string | null>(null);
   const [lotDelivery, setLotDelivery] = useState<{
@@ -232,6 +234,11 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
       });
     return true;
   };
+
+  // Any way of leaving the detail card ends the trip from the basket.
+  useEffect(() => {
+    if (!selectedLot) setLotFromBasket(false);
+  }, [selectedLot]);
 
   // Open the full detail card for a lot: photo + data + status + customer.
   const openDetail = async (lot: LotRow) => {
@@ -785,7 +792,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
         {(['shoppers', 'items'] as const).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); setLotFromBasket(false); }}
             className={`flex-1 py-2.5 text-sm font-medium border-b-2 ${
               tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-600'
             }`}
@@ -1062,9 +1069,14 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                       ) : (
                         <li key={l.id} className="px-3 py-2.5">
                           <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-800 truncate pr-2">
+                            <button
+                              type="button"
+                              onClick={() => { setTab('items'); setLotFromBasket(true); openDetail(l); }}
+                              className="text-sm text-left text-gray-800 truncate pr-2 hover:text-indigo-600 hover:underline"
+                              title="Show this item's details"
+                            >
                               #{l.lot_number ?? '—'} {l.name}
-                            </span>
+                            </button>
                             <span className="flex items-center gap-3 whitespace-nowrap">
                               <span className="text-sm text-gray-600">{money(l.starting_bid)}</span>
                               <button
@@ -1224,9 +1236,18 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
           <div className="max-w-2xl mx-auto">
             {selectedLot ? (
               <div>
-                <button onClick={() => setSelectedLot(null)} className="text-sm text-indigo-600 hover:underline mb-3">
-                  ← Back to results
-                </button>
+                {lotFromBasket && selected ? (
+                  <button
+                    onClick={() => { setSelectedLot(null); setLotFromBasket(false); setTab('shoppers'); }}
+                    className="text-sm text-indigo-600 hover:underline mb-3"
+                  >
+                    ← Back to {selected.name}’s basket
+                  </button>
+                ) : (
+                  <button onClick={() => setSelectedLot(null)} className="text-sm text-indigo-600 hover:underline mb-3">
+                    ← Back to results
+                  </button>
+                )}
                 <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                   {lotPhotoUrl && (
                     <img src={lotPhotoUrl} alt={selectedLot.name} className="w-full max-h-72 object-cover" />
