@@ -13,6 +13,7 @@ import { getNextLotNumber } from './LotNumberService';
 import type { Lot } from '../types';
 import { isRoomCode } from '../lib/roomCodes';
 import { ensureSaleRoom } from './SaleRoomService';
+import { formatZone } from '../lib/roomCodes';
 
 export const CROP_FILE_PREFIX = 'roomcapture_';
 
@@ -25,6 +26,8 @@ export interface CaptureLot {
   quantity: number;
   price: number;
   location?: string | null;
+  /** Position 1-20 read from the printed sign near the item; with the room code -> zone MR01-02. */
+  position?: number | null;
   not_for_sale: boolean;
   possibly_restricted: boolean;
   needs_detail: boolean;
@@ -161,6 +164,7 @@ export async function importCaptureLots(opts: {
     restricted_category: l.possibly_restricted ? 'Possible restricted material (verify)' : undefined,
     consignment_id: consignmentId || undefined,
     room,
+    zone: room ? formatZone(room, l.position) ?? undefined : undefined,
     needs_detail: !!l.needs_detail,
     created_at: now,
     updated_at: now,

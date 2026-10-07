@@ -260,6 +260,7 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
                     <th className="p-2">Lot</th>
                     <th className="p-2 w-16">Qty</th>
                     <th className="p-2 w-24">Price</th>
+                    <th className="p-2 w-16" title="Position from the sign near the item (1-20)">Pos.</th>
                     <th className="p-2 hidden md:table-cell">Where</th>
                     <th className="p-2 w-20" />
                   </tr>
@@ -304,6 +305,22 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
                         </td>
                         <td className="p-2 align-top">
                           <input type="number" min={0} value={r.price} disabled={busy} onChange={(e) => update(r.key, { price: Number(e.target.value) || 0 })} className={`${inputCls} w-20`} />
+                        </td>
+                        <td className="p-2 align-top">
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={r.position ?? ''}
+                            disabled={busy}
+                            placeholder="—"
+                            onChange={(e) => {
+                              const n = Math.round(Number(e.target.value));
+                              update(r.key, { position: e.target.value && n >= 1 && n <= 20 ? n : null });
+                            }}
+                            className={`${inputCls} w-14`}
+                            aria-label="Position"
+                          />
                         </td>
                         <td className="p-2 align-top text-xs text-gray-500 hidden md:table-cell">{r.location}</td>
                         <td className="p-2 align-top">

@@ -27,6 +27,8 @@ export interface ClipItem {
   possibly_restricted?: boolean;
   from_voice?: boolean;
   spoken_facts?: string | string[] | null;
+  position?: number | null;       // from the nearest printed position sign
+  position_sign?: string | null;  // the sign text as read
 }
 
 export interface Crop {
@@ -371,7 +373,14 @@ interface MergedLot {
   quantity?: number;
   price?: number;
   wall?: string;
+  position?: number | null;
   not_for_sale?: boolean;
+}
+
+/** A sign position the AI reported, if it is a usable 1-20. */
+function signPosition(v: unknown): number | null {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) && n >= 1 && n <= 20 ? n : null;
 }
 
 const spoken = (s: ClipItem['spoken_facts']) =>
@@ -397,7 +406,7 @@ export async function buildRoomPackage(
       const crop = result.crops.get(it.id);
       byId.set(id, { clip: c, item: it, crop });
       listing.push(
-        `${id}: ${it.name} | ${it.description ?? ''} | wall: ${it.wall ?? ''} | group: ${it.group_name ?? ''} | said: ${spoken(it.spoken_facts).join('; ')} | $${it.estate_price ?? 0} | qty ${it.quantity ?? 1}${it.not_for_sale ? ' | NFS' : ''}`,
+        `${id}: ${it.name} | ${it.description ?? ''} | wall: ${it.wall ?? ''} | group: ${it.group_name ?? ''} | said: ${spoken(it.spoken_facts).join('; ')} | $${it.estate_price ?? 0} | qty ${it.quantity ?? 1} | pos: ${signPosition(it.position) ?? ''}${it.not_for_sale ? ' | NFS' : ''}`,
       );
       if (crop) {
         const data = await thumbBase64(crop.blob);
@@ -427,12 +436,13 @@ export async function buildRoomPackage(
           quantity: item.quantity ?? 1,
           price: item.estate_price ?? 0,
           wall: item.wall,
+          position: signPosition(item.position),
           not_for_sale: item.not_for_sale,
         };
         groups.set(item.group_id, lot);
         merged.push(lot);
       } else {
-        merged.push({ name: item.name, members: [id], best: id, quantity: item.quantity ?? 1, price: item.estate_price ?? 0, wall: item.wall, not_for_sale: item.not_for_sale });
+        merged.push({ name: item.name, members: [id], best: id, quantity: item.quantity ?? 1, price: item.estate_price ?? 0, wall: item.wall, position: signPosition(item.position), not_for_sale: item.not_for_sale });
       }
     }
   } else {
@@ -447,7 +457,7 @@ export async function buildRoomPackage(
   const used = new Set(merged.flatMap((l) => l.members || []));
   for (const [id, { item }] of byId) {
     if (!used.has(id)) {
-      merged.push({ name: item.name, members: [id], best: id, quantity: item.quantity ?? 1, price: item.estate_price ?? 0, wall: item.wall, not_for_sale: item.not_for_sale });
+      merged.push({ name: item.name, members: [id], best: id, quantity: item.quantity ?? 1, price: item.estate_price ?? 0, wall: item.wall, position: signPosition(item.position), not_for_sale: item.not_for_sale });
     }
   }
 
@@ -485,6 +495,10 @@ export async function buildRoomPackage(
       quantity: Math.max(1, Math.round(Number(l.quantity) || 1)),
       price,
       location: l.wall || bi.item.wall || null,
+      // The merge's pick, else the first member that read a sign.
+      position: signPosition(l.position)
+        ?? members.map((m) => signPosition(byId.get(m)!.item.position)).find((p) => p != null)
+        ?? null,
       not_for_sale: !!l.not_for_sale,
       possibly_restricted: restricted,
       needs_detail: !l.not_for_sale && (price >= top || restricted || small),
