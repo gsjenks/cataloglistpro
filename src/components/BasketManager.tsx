@@ -1092,18 +1092,27 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                               </button>
                             </span>
                           </div>
-                          <label className="mt-1 inline-flex items-center gap-2 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={!!l.for_delivery}
+                          {/* Both choices visible, so it is clear Delivery is an option. */}
+                          <div className="mt-1.5 inline-flex rounded-md border border-gray-200 overflow-hidden text-xs font-medium" role="group" aria-label="How this item leaves">
+                            <button
+                              type="button"
+                              onClick={() => l.for_delivery && toggleItemDelivery(l.id, false)}
                               disabled={busy}
-                              onChange={(e) => toggleItemDelivery(l.id, e.target.checked)}
-                              className="w-4 h-4 accent-amber-500"
-                            />
-                            <span className={`text-xs font-medium ${l.for_delivery ? 'text-amber-700' : 'text-gray-500'}`}>
-                              {l.for_delivery ? 'For delivery' : 'Carry out'}
-                            </span>
-                          </label>
+                              aria-pressed={!l.for_delivery}
+                              className={`px-2.5 py-1 ${!l.for_delivery ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                            >
+                              Carry out
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => !l.for_delivery && toggleItemDelivery(l.id, true)}
+                              disabled={busy}
+                              aria-pressed={!!l.for_delivery}
+                              className={`px-2.5 py-1 border-l border-gray-200 ${l.for_delivery ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                            >
+                              Delivery
+                            </button>
+                          </div>
                         </li>
                       ),
                     )}
@@ -1123,6 +1132,11 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                 </div>
 
                 {/* Delivery / mover details — shown when any item is for delivery */}
+                {basketItems.length > 0 && !basketItems.some((l) => l.for_delivery) && (
+                  <p className="mb-4 text-xs text-gray-500">
+                    Going out for delivery? Set the item to <span className="font-medium text-amber-700">Delivery</span> to enter the address and mover details.
+                  </p>
+                )}
                 {basketItems.some((l) => l.for_delivery) && (
                   <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md space-y-2">
                     <p className="text-xs font-semibold text-amber-900">
