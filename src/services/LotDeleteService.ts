@@ -23,7 +23,11 @@ export async function deleteLotOnServer(lotId: string): Promise<void> {
   }
 
   const { data: deleted, error: lotErr } = await supabase.from('lots').delete().eq('id', lotId).select('id');
-  if (lotErr || !deleted?.length) {
+  // Nothing deleted can mean the lot is already gone from the server (deleted
+  // earlier, or on another device) while this device still holds a copy. That
+  // copy is what keeps showing, so finish the delete here instead of refusing.
+  const alreadyGone = !lotErr && !deleted?.length && !rows.length && !(await lotExistsOnServer(lotId));
+  if (!alreadyGone && (lotErr || !deleted?.length)) {
     // Put the photo rows back so a failed delete doesn't leave the item without photos.
     if (rows.length) {
       const { error } = await supabase.from('photos').insert(rows);
@@ -46,5 +50,26 @@ export async function deleteLotOnServer(lotId: string): Promise<void> {
   const local = await offlineStorage.getPhotosByLot(lotId).catch(() => [] as Photo[]);
   for (const p of [...rows, ...local]) {
     await offlineStorage.deletePhoto(p.id).catch(() => undefined);
+  }
+  await forgetLotLocally(lotId);
+}
+
+async function lotExistsOnServer(lotId: string): Promise<boolean> {
+  const { data, error } = await supabase.from('lots').select('id').eq('id', lotId).maybeSingle();
+  if (error) throw new Error(`Could not check the item: ${error.message}`);
+  return !!data;
+}
+
+// The device's copy has to go too. The Items tab lists local lots the server
+// doesn't have (so offline work doesn't vanish), and the sync re-uploads them —
+// so a lot deleted only on the server came straight back. Mark it deleted and
+// retire any queued create/update for it (the queue is keyed by lot id).
+export async function forgetLotLocally(lotId: string): Promise<void> {
+  try {
+    const lot = await offlineStorage.getLot(lotId);
+    if (lot) await offlineStorage.upsertLot({ ...lot, deleted: true } as typeof lot & { deleted: boolean });
+    await offlineStorage.markSynced(lotId);
+  } catch (e) {
+    console.error('Lot deleted, but its offline copy was not cleared:', e);
   }
 }

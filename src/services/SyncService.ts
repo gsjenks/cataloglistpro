@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import offlineStorage from './Offlinestorage';
 import PhotoService, { isImageBlob } from './PhotoService';
 import { reassignTemporaryNumbers } from './LotNumberService';
-import { deleteLotOnServer } from './LotDeleteService';
+import { deleteLotOnServer, forgetLotLocally } from './LotDeleteService';
 import type { Company, Sale, Lot, Photo } from '../types';
 
 const TOTAL_STEPS = 7;
@@ -410,14 +410,18 @@ class SyncService {
   // forgot to enqueue — are invisible to the drain and never reach Supabase.
   // Find local lots the server doesn't have and queue them.
   //
-  // Trade-off: a lot deleted on ANOTHER device also looks "missing here", so
-  // this can resurrect one. Lots deleted locally are marked `deleted` and
-  // filtered out by getLotsBySale, and for one person cataloguing in the field
-  // losing real work is much the worse failure.
+  // A lot deleted on ANOTHER device (or from the Items list, which used to
+  // leave the device copy behind) also looks "missing here", and this used to
+  // re-create it — deleted lots kept coming back. A lot created before the last
+  // completed sync was already on the server when that sync pulled, so if it
+  // is missing now and nothing is queued for it, it was deleted: drop the
+  // device copy instead. Lots created since then are still recovered.
   private async recoverUnqueuedLots(): Promise<number> {
     if (!navigator.onLine) return 0;
     let queued = 0;
     try {
+      const lastSync = await offlineStorage.getLastSyncTime();
+      const pendingIds = new Set((await offlineStorage.getPendingSyncItems()).map((i) => i.id));
       const companies = await offlineStorage.getAllCompanies();
       for (const company of companies) {
         const sales = await offlineStorage.getSalesByCompany(company.id);
@@ -431,7 +435,12 @@ class SyncService {
           if (error) continue;
           const remote = new Set((data ?? []).map((r: { id: string }) => r.id));
           for (const lot of localLots) {
-            if (remote.has(lot.id)) continue;
+            if (remote.has(lot.id) || pendingIds.has(lot.id)) continue;
+            const created = lot.created_at ? Date.parse(lot.created_at) : NaN;
+            if (lastSync && created < lastSync) {
+              await forgetLotLocally(lot.id);
+              continue;
+            }
             await offlineStorage.addPendingSyncItem({
               id: lot.id, type: 'create', table: 'lots', data: lot,
             });
