@@ -197,7 +197,7 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
             </button>
           </div>
         ) : !pkg && videoMode ? (
-          <RoomCaptureVideoStep saleContext={saleContext} onReady={loadPackage} />
+          <RoomCaptureVideoStep saleId={saleId} saleContext={saleContext} onReady={loadPackage} />
         ) : !pkg ? (
           <div className="p-6 flex flex-col sm:flex-row gap-3">
             <button
