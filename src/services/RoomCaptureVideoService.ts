@@ -384,6 +384,7 @@ const spoken = (s: ClipItem['spoken_facts']) =>
 export async function buildRoomPackage(
   room: string,
   clips: { label: string; result: ClipResult }[],
+  roomCode?: string,
 ): Promise<{ pkg: CapturePackage; images: Map<string, File> }> {
   const byId = new Map<string, { clip: number; item: ClipItem; crop?: Crop }>();
   const listing: string[] = [];
@@ -499,7 +500,7 @@ export async function buildRoomPackage(
     version: 1,
     source: `${clips.length} walkthrough clip${clips.length > 1 ? 's' : ''}, analysed in the app`,
     captured: new Date().toISOString().slice(0, 10),
-    room: { name: room },
+    room: roomCode ? { name: room, code: roomCode } : { name: room },
     lots: lots.map(({ _order, ...l }) => l),
   };
   return { pkg, images };

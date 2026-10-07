@@ -2,13 +2,19 @@
 // Record or pick narrated walkthrough clips of one room, analyse them, and hand the
 // merged lot list to the room-capture review screen. Clips run one at a time (a
 // phone uploading several large videos at once only slows each one down).
+// The room is picked from the sale's room list (or added to it), so every lot
+// created from the clips carries its room code (LR02) like a folder import.
 
 import { useEffect, useRef, useState } from 'react';
-import { Video, Upload, X, Loader2, CheckCircle2, AlertTriangle, RotateCcw, Sparkles } from 'lucide-react';
+import { Video, Upload, X, Loader2, CheckCircle2, AlertTriangle, RotateCcw, Sparkles, Plus } from 'lucide-react';
+import type { SaleRoom } from '../types';
+import { listSaleRooms, addSaleRoom } from '../services/SaleRoomService';
+import { ROOM_TYPES } from '../lib/roomCodes';
 import type { CapturePackage } from '../services/RoomCaptureImportService';
 import { processClip, buildRoomPackage, type ClipResult, type ClipStage } from '../services/RoomCaptureVideoService';
 
 interface Props {
+  saleId: string;
   saleContext: string;
   onReady: (pkg: CapturePackage, images: Map<string, File>) => void;
 }
@@ -33,9 +39,43 @@ const STAGE_LABEL: Record<string, string> = {
 };
 
 const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
+const AREAS = [...new Set(ROOM_TYPES.map((t) => t.area))];
+const NEW_ROOM = '__new';
 
-export default function RoomCaptureVideoStep({ saleContext, onReady }: Props) {
-  const [room, setRoom] = useState('');
+export default function RoomCaptureVideoStep({ saleId, saleContext, onReady }: Props) {
+  // The sale's rooms; the clips belong to the one picked here.
+  const [rooms, setRooms] = useState<SaleRoom[]>([]);
+  const [roomId, setRoomId] = useState('');
+  const [newType, setNewType] = useState(ROOM_TYPES[0].code);
+  const [newName, setNewName] = useState('');
+  const [addingRoom, setAddingRoom] = useState(false);
+  const selectedRoom = rooms.find((r) => r.id === roomId) ?? null;
+  const room = selectedRoom?.name ?? '';
+
+  useEffect(() => {
+    listSaleRooms(saleId)
+      .then((rs) => {
+        setRooms(rs);
+        if (rs.length === 1) setRoomId(rs[0].id);
+      })
+      .catch((e) => setError(`Could not load the sale rooms: ${e instanceof Error ? e.message : e}`));
+  }, [saleId]);
+
+  const addRoom = async () => {
+    if (newType === 'XX' && !newName.trim()) { setError('Give the room a name.'); return; }
+    setAddingRoom(true);
+    setError(null);
+    try {
+      const created = await addSaleRoom(saleId, newType, rooms, newName);
+      setRooms((rs) => [...rs, created]);
+      setRoomId(created.id);
+      setNewName('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not add the room.');
+    } finally {
+      setAddingRoom(false);
+    }
+  };
   const [clips, setClips] = useState<Clip[]>([]);
   const [running, setRunning] = useState(false);
   const [merging, setMerging] = useState(false);
@@ -107,6 +147,7 @@ export default function RoomCaptureVideoStep({ saleContext, onReady }: Props) {
       const { pkg, images } = await buildRoomPackage(
         room.trim() || 'Room',
         done.map((c) => ({ label: c.file.name, result: c.result! })),
+        selectedRoom?.room_code,
       );
       onReady(pkg, images);
     } catch (e) {
@@ -124,16 +165,59 @@ export default function RoomCaptureVideoStep({ saleContext, onReady }: Props) {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 overflow-auto">
-      <label className="block">
-        <span className="text-sm font-medium text-gray-700">Room</span>
-        <input
-          value={room}
-          disabled={busy}
-          onChange={(e) => setRoom(e.target.value)}
-          placeholder="Office"
-          className="mt-1 w-full sm:w-80 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-        />
-      </label>
+      <div className="space-y-2">
+        <label className="block">
+          <span className="text-sm font-medium text-gray-700">Room</span>
+          <select
+            value={roomId}
+            disabled={busy}
+            onChange={(e) => { setRoomId(e.target.value); setError(null); }}
+            className="mt-1 block w-full sm:w-80 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600 bg-white"
+          >
+            <option value="">Choose the room you are filming…</option>
+            {rooms.map((r) => (
+              <option key={r.id} value={r.id}>{r.room_code} — {r.name}</option>
+            ))}
+            <option value={NEW_ROOM}>+ Add a new room…</option>
+          </select>
+        </label>
+        {roomId === NEW_ROOM && (
+          <div className="w-full sm:w-80 space-y-2 rounded-md border border-indigo-200 bg-indigo-50/50 p-2.5">
+            <select
+              value={newType}
+              onChange={(e) => setNewType(e.target.value)}
+              disabled={addingRoom}
+              className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm bg-white"
+            >
+              {AREAS.map((area) => (
+                <optgroup key={area} label={area}>
+                  {ROOM_TYPES.filter((t) => t.area === area).map((t) => (
+                    <option key={t.code} value={t.code}>{t.code} — {t.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              disabled={addingRoom}
+              placeholder={newType === 'XX' ? 'Name (required), e.g. Back hall closet' : 'Name (optional), e.g. Gathering room'}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+            />
+            <button
+              type="button"
+              onClick={addRoom}
+              disabled={addingRoom}
+              className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:bg-gray-300"
+            >
+              <Plus className="w-4 h-4" /> {addingRoom ? 'Adding…' : 'Add room'}
+            </button>
+          </div>
+        )}
+        {selectedRoom && (
+          <p className="text-xs text-gray-500">Lots from these clips go in <strong>{selectedRoom.room_code}</strong> ({selectedRoom.name}).</p>
+        )}
+      </div>
 
       <div className="rounded-md bg-indigo-50 border border-indigo-100 px-3 py-2 text-xs text-indigo-900 space-y-1">
         <p>One clip per wall or area, starting at the doorway and working left to right; then the centre of the room.</p>
@@ -195,7 +279,8 @@ export default function RoomCaptureVideoStep({ saleContext, onReady }: Props) {
       <div className="flex flex-wrap items-center gap-3">
         <button
           onClick={runAll}
-          disabled={busy || pending === 0}
+          disabled={busy || pending === 0 || !selectedRoom}
+          title={selectedRoom ? undefined : 'Choose the room first'}
           className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300"
         >
           {clips.some((c) => c.status === 'failed') ? <RotateCcw className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
@@ -203,7 +288,7 @@ export default function RoomCaptureVideoStep({ saleContext, onReady }: Props) {
         </button>
         <button
           onClick={merge}
-          disabled={busy || doneCount === 0}
+          disabled={busy || doneCount === 0 || !selectedRoom}
           className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-sm font-medium rounded-md hover:bg-gray-50 disabled:opacity-40"
         >
           {merging ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
