@@ -120,7 +120,7 @@ is kept awake while it works.
 
 ### Location format
 **Room code (2 letters) + room number (2 digits), a dash, then the location number:**
-`LB01-3` (Library 1, location 3), `BD02-5` (Bedroom 2, location 5), `XX01-12`
+`LB01-3` (Library 1, location 3), `BD02-05` (Bedroom 2, location 5), `XX01-12`
 (first miscellaneous room, location 12). The flip charts show the same thing without
 the dash (`BD 02 5`); the app writes the dash everywhere: lots, labels, Item Lookup
 and the Disposition Report.
@@ -207,7 +207,7 @@ Migration `supabase/migrations/2026MMDD000000_room_capture.sql` — **applied by
   `name text`, `sort_order int`; unique (`sale_id`, `room_code`)
 
 `lots` — add `room text` (the room code), `zone text` (the full location, e.g.
-`BD02-5`), `needs_detail boolean default false`. `capture_items.zone` uses the same
+`BD02-05`), `needs_detail boolean default false`. `capture_items.zone` uses the same
 `ROOM##-N` form.
 
 Storage: new **private** bucket `room-captures` (full room photos and voice notes,

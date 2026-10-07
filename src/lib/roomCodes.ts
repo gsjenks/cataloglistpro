@@ -81,13 +81,23 @@ export function defaultRoomName(code: string, existing: string[]): string {
   return sameType > 0 || code.slice(2) !== '01' ? `${base} ${Number(code.slice(2))}` : base;
 }
 
-/** "BD02" + 5 -> "BD02-5". */
+/** "BD02" + 5 -> "BD02-05" (two digits, as printed on the position signs). */
 export function formatZone(room: string, location: number | null | undefined): string | null {
   if (!isRoomCode(room) || !location || location < 1) return null;
-  return `${room}-${Math.min(Math.round(location), MAX_LOCATION)}`;
+  return `${room}-${String(Math.min(Math.round(location), MAX_LOCATION)).padStart(2, '0')}`;
 }
 
-/** "BD02-5" -> { room: "BD02", location: 5 }; anything else -> null. */
+/**
+ * Rewrites a location typed the way the signs read ("MR 1 - 02", "mr1-2",
+ * "MR01-2") into the stored form "MR01-02", so search finds it. Other text is
+ * left alone.
+ */
+export function normalizeZoneText(text: string): string {
+  return text.replace(/\b([A-Za-z]{2})\s*0?([1-9])\s*-\s*0?([1-9]|1\d|20)\b/g, (_m, t: string, r: string, p: string) =>
+    `${t.toUpperCase()}0${r}-${p.padStart(2, '0')}`);
+}
+
+/** "BD02-05" (or "BD02-5") -> { room: "BD02", location: 5 }; anything else -> null. */
 export function parseZone(zone: string | null | undefined): { room: string; location: number } | null {
   const m = zone?.trim().toUpperCase().match(ZONE_RE);
   return m ? { room: m[1], location: Number(m[2]) } : null;

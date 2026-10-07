@@ -70,6 +70,12 @@ Rules:
   Whole dollars.
 - wall: which wall or area of the room the item is on, in the narrator's words when given ("back wall",
   "fireplace wall", "centre of the room").
+- POSITION SIGNS: the room has printed paper signs placed around it, reading like "MR 1 - 02" or "MR01-02"
+  (two room letters, the room number, a dash, then a POSITION number 1-20), sometimes with the company and
+  room name in small print. position = the integer after the dash on the sign nearest the item: the sign
+  on the same surface, or the sign shown for that stretch of wall. position_sign = the sign text exactly as
+  read. If no sign is legible near the item, both are null. Never guess a number you cannot read; never
+  invent signs. Signs themselves are not items.
 - timestamp: mm:ss of the item's clearest, sharpest, most head-on view.
 - box_2d: [ymin, xmin, ymax, xmax] normalized 0-1000 for the item in the frame at that timestamp.
 - confidence 0-1.
@@ -80,7 +86,7 @@ Return JSON only:
  "items":[{"id":1,"name":"","category":"","description":"<=25 words","quantity":1,"wall":"",
    "timestamp":"mm:ss","box_2d":[0,0,0,0],"group_id":null,"group_name":null,"estate_price":0,
    "fixture":false,"not_for_sale":false,"not_for_sale_reason":null,"possibly_restricted":false,
-   "from_voice":false,"spoken_facts":null,"confidence":0.0}]}`;
+   "from_voice":false,"spoken_facts":null,"position":null,"position_sign":null,"confidence":0.0}]}`;
 
 const CONSOLIDATE_PROMPT = `These are all the items found in several narrated walkthrough clips of ONE room,
 listed per clip with that clip's narration. Each item has an id like V3-12, and most have a crop image
@@ -98,11 +104,12 @@ Produce the final LOT LIST for the room:
   narration or matching descriptions say they belong together.
 - Keep everything else as its own lot. Do not drop personal/not-for-sale rows; keep their flag.
 - For each lot give the best name, the best crop (the member id with the clearest view), a price for the
-  whole lot (sum the members of a pair), the wall/area, and every member id.
+  whole lot (sum the members of a pair), the wall/area, the position number (from the members' "pos";
+  if they disagree, the one most members share; null if none), and every member id.
 
 Return JSON only:
 {"lots":[{"lot":1,"name":"","members":["V1-3","V4-7"],"best":"V1-3","quantity":1,"price":0,
-  "wall":"","not_for_sale":false,"reason":"why merged or kept"}],
+  "wall":"","position":null,"not_for_sale":false,"reason":"why merged or kept"}],
  "notes":"anything uncertain"}`;
 
 async function gemini(parts: unknown[], maxOutputTokens: number) {

@@ -6,11 +6,14 @@
 // being non-adjacent. A plain substring match (name ilike %blue sofa%) would
 // miss it — hence the tokenization.
 
+import { normalizeZoneText } from './roomCodes';
+
 // Split a raw search value into sanitized tokens. Characters that are special
 // to PostgREST's or() grammar (and the ilike wildcard) are stripped so a stray
 // paren/comma can't break the query. Returns [] when there's nothing to search.
 export function searchTokens(q: string): string[] {
-  return q
+  // "MR 1 - 02" off a sign -> "MR01-02", the stored location, as one token.
+  return normalizeZoneText(q)
     .trim()
     .split(/\s+/)
     .map((t) => t.replace(/[%,()*]/g, ' ').trim())
