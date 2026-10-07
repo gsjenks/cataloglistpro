@@ -46,9 +46,9 @@ export default function EstateSalesNetExport({ saleId, saleName, lots, onBack }:
             <Images className="w-5 h-5 text-indigo-600" /> EstateSales.net photos
           </h3>
           <p className="text-sm text-gray-600 mt-1">
-            Downloads one ZIP with the <strong>primary photo of each lot</strong> ({lots.length} lots), named in walking
-            order (<em>001 - Lot 12 - Walnut highboy.jpg</em>) and sized for upload, plus <em>captions.csv</em> with each
-            photo's lot, item, price and location. Unzip it and drag the photos into your EstateSales.net listing.
+            Downloads one ZIP with the <strong>primary photo of each lot</strong> ({lots.length} lots), named by lot
+            (<em>Lot 12 - Walnut highboy.jpg</em>) and sized for upload, plus <em>captions.csv</em> with each
+            photo's walking order, lot, item, price and location. Unzip it and drag the photos into your EstateSales.net listing.
           </p>
         </div>
 

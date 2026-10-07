@@ -1,8 +1,7 @@
 // src/services/EstateSalesNetExport.ts
 // Photos for an EstateSales.net listing: one ZIP with each lot's PRIMARY photo,
 // in walking order (room list order, then position, then lot number), named
-// "001 - Lot 12 - Walnut highboy.jpg" so they upload in the order buyers walk
-// the house, plus captions.csv (order, lot, item, price, room, location, file)
+// "Lot 12 - Walnut highboy.jpg", plus captions.csv (order, lot, item, price, room, location, file)
 // to copy captions from. Big phone photos are shrunk to 2048 px on the long
 // edge. EstateSales.net takes photo uploads, not a catalog file.
 
@@ -129,7 +128,11 @@ export async function exportEstateSalesNetPhotos(opts: {
     if (!photo) { result.noPhoto.push(lot.lot_number ?? '—'); continue; }
     if (isCrop(photo) && skipCrops) { result.cropsSkipped++; continue; }
     const order = plan.length + 1;
-    const file = `${String(order).padStart(3, '0')} - Lot ${lot.lot_number ?? ''} - ${safe(lot.name || 'Item')}.jpg`;
+    // No order prefix in the name; the walking order lives in captions.csv.
+    // Two lots can share a number and name, and the ZIP keeps only one file per name.
+    const base = `Lot ${lot.lot_number ?? ''} - ${safe(lot.name || 'Item')}`;
+    let file = `${base}.jpg`;
+    for (let n = 2; plan.some((p) => p.file === file); n++) file = `${base} (${n}).jpg`;
     plan.push({ lot, photo, order, file });
   }
 
