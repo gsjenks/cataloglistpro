@@ -15,7 +15,9 @@ import { CheckCircle2, AlertTriangle, Loader2, Plus, Truck } from 'lucide-react'
 import { supabase } from '../lib/supabase';
 import type { Shipper } from '../types';
 import { PROPERTY_LABELS, type DeliveryDetails, type DeliveryProperty } from '../lib/delivery';
-import { listShippers, createShipper } from '../services/ShipperService';
+import { listShippers, createShipper, uploadCoi, coiStatus, coiLabel } from '../services/ShipperService';
+import YesNoQuestion from './YesNoQuestion';
+import CoiFields, { coiMissing, emptyCoi, type CoiValue } from './CoiFields';
 import { formatPhone, phoneDigits, isValidPhone, isValidEmail, isIsoDate } from '../lib/contactFormat';
 
 type AddressState =
@@ -37,25 +39,6 @@ interface Props {
 const inputCls = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600';
 const errCls = 'border-red-400 focus:border-red-500';
 
-/** A yes/no question with an unanswered state (null). */
-export function YesNoQuestion({ label, value, onChange }: {
-  label: string;
-  value: boolean | null;
-  onChange: (v: boolean) => void;
-}) {
-  const btn = (v: boolean) =>
-    `px-3 py-1 ${value === v ? (v ? 'bg-amber-500 text-white' : 'bg-gray-700 text-white') : 'bg-white text-gray-600 hover:bg-gray-50'}`;
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <span className={`text-sm ${value == null ? 'text-gray-800 font-medium' : 'text-gray-700'}`}>{label}</span>
-      <div className="inline-flex rounded-md border border-gray-300 overflow-hidden text-xs font-medium shrink-0" role="group" aria-label={label}>
-        <button type="button" aria-pressed={value === true} onClick={() => onChange(true)} className={btn(true)}>Yes</button>
-        <button type="button" aria-pressed={value === false} onClick={() => onChange(false)} className={`border-l border-gray-300 ${btn(false)}`}>No</button>
-      </div>
-    </div>
-  );
-}
-
 function normalize(a: string) {
   return a.toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
@@ -74,6 +57,9 @@ export default function DeliveryDetailsForm({ value, onChange, companyId, onErro
   const [movers, setMovers] = useState<Shipper[]>([]);
   const [moverOpen, setMoverOpen] = useState(false);
   const [addingMover, setAddingMover] = useState(false);
+  // Adding a mover asks for its Certificate of Insurance first.
+  const [newMoverOpen, setNewMoverOpen] = useState(false);
+  const [newCoi, setNewCoi] = useState<CoiValue>(emptyCoi);
 
   useEffect(() => {
     if (!companyId) return;
@@ -120,7 +106,9 @@ export default function DeliveryDetailsForm({ value, onChange, companyId, onErro
     const q = value.company.trim().toLowerCase();
     return q ? movers.filter((m) => m.name.toLowerCase().includes(q)) : movers;
   }, [movers, value.company]);
-  const moverKnown = movers.some((m) => m.name.trim().toLowerCase() === value.company.trim().toLowerCase());
+  const currentMover = movers.find((m) => m.name.trim().toLowerCase() === value.company.trim().toLowerCase());
+  const moverKnown = !!currentMover;
+  const currentCoi = currentMover ? coiStatus(currentMover) : null;
 
   const pickMover = (m: Shipper) => {
     onChange({
@@ -131,11 +119,20 @@ export default function DeliveryDetailsForm({ value, onChange, companyId, onErro
     setMoverOpen(false);
   };
 
+  const startAddMover = () => {
+    setNewCoi(emptyCoi);
+    setNewMoverOpen(true);
+    setMoverOpen(false);
+  };
+
   const addMover = async () => {
     const name = value.company.trim();
     if (!name || !companyId) return;
+    const missing = coiMissing(newCoi);
+    if (missing) { alert(missing); return; }
     setAddingMover(true);
     try {
+      const coiPath = newCoi.onFile && newCoi.file ? await uploadCoi(companyId, newCoi.file) : null;
       const created = await createShipper({
         company_id: companyId,
         name,
@@ -143,9 +140,13 @@ export default function DeliveryDetailsForm({ value, onChange, companyId, onErro
         phone: isValidPhone(value.companyPhone) ? formatPhone(value.companyPhone) : undefined,
         email: isValidEmail(value.companyEmail) ? value.companyEmail.trim() : undefined,
         active: true,
+        coi_on_file: newCoi.onFile,
+        coi_expires: newCoi.onFile && newCoi.expires ? newCoi.expires : null,
+        coi_path: coiPath,
       });
       setMovers((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
       setMoverOpen(false);
+      setNewMoverOpen(false);
     } catch (e) {
       alert('Could not add the mover: ' + (e instanceof Error ? e.message : 'unknown error'));
     } finally {
@@ -294,7 +295,10 @@ export default function DeliveryDetailsForm({ value, onChange, companyId, onErro
                   onClick={() => pickMover(m)}
                   className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50"
                 >
-                  <span className="block text-gray-900">{m.name}</span>
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-gray-900">{m.name}</span>
+                    <CoiBadge mover={m} />
+                  </span>
                   {(m.phone || m.email) && (
                     <span className="block text-xs text-gray-500">{[m.phone, m.email].filter(Boolean).join(' · ')}</span>
                   )}
@@ -306,17 +310,49 @@ export default function DeliveryDetailsForm({ value, onChange, companyId, onErro
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={addMover}
-                  disabled={addingMover || !companyId}
+                  onClick={startAddMover}
+                  disabled={!companyId}
                   className="w-full text-left px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-50 flex items-center gap-1.5 border-t border-gray-100"
                 >
-                  <Plus className="w-4 h-4" /> {addingMover ? 'Adding…' : `Add "${value.company.trim()}" as a new mover`}
+                  <Plus className="w-4 h-4" /> {`Add "${value.company.trim()}" as a new mover`}
                 </button>
               </li>
             )}
           </ul>
         )}
+        {currentMover && currentCoi !== 'current' && (
+          <p className={`mt-1 text-xs flex items-center gap-1 ${currentCoi === 'expired' ? 'text-red-700' : 'text-amber-800'}`}>
+            <AlertTriangle className="w-3.5 h-3.5" />
+            {currentCoi === 'unknown'
+              ? 'This mover has no Certificate of Insurance recorded.'
+              : currentCoi === 'expired'
+                ? `This mover's Certificate of Insurance expired ${currentMover.coi_expires}.`
+                : 'This mover has no Certificate of Insurance.'}
+          </p>
+        )}
       </div>
+
+      {/* New mover: the COI question, using the phone and email fields below */}
+      {newMoverOpen && value.company.trim() && !moverKnown && (
+        <div className="rounded-md border border-indigo-200 bg-indigo-50/50 p-2.5 space-y-2">
+          <p className="text-xs font-semibold text-indigo-900">New mover: {value.company.trim()}</p>
+          <p className="text-xs text-gray-600">The phone and email below are saved with the mover.</p>
+          <CoiFields value={newCoi} onChange={(p) => setNewCoi((prev) => ({ ...prev, ...p }))} />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={addMover}
+              disabled={addingMover}
+              className="px-3 py-1.5 text-sm font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-gray-300"
+            >
+              {addingMover ? 'Adding…' : 'Add mover'}
+            </button>
+            <button type="button" onClick={() => setNewMoverOpen(false)} className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Mover phone + email */}
       <div className="flex gap-2">
@@ -352,4 +388,14 @@ export default function DeliveryDetailsForm({ value, onChange, companyId, onErro
       </div>
     </div>
   );
+}
+
+/** A mover's COI status as a small pill. */
+export function CoiBadge({ mover }: { mover: Shipper }) {
+  const st = coiStatus(mover);
+  const cls = st === 'current' ? 'bg-green-100 text-green-800'
+    : st === 'expired' ? 'bg-red-100 text-red-800'
+    : st === 'none' ? 'bg-amber-100 text-amber-800'
+    : 'bg-gray-100 text-gray-600';
+  return <span className={`shrink-0 text-[11px] font-medium px-1.5 py-0.5 rounded ${cls}`}>{coiLabel(mover)}</span>;
 }

@@ -329,6 +329,10 @@ export interface Shipper {
   address?: string;
   notes?: string;
   active?: boolean;
+  // Certificate of Insurance (movers): null = not asked yet.
+  coi_on_file?: boolean | null;
+  coi_expires?: string | null;   // YYYY-MM-DD
+  coi_path?: string | null;      // documents bucket: <companyId>/coi/...
   created_at?: string;
   updated_at?: string;
 }

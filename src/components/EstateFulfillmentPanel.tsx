@@ -11,6 +11,9 @@ import { supabase } from '../lib/supabase';
 import type { Lot } from '../types';
 import { useRole } from '../context/RoleContext';
 import DeliveryDetailsForm from './DeliveryDetailsForm';
+import ShippersManager from './ShippersManager';
+import { listShippers } from '../services/ShipperService';
+import type { Shipper } from '../types';
 import { DELIVERY_COLS, deliveryColumns, emptyDelivery as emptyDetails, yesNo, propertyLabel, type DeliveryDetails, type DeliveryProperty } from '../lib/delivery';
 
 interface Props {
@@ -78,6 +81,13 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged, comp
   const [formErrors, setFormErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [manifestFor, setManifestFor] = useState<Group | null>(null);
+  // The movers directory (the company shippers list), for COI upkeep.
+  const [movers, setMovers] = useState<Shipper[] | null>(null);
+  const openMovers = async () => {
+    if (!companyId) return;
+    try { setMovers(await listShippers(companyId)); }
+    catch (e) { alert('Could not load movers: ' + (e instanceof Error ? e.message : 'unknown error')); }
+  };
 
   // Base set: every sold lot. Whether it's a delivery is decided below from the
   // sale line's fulfillment (like the Disposition Report), not only the lot flag.
@@ -249,6 +259,16 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged, comp
               </p>
               <p className="hidden print:block text-xs text-gray-500 mt-0.5">{saleName}</p>
             </div>
+            <div className="no-print flex items-center gap-2">
+            {companyId && (
+              <button
+                onClick={openMovers}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+                title="Movers, their contacts and Certificates of Insurance"
+              >
+                <Truck className="w-4 h-4" /> Movers
+              </button>
+            )}
             <button
               onClick={() => window.print()}
               disabled={groups.length === 0}
@@ -256,6 +276,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged, comp
             >
               <Printer className="w-4 h-4" /> Print manifests
             </button>
+            </div>
           </div>
         </div>
 
@@ -395,6 +416,16 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged, comp
           })
         )}
       </div>
+
+      {movers && companyId && (
+        <ShippersManager
+          title="Movers"
+          companyId={companyId}
+          shippers={movers}
+          onChanged={openMovers}
+          onClose={() => setMovers(null)}
+        />
+      )}
 
       {manifestFor && (
         <DeliveryMoverManifest
