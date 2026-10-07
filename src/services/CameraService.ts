@@ -597,8 +597,13 @@ class CameraService {
    */
   getPlatformCapabilities() {
     const caps = PlatformService.getPhotoCapabilities();
+    // Phone or tablet in the browser / installed PWA: hand off to the device's
+    // own camera app (a capture file input) rather than the in-page webcam
+    // preview, which grabs a lower-quality video frame.
+    const touchFirst = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
     return {
       ...caps,
+      supportsSystemCamera: caps.isWeb && touchFirst,
       supportsWebCamera: caps.isWeb && caps.hasCamera,
       supportsNativeCamera: caps.isNative,
       supportsFileUpload: true

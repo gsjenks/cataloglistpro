@@ -448,6 +448,7 @@ export default function LotDetail() {
   // primary synchronously, before it has saved, so a quick burst of captures
   // ("Save & Take More") can't each decide they are the first.
   const realPrimaryClaimed = useRef(false);
+  const captureInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     realPrimaryClaimed.current = photos.some((p) => p.is_primary && !isCaptureCrop(p));
   }, [photos]);
@@ -487,6 +488,13 @@ export default function LotDetail() {
       return;
     }
 
+    // Phone browser / PWA: open the phone's own camera app. The click has to
+    // happen inside the tap — a file picker needs user activation, which the
+    // awaited save below can outlast — so it goes first and the save runs while
+    // the camera is open.
+    const useSystemCamera = CameraService.getPlatformCapabilities().supportsSystemCamera;
+    if (useSystemCamera) captureInputRef.current?.click();
+
     // Auto-save metadata before opening camera
     const currentLot = lotRef.current;
     if (currentLot.id && currentLot.sale_id) {
@@ -519,6 +527,7 @@ export default function LotDetail() {
         return;
       }
     }
+    if (useSystemCamera) return;
 
     const caps = CameraService.getPlatformCapabilities();
 
@@ -1335,10 +1344,10 @@ export default function LotDetail() {
       },
     ];
 
-    if (!isNewLot && (caps.supportsWebCamera || caps.supportsNativeCamera)) {
+    if (!isNewLot && (caps.supportsWebCamera || caps.supportsNativeCamera || caps.supportsSystemCamera)) {
       actions.push({
         id: "camera",
-        label: caps.supportsNativeCamera ? "Camera" : "Webcam",
+        label: caps.supportsNativeCamera || caps.supportsSystemCamera ? "Camera" : "Webcam",
         icon: <Camera className="w-4 h-4" />,
         onClick: handleTakePhoto,
         variant: "secondary",
@@ -1430,6 +1439,14 @@ export default function LotDetail() {
         type="file"
         accept="image/*"
         multiple
+        onChange={handlePhotoUpload}
+        className="hidden"
+      />
+      <input
+        ref={captureInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
         onChange={handlePhotoUpload}
         className="hidden"
       />
