@@ -20,6 +20,7 @@ export interface DeliveryInfo {
   company?: string;
   companyPhone?: string;
   companyEmail?: string;
+  property?: 'home' | 'apartment' | 'other' | null;
   stairs?: boolean | null;
   elevator?: boolean | null;
 }
@@ -90,6 +91,7 @@ export async function createTransaction(
     delivery_company: delivery?.company || null,
     delivery_company_phone: delivery?.companyPhone || null,
     delivery_company_email: delivery?.companyEmail || null,
+    delivery_property: delivery?.property ?? null,
     delivery_stairs: delivery?.stairs ?? null,
     delivery_elevator: delivery?.elevator ?? null,
   };

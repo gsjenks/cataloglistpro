@@ -21,6 +21,7 @@ import {
   DELIVERY_COLS,
   deliveryColumns,
   yesNo,
+  propertyLabel,
 } from '../lib/delivery';
 import { searchTokens, tokenOrClause, lotMatchesTokens } from '../lib/lotSearch';
 import { touchSaleBasket } from '../lib/saleBaskets';
@@ -1293,7 +1294,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                             {lotDelivery.company && <p>Company: {lotDelivery.company}</p>}
                             {lotDelivery.companyPhone && <p>Phone: {lotDelivery.companyPhone}</p>}
                             {lotDelivery.companyEmail && <p>Email: {lotDelivery.companyEmail}</p>}
-                            <p>Stairs: {yesNo(lotDelivery.stairs)} · Elevator: {yesNo(lotDelivery.elevator)}</p>
+                            <p>Property: {propertyLabel(lotDelivery.property)} · Stairs: {yesNo(lotDelivery.stairs)} · Elevator: {yesNo(lotDelivery.elevator)}</p>
                             {!lotDelivery.address && !lotDelivery.company && (
                               <p className="text-blue-700">No delivery details recorded.</p>
                             )}

@@ -6,7 +6,7 @@
 //   mover    picked from the company shippers directory, or added to it
 //   phone    masked to (555) 555-5555, 10 digits required
 //   email    name@domain.tld
-//   access   two yes/no questions for the mover: stairs? elevator required?
+//   access   for the mover: home / apartment / other, stairs?, elevator required?
 // The parent owns the values and the Save button; this reports what is still
 // wrong through onErrorsChange so Save can refuse with a reason.
 
@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, AlertTriangle, Loader2, Plus, Truck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { Shipper } from '../types';
-import type { DeliveryDetails } from '../lib/delivery';
+import { PROPERTY_LABELS, type DeliveryDetails, type DeliveryProperty } from '../lib/delivery';
 import { listShippers, createShipper } from '../services/ShipperService';
 import { formatPhone, phoneDigits, isValidPhone, isValidEmail, isIsoDate } from '../lib/contactFormat';
 
@@ -249,6 +249,24 @@ export default function DeliveryDetailsForm({ value, onChange, companyId, onErro
 
       {/* Access questions for the mover */}
       <div className="space-y-1.5 py-1">
+        <div className="flex items-center justify-between gap-3">
+          <span className={`text-sm ${value.property == null ? 'text-gray-800 font-medium' : 'text-gray-700'}`}>Delivering to a</span>
+          <div className="inline-flex rounded-md border border-gray-300 overflow-hidden text-xs font-medium shrink-0" role="group" aria-label="Property type">
+            {(Object.keys(PROPERTY_LABELS) as DeliveryProperty[]).map((p, i) => (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={value.property === p}
+                onClick={() => onChange({ property: p })}
+                className={`px-3 py-1 ${i ? 'border-l border-gray-300' : ''} ${
+                  value.property === p ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {PROPERTY_LABELS[p]}
+              </button>
+            ))}
+          </div>
+        </div>
         <YesNoQuestion label="Moving up or down stairs?" value={value.stairs} onChange={(v) => onChange({ stairs: v })} />
         <YesNoQuestion label="Elevator required?" value={value.elevator} onChange={(v) => onChange({ elevator: v })} />
       </div>

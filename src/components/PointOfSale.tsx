@@ -16,6 +16,7 @@ import {
   saveShopperDelivery,
   deliveryMissing,
   yesNo,
+  propertyLabel,
   emptyDelivery,
   type DeliveryDetails,
   SHOPPER_DELIVERY_COLS,
@@ -660,6 +661,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             company: delivery.company,
             companyPhone: delivery.companyPhone,
             companyEmail: delivery.companyEmail,
+            property: delivery.property,
             stairs: delivery.stairs,
             elevator: delivery.elevator,
           }
@@ -1115,7 +1117,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
               </p>
               <p className="text-xs text-green-700 truncate">
                 {[delivery.company, delivery.date, delivery.address].filter(Boolean).join(' · ') || 'Details on file'}
-                {' · '}Stairs: {yesNo(delivery.stairs)} · Elevator: {yesNo(delivery.elevator)}
+                {' · '}{propertyLabel(delivery.property)} · Stairs: {yesNo(delivery.stairs)} · Elevator: {yesNo(delivery.elevator)}
               </p>
             </div>
             <button onClick={() => setDeliveryConfirmed(false)} className="text-xs text-green-800 underline shrink-0">

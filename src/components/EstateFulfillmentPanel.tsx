@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase';
 import type { Lot } from '../types';
 import { useRole } from '../context/RoleContext';
 import DeliveryDetailsForm from './DeliveryDetailsForm';
-import { DELIVERY_COLS, deliveryColumns, emptyDelivery as emptyDetails, yesNo, type DeliveryDetails } from '../lib/delivery';
+import { DELIVERY_COLS, deliveryColumns, emptyDelivery as emptyDetails, yesNo, propertyLabel, type DeliveryDetails, type DeliveryProperty } from '../lib/delivery';
 
 interface Props {
   saleId: string;
@@ -31,6 +31,7 @@ interface Txn {
   delivery_company: string | null;
   delivery_company_phone: string | null;
   delivery_company_email: string | null;
+  delivery_property: DeliveryProperty | null;
   delivery_stairs: boolean | null;
   delivery_elevator: boolean | null;
 }
@@ -42,6 +43,7 @@ interface ShopperDelivery {
   delivery_company: string | null;
   delivery_company_phone: string | null;
   delivery_company_email: string | null;
+  delivery_property: DeliveryProperty | null;
   delivery_stairs: boolean | null;
   delivery_elevator: boolean | null;
 }
@@ -49,7 +51,7 @@ interface ShopperDelivery {
 interface Delivery {
   address: string | null; date: string | null; estimate: string | null;
   company: string | null; phone: string | null; email: string | null;
-  stairs: boolean | null; elevator: boolean | null;
+  property: DeliveryProperty | null; stairs: boolean | null; elevator: boolean | null;
 }
 
 interface Group {
@@ -64,7 +66,7 @@ interface Group {
 const money = (n?: number | null) =>
   n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
-const emptyDelivery = (): Delivery => ({ address: null, date: null, estimate: null, company: null, phone: null, email: null, stairs: null, elevator: null });
+const emptyDelivery = (): Delivery => ({ address: null, date: null, estimate: null, company: null, phone: null, email: null, property: null, stairs: null, elevator: null });
 
 export default function EstateFulfillmentPanel({ lots, saleName, onChanged, companyId = null }: Props) {
   // The sale-wide total is a sale figure: not shown to staff.
@@ -115,7 +117,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged, comp
       lotDelivById.set(r.id, {
         address: r.delivery_address, date: r.delivery_date, estimate: r.delivery_estimate,
         company: r.delivery_company, phone: r.delivery_company_phone, email: r.delivery_company_email,
-        stairs: r.delivery_stairs, elevator: r.delivery_elevator,
+        property: r.delivery_property, stairs: r.delivery_stairs, elevator: r.delivery_elevator,
       }));
 
     const txnIds = [...new Set([...lotToTxn.values()])];
@@ -156,6 +158,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged, comp
               t.delivery_company = t.delivery_company ?? p.delivery_company;
               t.delivery_company_phone = t.delivery_company_phone ?? p.delivery_company_phone;
               t.delivery_company_email = t.delivery_company_email ?? p.delivery_company_email;
+              t.delivery_property = t.delivery_property ?? p.delivery_property;
               t.delivery_stairs = t.delivery_stairs ?? p.delivery_stairs;
               t.delivery_elevator = t.delivery_elevator ?? p.delivery_elevator;
             }
@@ -186,7 +189,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged, comp
         g.del = {
           address: g.txn.delivery_address, date: g.txn.delivery_date, estimate: g.txn.delivery_estimate,
           company: g.txn.delivery_company, phone: g.txn.delivery_company_phone, email: g.txn.delivery_company_email,
-          stairs: g.txn.delivery_stairs, elevator: g.txn.delivery_elevator,
+          property: g.txn.delivery_property, stairs: g.txn.delivery_stairs, elevator: g.txn.delivery_elevator,
         };
       } else {
         g.del = lotDelivById.get(g.lots[0].id) ?? emptyDelivery();
@@ -206,7 +209,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged, comp
     setForm({
       address: g.del.address ?? '', date: g.del.date ?? '', estimate: g.del.estimate ?? '',
       company: g.del.company ?? '', companyPhone: g.del.phone ?? '', companyEmail: g.del.email ?? '',
-      stairs: g.del.stairs, elevator: g.del.elevator,
+      property: g.del.property, stairs: g.del.stairs, elevator: g.del.elevator,
     });
   };
 
@@ -342,6 +345,8 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged, comp
                         <p className="text-sm text-gray-700 mt-1"><span className="text-gray-500">Estimate:</span> {d.estimate}</p>
                       )}
                       <p className="text-sm text-gray-700 mt-1">
+                        <span className="text-gray-500">Property:</span> {propertyLabel(d.property)}
+                        <span className="text-gray-300 mx-1.5">·</span>
                         <span className="text-gray-500">Stairs:</span> {yesNo(d.stairs)}
                         <span className="text-gray-300 mx-1.5">·</span>
                         <span className="text-gray-500">Elevator:</span> {yesNo(d.elevator)}
@@ -401,6 +406,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged, comp
           company={manifestFor.del.company}
           phone={manifestFor.del.phone}
           email={manifestFor.del.email}
+          property={manifestFor.del.property}
           stairs={manifestFor.del.stairs}
           elevator={manifestFor.del.elevator}
           lots={manifestFor.lots}

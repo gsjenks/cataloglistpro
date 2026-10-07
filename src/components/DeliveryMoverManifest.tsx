@@ -4,7 +4,7 @@
 // block: driver name + signature, date, and time of pickup.
 
 import { X, Printer } from 'lucide-react';
-import { yesNo } from '../lib/delivery';
+import { yesNo, propertyLabel, type DeliveryProperty } from '../lib/delivery';
 
 interface ManifestLot { id: string; lot_number?: number | string | null; name: string; sold_price?: number | null }
 
@@ -17,6 +17,7 @@ interface Props {
   company: string | null;
   phone: string | null;
   email: string | null;
+  property?: DeliveryProperty | null;  // home / apartment / other
   stairs?: boolean | null;    // carried up or down stairs?
   elevator?: boolean | null;  // elevator required?
   lots: ManifestLot[];
@@ -37,7 +38,7 @@ function SignLine({ label }: { label: string }) {
 }
 
 export default function DeliveryMoverManifest({
-  saleName, buyer, address, date, estimate, company, phone, email, stairs = null, elevator = null, lots, total, onClose,
+  saleName, buyer, address, date, estimate, company, phone, email, property = null, stairs = null, elevator = null, lots, total, onClose,
 }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 cursor-pointer" onClick={onClose}>
@@ -69,6 +70,8 @@ export default function DeliveryMoverManifest({
               {date && <p className="text-gray-700 mt-1">{date}</p>}
               {estimate && <p className="text-gray-700 mt-1"><span className="text-gray-500">Moving Estimate:</span> {estimate}</p>}
               <p className="text-gray-700 mt-1">
+                <span className="text-gray-500">Property:</span> <strong>{propertyLabel(property)}</strong>
+                <span className="text-gray-300 mx-1.5">·</span>
                 <span className="text-gray-500">Stairs:</span> <strong>{yesNo(stairs)}</strong>
                 <span className="text-gray-300 mx-1.5">·</span>
                 <span className="text-gray-500">Elevator required:</span> <strong>{yesNo(elevator)}</strong>
