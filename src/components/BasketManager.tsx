@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { X, Search, Trash2, Plus, User, ScanLine, Pencil, ShoppingCart } from 'lucide-react';
+import DeliveryDetailsForm from './DeliveryDetailsForm';
 import { supabase } from '../lib/supabase';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
 import { reclaimExpiredHolds, renewBasketHolds } from '../lib/holds';
@@ -17,6 +18,10 @@ import {
   deliveryFromShopper,
   saveShopperDelivery,
   SHOPPER_DELIVERY_COLS,
+  DELIVERY_COLS,
+  deliveryColumns,
+  yesNo,
+  propertyLabel,
 } from '../lib/delivery';
 import { searchTokens, tokenOrClause, lotMatchesTokens } from '../lib/lotSearch';
 import { touchSaleBasket } from '../lib/saleBaskets';
@@ -101,17 +106,17 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
   const [editShopper, setEditShopper] = useState<{ name: string; phone: string; email: string } | null>(null);
   const [selectedLot, setSelectedLot] = useState<LotRow | null>(null);
   const [lotPhotoUrl, setLotPhotoUrl] = useState<string | null>(null);
+  // The detail card was opened from a basket row, so Back returns to that basket.
+  const [lotFromBasket, setLotFromBasket] = useState(false);
   const [lotBuyer, setLotBuyer] = useState<string | null>(null);
   const [lotFulfillment, setLotFulfillment] = useState<string | null>(null);
-  const [lotDelivery, setLotDelivery] = useState<{
-    address?: string | null; date?: string | null; estimate?: string | null;
-    company?: string | null; phone?: string | null; email?: string | null;
-  } | null>(null);
+  const [lotDelivery, setLotDelivery] = useState<DeliveryDetails | null>(null);
   // Sold-lot delivery editing (Item Lookup): switch a carry-out to delivery, or
   // amend delivery details. Writes to the lot's POS transaction.
   const [lotTxnId, setLotTxnId] = useState<string | null>(null);
   const [deliveryEdit, setDeliveryEdit] = useState(false);
-  const [dForm, setDForm] = useState({ address: '', date: '', estimate: '', company: '', phone: '', email: '' });
+  const [dForm, setDForm] = useState<DeliveryDetails>(emptyDelivery);
+  const [dFormErrors, setDFormErrors] = useState<string[]>([]);
   // Item Lookup → "Add to a basket": assign the looked-up lot to a customer.
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignQuery, setAssignQuery] = useState('');
@@ -233,6 +238,11 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
     return true;
   };
 
+  // Any way of leaving the detail card ends the trip from the basket.
+  useEffect(() => {
+    if (!selectedLot) setLotFromBasket(false);
+  }, [selectedLot]);
+
   // Open the full detail card for a lot: photo + data + status + customer.
   const openDetail = async (lot: LotRow) => {
     setSelectedLot(lot);
@@ -268,19 +278,12 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
       if (item?.transaction_id) {
         const { data: txn } = await supabase
           .from('sales_transactions')
-          .select('buyer_name, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+          .select(`buyer_name, ${DELIVERY_COLS}`)
           .eq('id', item.transaction_id)
           .maybeSingle();
-        const t = txn as {
-          buyer_name?: string; delivery_address?: string; delivery_date?: string;
-          delivery_estimate?: string; delivery_company?: string;
-          delivery_company_phone?: string; delivery_company_email?: string;
-        } | null;
+        const t = txn as (Record<string, unknown> & { buyer_name?: string }) | null;
         setLotBuyer(t?.buyer_name || 'Buyer (name not recorded)');
-        setLotDelivery({
-          address: t?.delivery_address, date: t?.delivery_date, estimate: t?.delivery_estimate,
-          company: t?.delivery_company, phone: t?.delivery_company_phone, email: t?.delivery_company_email,
-        });
+        setLotDelivery(deliveryFromShopper(t));
       }
     }
   };
@@ -294,14 +297,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
 
   // Open the delivery editor for a sold lot, prefilled from what's on file.
   const openDeliveryEdit = () => {
-    setDForm({
-      address: lotDelivery?.address ?? '',
-      date: lotDelivery?.date ?? '',
-      estimate: lotDelivery?.estimate ?? '',
-      company: lotDelivery?.company ?? '',
-      phone: lotDelivery?.phone ?? '',
-      email: lotDelivery?.email ?? '',
-    });
+    setDForm(lotDelivery ?? emptyDelivery);
     setDeliveryEdit(true);
   };
 
@@ -309,21 +305,15 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
   // flip its transaction line to delivery, and save the details on the sale.
   const saveLotDelivery = async () => {
     if (!selectedLot || !lotTxnId) return;
+    if (dFormErrors.length) { alert(dFormErrors.join('\n')); return; }
     setBusy(true);
     await supabase.from('lots').update({ for_delivery: true, updated_at: new Date().toISOString() }).eq('id', selectedLot.id);
     await supabase.from('sales_transaction_items').update({ fulfillment: 'delivery' }).eq('lot_id', selectedLot.id).eq('transaction_id', lotTxnId);
-    const { error } = await supabase.from('sales_transactions').update({
-      delivery_address: dForm.address.trim() || null,
-      delivery_date: dForm.date.trim() || null,
-      delivery_estimate: dForm.estimate.trim() || null,
-      delivery_company: dForm.company.trim() || null,
-      delivery_company_phone: dForm.phone.trim() || null,
-      delivery_company_email: dForm.email.trim() || null,
-    }).eq('id', lotTxnId);
+    const { error } = await supabase.from('sales_transactions').update(deliveryColumns(dForm)).eq('id', lotTxnId);
     setBusy(false);
     if (error) { alert('Could not save delivery details: ' + error.message); return; }
     setLotFulfillment('delivery');
-    setLotDelivery({ address: dForm.address, date: dForm.date, estimate: dForm.estimate, company: dForm.company, phone: dForm.phone, email: dForm.email });
+    setLotDelivery(dForm);
     setSelectedLot((prev) => (prev ? { ...prev, for_delivery: true } : prev));
     setDeliveryEdit(false);
     await load();
@@ -527,9 +517,15 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
     setDeliverySaved(false);
   };
 
+  // What the delivery form still objects to (address unchecked, bad phone...).
+  const [deliveryErrors, setDeliveryErrors] = useState<string[]>([]);
+  const [showDeliveryErrors, setShowDeliveryErrors] = useState(false);
+
   // Floor: save the customer's mover/delivery details to their record.
   const saveFloorDelivery = async () => {
     if (!selected) return;
+    if (deliveryErrors.length) { setShowDeliveryErrors(true); return; }
+    setShowDeliveryErrors(false);
     setSavingDelivery(true);
     const { error } = await saveShopperDelivery(supabase, selected.id, deliveryInfo);
     setSavingDelivery(false);
@@ -785,7 +781,7 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
         {(['shoppers', 'items'] as const).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); setLotFromBasket(false); }}
             className={`flex-1 py-2.5 text-sm font-medium border-b-2 ${
               tab === t ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-600'
             }`}
@@ -1062,9 +1058,14 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                       ) : (
                         <li key={l.id} className="px-3 py-2.5">
                           <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-800 truncate pr-2">
+                            <button
+                              type="button"
+                              onClick={() => { setTab('items'); setLotFromBasket(true); openDetail(l); }}
+                              className="text-sm text-left text-gray-800 truncate pr-2 hover:text-indigo-600 hover:underline"
+                              title="Show this item's details"
+                            >
                               #{l.lot_number ?? '—'} {l.name}
-                            </span>
+                            </button>
                             <span className="flex items-center gap-3 whitespace-nowrap">
                               <span className="text-sm text-gray-600">{money(l.starting_bid)}</span>
                               <button
@@ -1080,18 +1081,27 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                               </button>
                             </span>
                           </div>
-                          <label className="mt-1 inline-flex items-center gap-2 cursor-pointer select-none">
-                            <input
-                              type="checkbox"
-                              checked={!!l.for_delivery}
+                          {/* Both choices visible, so it is clear Delivery is an option. */}
+                          <div className="mt-1.5 inline-flex rounded-md border border-gray-200 overflow-hidden text-xs font-medium" role="group" aria-label="How this item leaves">
+                            <button
+                              type="button"
+                              onClick={() => l.for_delivery && toggleItemDelivery(l.id, false)}
                               disabled={busy}
-                              onChange={(e) => toggleItemDelivery(l.id, e.target.checked)}
-                              className="w-4 h-4 accent-amber-500"
-                            />
-                            <span className={`text-xs font-medium ${l.for_delivery ? 'text-amber-700' : 'text-gray-500'}`}>
-                              {l.for_delivery ? 'For delivery' : 'Carry out'}
-                            </span>
-                          </label>
+                              aria-pressed={!l.for_delivery}
+                              className={`px-2.5 py-1 ${!l.for_delivery ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                            >
+                              Carry out
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => !l.for_delivery && toggleItemDelivery(l.id, true)}
+                              disabled={busy}
+                              aria-pressed={!!l.for_delivery}
+                              className={`px-2.5 py-1 border-l border-gray-200 ${l.for_delivery ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                            >
+                              Delivery
+                            </button>
+                          </div>
                         </li>
                       ),
                     )}
@@ -1111,21 +1121,28 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                 </div>
 
                 {/* Delivery / mover details — shown when any item is for delivery */}
+                {basketItems.length > 0 && !basketItems.some((l) => l.for_delivery) && (
+                  <p className="mb-4 text-xs text-gray-500">
+                    Going out for delivery? Set the item to <span className="font-medium text-amber-700">Delivery</span> to enter the address and mover details.
+                  </p>
+                )}
                 {basketItems.some((l) => l.for_delivery) && (
                   <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md space-y-2">
                     <p className="text-xs font-semibold text-amber-900">
                       Delivery &amp; mover details ({basketItems.filter((l) => l.for_delivery).length} for delivery)
                     </p>
-                    <input value={deliveryInfo.address} onChange={(e) => updateDeliveryInfo({ address: e.target.value })} placeholder="Delivery address" className={inputCls} />
-                    <div className="flex gap-2">
-                      <input value={deliveryInfo.date} onChange={(e) => updateDeliveryInfo({ date: e.target.value })} placeholder="Delivery date" className={inputCls} />
-                      <input value={deliveryInfo.estimate} onChange={(e) => updateDeliveryInfo({ estimate: e.target.value })} placeholder="Estimate" className={inputCls} />
-                    </div>
-                    <input value={deliveryInfo.company} onChange={(e) => updateDeliveryInfo({ company: e.target.value })} placeholder="Mover / delivery company" className={inputCls} />
-                    <div className="flex gap-2">
-                      <input value={deliveryInfo.companyPhone} onChange={(e) => updateDeliveryInfo({ companyPhone: e.target.value })} placeholder="Mover phone" className={inputCls} />
-                      <input value={deliveryInfo.companyEmail} onChange={(e) => updateDeliveryInfo({ companyEmail: e.target.value })} placeholder="Mover email" className={inputCls} />
-                    </div>
+                    <DeliveryDetailsForm
+                      key={selected.id}
+                      value={deliveryInfo}
+                      onChange={updateDeliveryInfo}
+                      companyId={companyId}
+                      onErrorsChange={setDeliveryErrors}
+                    />
+                    {showDeliveryErrors && deliveryErrors.length > 0 && (
+                      <ul className="text-xs text-red-700 list-disc pl-4">
+                        {deliveryErrors.map((e) => <li key={e}>{e}</li>)}
+                      </ul>
+                    )}
                     <div className="flex items-center gap-3">
                       <button
                         onClick={saveFloorDelivery}
@@ -1224,9 +1241,18 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
           <div className="max-w-2xl mx-auto">
             {selectedLot ? (
               <div>
-                <button onClick={() => setSelectedLot(null)} className="text-sm text-indigo-600 hover:underline mb-3">
-                  ← Back to results
-                </button>
+                {lotFromBasket && selected ? (
+                  <button
+                    onClick={() => { setSelectedLot(null); setLotFromBasket(false); setTab('shoppers'); }}
+                    className="text-sm text-indigo-600 hover:underline mb-3"
+                  >
+                    ← Back to {selected.name}’s basket
+                  </button>
+                ) : (
+                  <button onClick={() => setSelectedLot(null)} className="text-sm text-indigo-600 hover:underline mb-3">
+                    ← Back to results
+                  </button>
+                )}
                 <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                   {lotPhotoUrl && (
                     <img src={lotPhotoUrl} alt={selectedLot.name} className="w-full max-h-72 object-cover" />
@@ -1266,8 +1292,9 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                             {lotDelivery.date && <p>Date: {lotDelivery.date}</p>}
                             {lotDelivery.estimate && <p>Estimate: {lotDelivery.estimate}</p>}
                             {lotDelivery.company && <p>Company: {lotDelivery.company}</p>}
-                            {lotDelivery.phone && <p>Phone: {lotDelivery.phone}</p>}
-                            {lotDelivery.email && <p>Email: {lotDelivery.email}</p>}
+                            {lotDelivery.companyPhone && <p>Phone: {lotDelivery.companyPhone}</p>}
+                            {lotDelivery.companyEmail && <p>Email: {lotDelivery.companyEmail}</p>}
+                            <p>Property: {propertyLabel(lotDelivery.property)} · Stairs: {yesNo(lotDelivery.stairs)} · Elevator: {yesNo(lotDelivery.elevator)}</p>
                             {!lotDelivery.address && !lotDelivery.company && (
                               <p className="text-blue-700">No delivery details recorded.</p>
                             )}
@@ -1287,16 +1314,13 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                         {deliveryEdit && (
                           <div className="p-3 bg-amber-50 border border-amber-200 rounded-md space-y-2">
                             <p className="text-xs font-semibold text-amber-900">Delivery &amp; mover details</p>
-                            <input value={dForm.address} onChange={(e) => setDForm({ ...dForm, address: e.target.value })} placeholder="Delivery address" className={inputCls} />
-                            <div className="flex gap-2">
-                              <input value={dForm.date} onChange={(e) => setDForm({ ...dForm, date: e.target.value })} placeholder="Delivery date" className={inputCls} />
-                              <input value={dForm.estimate} onChange={(e) => setDForm({ ...dForm, estimate: e.target.value })} placeholder="Time / estimate" className={inputCls} />
-                            </div>
-                            <input value={dForm.company} onChange={(e) => setDForm({ ...dForm, company: e.target.value })} placeholder="Mover / delivery company" className={inputCls} />
-                            <div className="flex gap-2">
-                              <input value={dForm.phone} onChange={(e) => setDForm({ ...dForm, phone: e.target.value })} placeholder="Mover phone" className={inputCls} />
-                              <input value={dForm.email} onChange={(e) => setDForm({ ...dForm, email: e.target.value })} placeholder="Mover email" className={inputCls} />
-                            </div>
+                            <DeliveryDetailsForm
+                              key={selectedLot.id}
+                              value={dForm}
+                              onChange={(patch) => setDForm((prev) => ({ ...prev, ...patch }))}
+                              companyId={companyId}
+                              onErrorsChange={setDFormErrors}
+                            />
                             <div className="flex items-center gap-2">
                               <button onClick={saveLotDelivery} disabled={busy} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300">
                                 {busy ? 'Saving…' : 'Save delivery'}

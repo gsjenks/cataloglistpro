@@ -1113,7 +1113,7 @@ export default function SaleDetail() {
 
         {activeTab === 'fulfillment' && (
           isEstate ? (
-            <EstateFulfillmentPanel saleId={saleId!} saleName={sale.name} lots={lots} onChanged={loadLots} />
+            <EstateFulfillmentPanel saleId={saleId!} saleName={sale.name} lots={lots} onChanged={loadLots} companyId={sale.company_id} />
           ) : (
             <FulfillmentPanel saleId={saleId!} companyId={sale.company_id} saleName={sale.name} lots={lots} onChanged={loadLots} />
           )

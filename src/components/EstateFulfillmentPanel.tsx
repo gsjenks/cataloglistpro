@@ -10,12 +10,18 @@ import DeliveryMoverManifest from './DeliveryMoverManifest';
 import { supabase } from '../lib/supabase';
 import type { Lot } from '../types';
 import { useRole } from '../context/RoleContext';
+import DeliveryDetailsForm from './DeliveryDetailsForm';
+import ShippersManager from './ShippersManager';
+import { listShippers } from '../services/ShipperService';
+import type { Shipper } from '../types';
+import { DELIVERY_COLS, deliveryColumns, emptyDelivery as emptyDetails, yesNo, propertyLabel, type DeliveryDetails, type DeliveryProperty } from '../lib/delivery';
 
 interface Props {
   saleId: string;
   saleName: string;
   lots: Lot[];
   onChanged: () => void;
+  companyId?: string | null;  // for the movers list in the edit form
 }
 
 interface Txn {
@@ -28,6 +34,9 @@ interface Txn {
   delivery_company: string | null;
   delivery_company_phone: string | null;
   delivery_company_email: string | null;
+  delivery_property: DeliveryProperty | null;
+  delivery_stairs: boolean | null;
+  delivery_elevator: boolean | null;
 }
 
 interface ShopperDelivery {
@@ -37,11 +46,15 @@ interface ShopperDelivery {
   delivery_company: string | null;
   delivery_company_phone: string | null;
   delivery_company_email: string | null;
+  delivery_property: DeliveryProperty | null;
+  delivery_stairs: boolean | null;
+  delivery_elevator: boolean | null;
 }
 
 interface Delivery {
   address: string | null; date: string | null; estimate: string | null;
   company: string | null; phone: string | null; email: string | null;
+  property: DeliveryProperty | null; stairs: boolean | null; elevator: boolean | null;
 }
 
 interface Group {
@@ -56,20 +69,25 @@ interface Group {
 const money = (n?: number | null) =>
   n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
-const inputCls = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600';
+const emptyDelivery = (): Delivery => ({ address: null, date: null, estimate: null, company: null, phone: null, email: null, property: null, stairs: null, elevator: null });
 
-const emptyForm = { address: '', date: '', estimate: '', company: '', phone: '', email: '' };
-const emptyDelivery = (): Delivery => ({ address: null, date: null, estimate: null, company: null, phone: null, email: null });
-
-export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Props) {
+export default function EstateFulfillmentPanel({ lots, saleName, onChanged, companyId = null }: Props) {
   // The sale-wide total is a sale figure: not shown to staff.
   const canMoney = useRole().can('money');
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [editKey, setEditKey] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<DeliveryDetails>(emptyDetails);
+  const [formErrors, setFormErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [manifestFor, setManifestFor] = useState<Group | null>(null);
+  // The movers directory (the company shippers list), for COI upkeep.
+  const [movers, setMovers] = useState<Shipper[] | null>(null);
+  const openMovers = async () => {
+    if (!companyId) return;
+    try { setMovers(await listShippers(companyId)); }
+    catch (e) { alert('Could not load movers: ' + (e instanceof Error ? e.message : 'unknown error')); }
+  };
 
   // Base set: every sold lot. Whether it's a delivery is decided below from the
   // sale line's fulfillment (like the Disposition Report), not only the lot flag.
@@ -102,13 +120,14 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
     // on the parent to reload the lots prop).
     const { data: lotDeliv } = await supabase
       .from('lots')
-      .select('id, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+      .select(`id, ${DELIVERY_COLS}`)
       .in('id', ids);
     const lotDelivById = new Map<string, Delivery>();
     ((lotDeliv as (ShopperDelivery & { id: string })[] | null) || []).forEach((r) =>
       lotDelivById.set(r.id, {
         address: r.delivery_address, date: r.delivery_date, estimate: r.delivery_estimate,
         company: r.delivery_company, phone: r.delivery_company_phone, email: r.delivery_company_email,
+        property: r.delivery_property, stairs: r.delivery_stairs, elevator: r.delivery_elevator,
       }));
 
     const txnIds = [...new Set([...lotToTxn.values()])];
@@ -118,7 +137,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
       // column (unrun migration) can't 400 the whole query and hide the buyers.
       const { data: txns } = await supabase
         .from('sales_transactions')
-        .select('id, buyer_name, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+        .select(`id, buyer_name, ${DELIVERY_COLS}`)
         .in('id', txnIds);
       const txnRows = (txns as Txn[] | null) || [];
       txnRows.forEach((t) => txnById.set(t.id, t));
@@ -136,7 +155,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
         if (shopperIds.length) {
           const { data: shoppers } = await supabase
             .from('shoppers')
-            .select('id, delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email')
+            .select(`id, ${DELIVERY_COLS}`)
             .in('id', shopperIds);
           const profileById = new Map<string, ShopperDelivery>();
           ((shoppers as (ShopperDelivery & { id: string })[] | null) || []).forEach((s) => profileById.set(s.id, s));
@@ -149,6 +168,9 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
               t.delivery_company = t.delivery_company ?? p.delivery_company;
               t.delivery_company_phone = t.delivery_company_phone ?? p.delivery_company_phone;
               t.delivery_company_email = t.delivery_company_email ?? p.delivery_company_email;
+              t.delivery_property = t.delivery_property ?? p.delivery_property;
+              t.delivery_stairs = t.delivery_stairs ?? p.delivery_stairs;
+              t.delivery_elevator = t.delivery_elevator ?? p.delivery_elevator;
             }
           });
         }
@@ -177,6 +199,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
         g.del = {
           address: g.txn.delivery_address, date: g.txn.delivery_date, estimate: g.txn.delivery_estimate,
           company: g.txn.delivery_company, phone: g.txn.delivery_company_phone, email: g.txn.delivery_company_email,
+          property: g.txn.delivery_property, stairs: g.txn.delivery_stairs, elevator: g.txn.delivery_elevator,
         };
       } else {
         g.del = lotDelivById.get(g.lots[0].id) ?? emptyDelivery();
@@ -195,22 +218,17 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
     setEditKey(g.key);
     setForm({
       address: g.del.address ?? '', date: g.del.date ?? '', estimate: g.del.estimate ?? '',
-      company: g.del.company ?? '', phone: g.del.phone ?? '', email: g.del.email ?? '',
+      company: g.del.company ?? '', companyPhone: g.del.phone ?? '', companyEmail: g.del.email ?? '',
+      property: g.del.property, stairs: g.del.stairs, elevator: g.del.elevator,
     });
   };
 
   const saveEdit = async () => {
     const g = groups.find((x) => x.key === editKey);
     if (!g) return;
+    if (formErrors.length) { alert(formErrors.join('\n')); return; }
     setSaving(true);
-    const patch = {
-      delivery_address: form.address.trim() || null,
-      delivery_date: form.date.trim() || null,
-      delivery_estimate: form.estimate.trim() || null,
-      delivery_company: form.company.trim() || null,
-      delivery_company_phone: form.phone.trim() || null,
-      delivery_company_email: form.email.trim() || null,
-    };
+    const patch = deliveryColumns(form);
     // Save to the transaction when there is one, else onto the lot(s) themselves.
     const { error } = g.txn
       ? await supabase.from('sales_transactions').update(patch).eq('id', g.txn.id)
@@ -241,6 +259,16 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
               </p>
               <p className="hidden print:block text-xs text-gray-500 mt-0.5">{saleName}</p>
             </div>
+            <div className="no-print flex items-center gap-2">
+            {companyId && (
+              <button
+                onClick={openMovers}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50"
+                title="Movers, their contacts and Certificates of Insurance"
+              >
+                <Truck className="w-4 h-4" /> Movers
+              </button>
+            )}
             <button
               onClick={() => window.print()}
               disabled={groups.length === 0}
@@ -248,6 +276,7 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
             >
               <Printer className="w-4 h-4" /> Print manifests
             </button>
+            </div>
           </div>
         </div>
 
@@ -299,16 +328,13 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
                 {editKey === g.key ? (
                   <div className="mt-3 rounded-md border border-indigo-200 bg-indigo-50/40 p-3 space-y-2 no-print">
                     <p className="text-xs font-semibold text-indigo-900">Delivery &amp; mover details</p>
-                    <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Delivery address" className={inputCls} />
-                    <div className="flex gap-2">
-                      <input value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} placeholder="Delivery date" className={inputCls} />
-                      <input value={form.estimate} onChange={(e) => setForm({ ...form, estimate: e.target.value })} placeholder="Moving estimate" className={inputCls} />
-                    </div>
-                    <input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} placeholder="Mover / delivery company" className={inputCls} />
-                    <div className="flex gap-2">
-                      <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Mover phone" className={inputCls} />
-                      <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Mover email" className={inputCls} />
-                    </div>
+                    <DeliveryDetailsForm
+                      key={g.key}
+                      value={form}
+                      onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+                      companyId={companyId}
+                      onErrorsChange={setFormErrors}
+                    />
                     <div className="flex items-center gap-2">
                       <button onClick={saveEdit} disabled={saving} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md hover:bg-indigo-700 disabled:bg-gray-300">
                         {saving ? 'Saving…' : 'Save'}
@@ -339,6 +365,13 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
                       {d.estimate && (
                         <p className="text-sm text-gray-700 mt-1"><span className="text-gray-500">Estimate:</span> {d.estimate}</p>
                       )}
+                      <p className="text-sm text-gray-700 mt-1">
+                        <span className="text-gray-500">Property:</span> {propertyLabel(d.property)}
+                        <span className="text-gray-300 mx-1.5">·</span>
+                        <span className="text-gray-500">Stairs:</span> {yesNo(d.stairs)}
+                        <span className="text-gray-300 mx-1.5">·</span>
+                        <span className="text-gray-500">Elevator:</span> {yesNo(d.elevator)}
+                      </p>
                     </div>
                     <div className="rounded-md border border-gray-200 p-3">
                       <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Mover / delivery company</p>
@@ -384,6 +417,16 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
         )}
       </div>
 
+      {movers && companyId && (
+        <ShippersManager
+          title="Movers"
+          companyId={companyId}
+          shippers={movers}
+          onChanged={openMovers}
+          onClose={() => setMovers(null)}
+        />
+      )}
+
       {manifestFor && (
         <DeliveryMoverManifest
           saleName={saleName}
@@ -394,6 +437,9 @@ export default function EstateFulfillmentPanel({ lots, saleName, onChanged }: Pr
           company={manifestFor.del.company}
           phone={manifestFor.del.phone}
           email={manifestFor.del.email}
+          property={manifestFor.del.property}
+          stairs={manifestFor.del.stairs}
+          elevator={manifestFor.del.elevator}
           lots={manifestFor.lots}
           total={manifestFor.total}
           onClose={() => setManifestFor(null)}
