@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { X, Search, Trash2, Plus, User, ScanLine, Pencil, ShoppingCart } from 'lucide-react';
+import DeliveryDetailsForm from './DeliveryDetailsForm';
 import { supabase } from '../lib/supabase';
 import { parseBasketUrl, type ScannedLot } from '../services/ScannerService';
 import { reclaimExpiredHolds, renewBasketHolds } from '../lib/holds';
@@ -534,9 +535,15 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
     setDeliverySaved(false);
   };
 
+  // What the delivery form still objects to (address unchecked, bad phone...).
+  const [deliveryErrors, setDeliveryErrors] = useState<string[]>([]);
+  const [showDeliveryErrors, setShowDeliveryErrors] = useState(false);
+
   // Floor: save the customer's mover/delivery details to their record.
   const saveFloorDelivery = async () => {
     if (!selected) return;
+    if (deliveryErrors.length) { setShowDeliveryErrors(true); return; }
+    setShowDeliveryErrors(false);
     setSavingDelivery(true);
     const { error } = await saveShopperDelivery(supabase, selected.id, deliveryInfo);
     setSavingDelivery(false);
@@ -1142,16 +1149,18 @@ export default function BasketManager({ saleId, companyId, onClose, onChanged, o
                     <p className="text-xs font-semibold text-amber-900">
                       Delivery &amp; mover details ({basketItems.filter((l) => l.for_delivery).length} for delivery)
                     </p>
-                    <input value={deliveryInfo.address} onChange={(e) => updateDeliveryInfo({ address: e.target.value })} placeholder="Delivery address" className={inputCls} />
-                    <div className="flex gap-2">
-                      <input value={deliveryInfo.date} onChange={(e) => updateDeliveryInfo({ date: e.target.value })} placeholder="Delivery date" className={inputCls} />
-                      <input value={deliveryInfo.estimate} onChange={(e) => updateDeliveryInfo({ estimate: e.target.value })} placeholder="Estimate" className={inputCls} />
-                    </div>
-                    <input value={deliveryInfo.company} onChange={(e) => updateDeliveryInfo({ company: e.target.value })} placeholder="Mover / delivery company" className={inputCls} />
-                    <div className="flex gap-2">
-                      <input value={deliveryInfo.companyPhone} onChange={(e) => updateDeliveryInfo({ companyPhone: e.target.value })} placeholder="Mover phone" className={inputCls} />
-                      <input value={deliveryInfo.companyEmail} onChange={(e) => updateDeliveryInfo({ companyEmail: e.target.value })} placeholder="Mover email" className={inputCls} />
-                    </div>
+                    <DeliveryDetailsForm
+                      key={selected.id}
+                      value={deliveryInfo}
+                      onChange={updateDeliveryInfo}
+                      companyId={companyId}
+                      onErrorsChange={setDeliveryErrors}
+                    />
+                    {showDeliveryErrors && deliveryErrors.length > 0 && (
+                      <ul className="text-xs text-red-700 list-disc pl-4">
+                        {deliveryErrors.map((e) => <li key={e}>{e}</li>)}
+                      </ul>
+                    )}
                     <div className="flex items-center gap-3">
                       <button
                         onClick={saveFloorDelivery}
