@@ -70,12 +70,14 @@ Rules:
   Whole dollars.
 - wall: which wall or area of the room the item is on, in the narrator's words when given ("back wall",
   "fireplace wall", "centre of the room").
-- POSITION SIGNS: the room has printed paper signs placed around it, reading like "MR 1 - 02" or "MR01-02"
-  (two room letters, the room number, a dash, then a POSITION number 1-20), sometimes with the company and
-  room name in small print. position = the integer after the dash on the sign nearest the item: the sign
-  on the same surface, or the sign shown for that stretch of wall. position_sign = the sign text exactly as
-  read. If no sign is legible near the item, both are null. Never guess a number you cannot read; never
-  invent signs. Signs themselves are not items.
+- POSITION SIGNS: the crew places printed white paper cards around the room, each with ONE large bold
+  POSITION number from 01 to 20, usually with "Benson Estate Sales" in small print. Some cards also show a
+  room code, like "MR 1 - 02" or "MR01-02"; then the position is the number after the dash. position = the
+  number on the card nearest the item: the card on the same surface, or the card shown for that stretch of
+  wall. position_sign = the card text exactly as read. ONLY these printed cards count: never take a number
+  from a clock, book, price sticker, sheet music, artwork, label, phone or house number. If no card is
+  legible near the item, both are null. Never guess a number you cannot read; never invent cards. The cards
+  themselves are not items.
 - timestamp: mm:ss of the item's clearest, sharpest, most head-on view.
 - box_2d: [ymin, xmin, ymax, xmax] normalized 0-1000 for the item in the frame at that timestamp.
 - confidence 0-1.
