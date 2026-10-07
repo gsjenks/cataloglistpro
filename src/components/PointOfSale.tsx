@@ -15,11 +15,14 @@ import {
   deliveryFromShopper,
   saveShopperDelivery,
   deliveryMissing,
+  yesNo,
   emptyDelivery,
+  type DeliveryDetails,
   SHOPPER_DELIVERY_COLS,
 } from '../lib/delivery';
 import { renewBasketHolds } from '../lib/holds';
 import QRScanner from './QRScanner';
+import DeliveryDetailsForm from './DeliveryDetailsForm';
 
 const STAFF_HOLD_MS = 30 * 60 * 1000;
 
@@ -131,9 +134,9 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   // Staff must confirm mover/delivery details before completing a delivery sale.
   const [deliveryConfirmed, setDeliveryConfirmed] = useState(false);
   const [deliveryExpanded, setDeliveryExpanded] = useState(true);
-  const [delivery, setDelivery] = useState({
-    address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '',
-  });
+  const [delivery, setDelivery] = useState<DeliveryDetails>(emptyDelivery);
+  // What the delivery form still objects to (address unchecked, bad phone...).
+  const [deliveryErrors, setDeliveryErrors] = useState<string[]>([]);
 
   useEffect(() => {
     localStorage.setItem(`pos_taxrate_${saleId}`, String(taxRate));
@@ -607,7 +610,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
   // the customer's record (so the floor and any later sale see them), and mark
   // them confirmed so the sale can complete.
   const saveDeliveryDetails = async () => {
-    const missing = deliveryMissing(delivery);
+    const missing = deliveryErrors[0] ?? deliveryMissing(delivery);
     if (missing) {
       setError(missing);
       return;
@@ -657,6 +660,8 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             company: delivery.company,
             companyPhone: delivery.companyPhone,
             companyEmail: delivery.companyEmail,
+            stairs: delivery.stairs,
+            elevator: delivery.elevator,
           }
         : undefined,
     });
@@ -696,7 +701,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
     setDupMatches([]);
     setCustomerFormError(null);
     setDeliveryConfirmed(false);
-    setDelivery({ address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '' });
+    setDelivery(emptyDelivery);
   };
 
   // ---- Receipt view -------------------------------------------------------
@@ -1110,6 +1115,7 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
               </p>
               <p className="text-xs text-green-700 truncate">
                 {[delivery.company, delivery.date, delivery.address].filter(Boolean).join(' · ') || 'Details on file'}
+                {' · '}Stairs: {yesNo(delivery.stairs)} · Elevator: {yesNo(delivery.elevator)}
               </p>
             </div>
             <button onClick={() => setDeliveryConfirmed(false)} className="text-xs text-green-800 underline shrink-0">
@@ -1134,46 +1140,13 @@ export default function PointOfSale({ saleId, companyId, saleName, lots, onClose
             </button>
             {deliveryExpanded && (
               <>
-                <input
-                  placeholder="Delivery address"
-                  value={delivery.address}
-                  onChange={(e) => updateDelivery({ address: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
+                <DeliveryDetailsForm
+                  key={buyerBasketId ?? 'walk-in'}
+                  value={delivery}
+                  onChange={updateDelivery}
+                  companyId={companyId}
+                  onErrorsChange={setDeliveryErrors}
                 />
-                <div className="flex gap-2">
-                  <input
-                    placeholder="Delivery date"
-                    value={delivery.date}
-                    onChange={(e) => updateDelivery({ date: e.target.value })}
-                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-                  />
-                  <input
-                    placeholder="Estimate"
-                    value={delivery.estimate}
-                    onChange={(e) => updateDelivery({ estimate: e.target.value })}
-                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-                  />
-                </div>
-                <input
-                  placeholder="Mover / delivery company"
-                  value={delivery.company}
-                  onChange={(e) => updateDelivery({ company: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-                />
-                <div className="flex gap-2">
-                  <input
-                    placeholder="Mover phone"
-                    value={delivery.companyPhone}
-                    onChange={(e) => updateDelivery({ companyPhone: e.target.value })}
-                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-                  />
-                  <input
-                    placeholder="Mover email"
-                    value={delivery.companyEmail}
-                    onChange={(e) => updateDelivery({ companyEmail: e.target.value })}
-                    className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600"
-                  />
-                </div>
                 <button
                   onClick={saveDeliveryDetails}
                   className="w-full mt-1 px-3 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700"

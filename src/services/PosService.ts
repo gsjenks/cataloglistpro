@@ -20,6 +20,8 @@ export interface DeliveryInfo {
   company?: string;
   companyPhone?: string;
   companyEmail?: string;
+  stairs?: boolean | null;
+  elevator?: boolean | null;
 }
 
 export interface CreateTransactionInput {
@@ -88,6 +90,8 @@ export async function createTransaction(
     delivery_company: delivery?.company || null,
     delivery_company_phone: delivery?.companyPhone || null,
     delivery_company_email: delivery?.companyEmail || null,
+    delivery_stairs: delivery?.stairs ?? null,
+    delivery_elevator: delivery?.elevator ?? null,
   };
   let { data: txn, error: txnError } = await supabase
     .from('sales_transactions')

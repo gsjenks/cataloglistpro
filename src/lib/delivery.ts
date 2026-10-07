@@ -13,16 +13,22 @@ export interface DeliveryDetails {
   company: string;
   companyPhone: string;
   companyEmail: string;
+  // Access questions for the mover. null = not asked yet.
+  stairs: boolean | null;    // carried up or down stairs?
+  elevator: boolean | null;  // elevator required?
 }
 
 export const emptyDelivery: DeliveryDetails = {
   address: '', date: '', estimate: '', company: '', companyPhone: '', companyEmail: '',
+  stairs: null, elevator: null,
 };
 
-// Columns to select from shoppers to hydrate delivery details.
-export const SHOPPER_DELIVERY_COLS =
-  'delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email';
+// The delivery_* columns, named the same on shoppers, sales_transactions and lots.
+export const DELIVERY_COLS =
+  'delivery_address, delivery_date, delivery_estimate, delivery_company, delivery_company_phone, delivery_company_email, delivery_stairs, delivery_elevator';
+export const SHOPPER_DELIVERY_COLS = DELIVERY_COLS;
 
+/** Hydrate from a shopper, transaction or lot row (same column names on all three). */
 export function deliveryFromShopper(s: Record<string, unknown> | null | undefined): DeliveryDetails {
   return {
     address: (s?.delivery_address as string) ?? '',
@@ -31,7 +37,29 @@ export function deliveryFromShopper(s: Record<string, unknown> | null | undefine
     company: (s?.delivery_company as string) ?? '',
     companyPhone: (s?.delivery_company_phone as string) ?? '',
     companyEmail: (s?.delivery_company_email as string) ?? '',
+    stairs: (s?.delivery_stairs as boolean | null | undefined) ?? null,
+    elevator: (s?.delivery_elevator as boolean | null | undefined) ?? null,
   };
+}
+export const deliveryFromRow = deliveryFromShopper;
+
+/** The delivery_* column values for an update (blank text becomes NULL). */
+export function deliveryColumns(d: DeliveryDetails) {
+  return {
+    delivery_address: d.address.trim() || null,
+    delivery_date: d.date.trim() || null,
+    delivery_estimate: d.estimate.trim() || null,
+    delivery_company: d.company.trim() || null,
+    delivery_company_phone: d.companyPhone.trim() || null,
+    delivery_company_email: d.companyEmail.trim() || null,
+    delivery_stairs: d.stairs,
+    delivery_elevator: d.elevator,
+  };
+}
+
+/** "Yes" / "No" / "Not asked", for the manifest and summaries. */
+export function yesNo(v: boolean | null | undefined): string {
+  return v == null ? 'Not asked' : v ? 'Yes' : 'No';
 }
 
 export async function saveShopperDelivery(
@@ -41,15 +69,7 @@ export async function saveShopperDelivery(
 ): Promise<{ error: unknown }> {
   const { error } = await client
     .from('shoppers')
-    .update({
-      delivery_address: d.address.trim() || null,
-      delivery_date: d.date.trim() || null,
-      delivery_estimate: d.estimate.trim() || null,
-      delivery_company: d.company.trim() || null,
-      delivery_company_phone: d.companyPhone.trim() || null,
-      delivery_company_email: d.companyEmail.trim() || null,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ ...deliveryColumns(d), updated_at: new Date().toISOString() })
     .eq('id', shopperId);
   return { error };
 }
@@ -59,5 +79,6 @@ export async function saveShopperDelivery(
 export function deliveryMissing(d: DeliveryDetails): string | null {
   if (!d.date.trim()) return 'Enter a delivery date for the mover.';
   if (!d.companyPhone.trim() && !d.companyEmail.trim()) return 'Enter a mover phone or email.';
+  if (d.stairs == null || d.elevator == null) return 'Answer the stairs and elevator questions for the mover.';
   return null;
 }

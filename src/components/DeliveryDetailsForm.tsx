@@ -6,6 +6,7 @@
 //   mover    picked from the company shippers directory, or added to it
 //   phone    masked to (555) 555-5555, 10 digits required
 //   email    name@domain.tld
+//   access   two yes/no questions for the mover: stairs? elevator required?
 // The parent owns the values and the Save button; this reports what is still
 // wrong through onErrorsChange so Save can refuse with a reason.
 
@@ -35,6 +36,25 @@ interface Props {
 
 const inputCls = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-indigo-600';
 const errCls = 'border-red-400 focus:border-red-500';
+
+/** A yes/no question with an unanswered state (null). */
+export function YesNoQuestion({ label, value, onChange }: {
+  label: string;
+  value: boolean | null;
+  onChange: (v: boolean) => void;
+}) {
+  const btn = (v: boolean) =>
+    `px-3 py-1 ${value === v ? (v ? 'bg-amber-500 text-white' : 'bg-gray-700 text-white') : 'bg-white text-gray-600 hover:bg-gray-50'}`;
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className={`text-sm ${value == null ? 'text-gray-800 font-medium' : 'text-gray-700'}`}>{label}</span>
+      <div className="inline-flex rounded-md border border-gray-300 overflow-hidden text-xs font-medium shrink-0" role="group" aria-label={label}>
+        <button type="button" aria-pressed={value === true} onClick={() => onChange(true)} className={btn(true)}>Yes</button>
+        <button type="button" aria-pressed={value === false} onClick={() => onChange(false)} className={`border-l border-gray-300 ${btn(false)}`}>No</button>
+      </div>
+    </div>
+  );
+}
 
 function normalize(a: string) {
   return a.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -225,6 +245,12 @@ export default function DeliveryDetailsForm({ value, onChange, companyId, onErro
           placeholder="Time / estimate"
           className={inputCls}
         />
+      </div>
+
+      {/* Access questions for the mover */}
+      <div className="space-y-1.5 py-1">
+        <YesNoQuestion label="Moving up or down stairs?" value={value.stairs} onChange={(v) => onChange({ stairs: v })} />
+        <YesNoQuestion label="Elevator required?" value={value.elevator} onChange={(v) => onChange({ elevator: v })} />
       </div>
 
       {/* Mover */}
