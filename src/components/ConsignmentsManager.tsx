@@ -12,7 +12,7 @@ import {
 } from '../services/ConsignmentService';
 import { formatContactName } from '../utils/contactName';
 import SettlementStatement from './SettlementStatement';
-import { FLAT_FEE_KEYS, FEE_LABELS, DEFAULT_BUYIN_RATE, CUSTOM_FEE_SUGGESTIONS } from '../lib/settlement';
+import { FLAT_FEE_KEYS, FEE_LABELS, DEFAULT_BUYIN_RATE, FEE_TYPES } from '../lib/settlement';
 
 interface Props {
   saleId: string;
@@ -25,7 +25,8 @@ interface Props {
   onChanged: () => void;
 }
 
-type CustomFeeForm = { label: string; amount: string; note: string };
+// `other` = the name was typed (picked "Other…" or isn't one of FEE_TYPES).
+type CustomFeeForm = { label: string; amount: string; note: string; other: boolean };
 
 type FormState = {
   contact_id: string;
@@ -33,7 +34,7 @@ type FormState = {
   buyers_premium_rate: string;
   reserve_policy: 'none' | 'per_lot' | 'blanket';
   lead_source: string;
-  fees: Record<Exclude<keyof ConsignmentFees, 'custom'>, string>;
+  buyin: string;
   custom: CustomFeeForm[];
 };
 
@@ -43,9 +44,12 @@ const emptyForm: FormState = {
   buyers_premium_rate: '',
   reserve_policy: 'none',
   lead_source: '',
-  fees: { photography: '', cataloging: '', insurance: '', storage: '', buyin: String(DEFAULT_BUYIN_RATE) },
+  buyin: String(DEFAULT_BUYIN_RATE),
   custom: [],
 };
+
+const OTHER = '__other__';
+const isPreset = (label: string) => FEE_TYPES.includes(label);
 
 const num = (s: string): number | undefined => {
   const n = parseFloat(s);
@@ -81,18 +85,20 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
       buyers_premium_rate: c.buyers_premium_rate?.toString() ?? '',
       reserve_policy: c.reserve_policy ?? 'none',
       lead_source: c.lead_source ?? '',
-      fees: {
-        photography: c.fee_schedule?.photography?.toString() ?? '',
-        cataloging: c.fee_schedule?.cataloging?.toString() ?? '',
-        insurance: c.fee_schedule?.insurance?.toString() ?? '',
-        storage: c.fee_schedule?.storage?.toString() ?? '',
-        buyin: c.fee_schedule?.buyin?.toString() ?? String(DEFAULT_BUYIN_RATE),
-      },
-      custom: (c.fee_schedule?.custom ?? []).map((f) => ({
-        label: f.label ?? '',
-        amount: f.amount != null ? String(f.amount) : '',
-        note: f.note ?? '',
-      })),
+      buyin: c.fee_schedule?.buyin?.toString() ?? String(DEFAULT_BUYIN_RATE),
+      // Older records keep photography/cataloging/insurance/storage as flat
+      // keys; they open as fee lines and are saved back as lines.
+      custom: [
+        ...FLAT_FEE_KEYS
+          .filter((k) => (c.fee_schedule?.[k] as number | undefined) != null)
+          .map((k) => ({ label: FEE_LABELS[k], amount: String(c.fee_schedule![k]), note: '', other: false })),
+        ...(c.fee_schedule?.custom ?? []).map((f) => ({
+          label: f.label ?? '',
+          amount: f.amount != null ? String(f.amount) : '',
+          note: f.note ?? '',
+          other: !isPreset(f.label ?? ''),
+        })),
+      ],
     });
     setShowModal(true);
   };
@@ -105,11 +111,9 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
     setSaving(true);
     try {
       const fee_schedule: ConsignmentFees = {};
-      (Object.keys(form.fees) as (keyof Omit<ConsignmentFees, 'custom'>)[]).forEach((k) => {
-        const v = num(form.fees[k]);
-        if (v !== undefined) fee_schedule[k] = v;
-      });
-      // Ad-hoc consignor fees: keep any line that has a label or a non-zero amount.
+      const buyin = num(form.buyin);
+      if (buyin !== undefined) fee_schedule.buyin = buyin;
+      // Every fee is a line: keep any line that has a label or a non-zero amount.
       const custom = form.custom
         .map((c) => ({ label: c.label.trim(), amount: num(c.amount) ?? 0, note: c.note.trim() || undefined }))
         .filter((c) => c.label !== '' || c.amount !== 0);
@@ -311,85 +315,87 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Flat fees ($)</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {FLAT_FEE_KEYS.map((k) => (
-                    <div key={k}>
-                      <span className="block text-xs text-gray-500 mb-1">{FEE_LABELS[k]}</span>
-                      <input
-                        type="number" inputMode="decimal" value={form.fees[k]}
-                        onChange={(e) => setForm({ ...form, fees: { ...form.fees, [k]: e.target.value } })}
-                        className="w-full border border-gray-300 rounded-md p-1.5 text-sm"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {!isEstate && (
                 <div className="w-1/2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Buy-in rate (% of reserve)</label>
                   <input
-                    type="number" inputMode="decimal" value={form.fees.buyin}
-                    onChange={(e) => setForm({ ...form, fees: { ...form.fees, buyin: e.target.value } })}
+                    type="number" inputMode="decimal" value={form.buyin}
+                    onChange={(e) => setForm({ ...form, buyin: e.target.value })}
                     className="w-full border border-gray-300 rounded-md p-2 text-sm" placeholder="3"
                   />
                 </div>
               )}
 
-              {/* Other fees — ad-hoc consignor charges (cleanout, parking, gate, setup…) */}
+              {/* Fees billed to the consignor/client — one line per charge. */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Other fees ($)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Fees ($)</label>
                 <p className="text-xs text-gray-500 mb-2">
-                  Extra charges billed to the consignor beyond the flat fees — e.g. estate
-                  cleanout, parking, gate, setup. Add a line, name it, set the amount, and note
-                  what it&apos;s for. These are deducted from the payout at settlement.
+                  Costs billed to the {partyOne} for the sale — photography, cleanout,
+                  parking, gate list, setup… Pick a fee, set the amount, and note what
+                  it&apos;s for. These are deducted from the payout at settlement.
                 </p>
-                <datalist id="custom-fee-labels">
-                  {CUSTOM_FEE_SUGGESTIONS.map((s) => <option key={s} value={s} />)}
-                </datalist>
                 {form.custom.length > 0 && (
-                  <div className="space-y-2 mb-2">
-                    {form.custom.map((cf, i) => (
-                      <div key={i} className="flex gap-2 items-start">
-                        <input
-                          list="custom-fee-labels"
-                          value={cf.label}
-                          onChange={(e) => setForm({ ...form, custom: form.custom.map((c, j) => j === i ? { ...c, label: e.target.value } : c) })}
-                          placeholder="Fee (e.g. Cleanout)"
-                          className="flex-1 min-w-0 border border-gray-300 rounded-md p-1.5 text-sm"
-                        />
-                        <div className="relative w-24 shrink-0">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                          <input
-                            type="number" inputMode="decimal" value={cf.amount}
-                            onChange={(e) => setForm({ ...form, custom: form.custom.map((c, j) => j === i ? { ...c, amount: e.target.value } : c) })}
-                            placeholder="0"
-                            className="w-full pl-5 pr-2 py-1.5 border border-gray-300 rounded-md text-sm"
-                          />
+                  <div className="space-y-3 mb-2">
+                    {form.custom.map((cf, i) => {
+                      const setLine = (patch: Partial<CustomFeeForm>) =>
+                        setForm({ ...form, custom: form.custom.map((c, j) => j === i ? { ...c, ...patch } : c) });
+                      return (
+                        <div key={i} className="space-y-1.5">
+                          <div className="flex gap-2 items-start">
+                            <select
+                              value={cf.other ? OTHER : cf.label}
+                              onChange={(e) => e.target.value === OTHER
+                                ? setLine({ other: true, label: isPreset(cf.label) ? '' : cf.label })
+                                : setLine({ other: false, label: e.target.value })}
+                              className="flex-1 min-w-0 border border-gray-300 rounded-md p-1.5 text-sm"
+                            >
+                              <option value="">Choose a fee…</option>
+                              {FEE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                              <option value={OTHER}>Other…</option>
+                            </select>
+                            <div className="relative w-24 shrink-0">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                              <input
+                                type="number" inputMode="decimal" value={cf.amount}
+                                onChange={(e) => setLine({ amount: e.target.value })}
+                                placeholder="0"
+                                className="w-full pl-5 pr-2 py-1.5 border border-gray-300 rounded-md text-sm"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setForm({ ...form, custom: form.custom.filter((_, j) => j !== i) })}
+                              className="p-1.5 text-gray-400 hover:text-red-600 shrink-0"
+                              aria-label="Remove fee"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <div className="flex gap-2 pr-9">
+                            {cf.other && (
+                              <input
+                                value={cf.label}
+                                onChange={(e) => setLine({ label: e.target.value })}
+                                placeholder="Fee name"
+                                autoFocus
+                                className="flex-1 min-w-0 border border-gray-300 rounded-md p-1.5 text-sm"
+                              />
+                            )}
+                            <input
+                              value={cf.note}
+                              onChange={(e) => setLine({ note: e.target.value })}
+                              placeholder="Comment (optional)"
+                              className="flex-1 min-w-0 border border-gray-300 rounded-md p-1.5 text-sm"
+                            />
+                          </div>
                         </div>
-                        <input
-                          value={cf.note}
-                          onChange={(e) => setForm({ ...form, custom: form.custom.map((c, j) => j === i ? { ...c, note: e.target.value } : c) })}
-                          placeholder="Comment (optional)"
-                          className="flex-1 min-w-0 border border-gray-300 rounded-md p-1.5 text-sm"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setForm({ ...form, custom: form.custom.filter((_, j) => j !== i) })}
-                          className="p-1.5 text-gray-400 hover:text-red-600 shrink-0"
-                          aria-label="Remove fee"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, custom: [...form.custom, { label: '', amount: '', note: '' }] })}
+                  onClick={() => setForm({ ...form, custom: [...form.custom, { label: '', amount: '', note: '', other: false }] })}
                   className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline"
                 >
                   <Plus className="w-3.5 h-3.5" /> Add a fee line
@@ -405,7 +411,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                     </p>
                     <ul className="list-disc pl-4 space-y-0.5">
                       <li><span className="font-medium">Commission</span> — the house&apos;s share of gross sales.</li>
-                      <li><span className="font-medium">Flat fees + Other fees</span> (cleanout, parking, gate, setup…) — costs billed back to the {partyOne}.</li>
+                      <li><span className="font-medium">Fees</span> (photography, cleanout, parking, gate list, setup…) — costs billed back to the {partyOne}.</li>
                     </ul>
                   </>
                 ) : (
@@ -417,7 +423,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                     </p>
                     <ul className="list-disc pl-4 space-y-0.5">
                       <li><span className="font-medium">Commission</span> — the house&apos;s share of each hammer price.</li>
-                      <li><span className="font-medium">Photography / Cataloging / Insurance / Storage</span> — costs billed back to the consignor.</li>
+                      <li><span className="font-medium">Fees</span> (photography, cataloging, insurance, storage…) — costs billed back to the consignor.</li>
                       <li><span className="font-medium">Buy-in</span> — {DEFAULT_BUYIN_RATE}% (editable) of the reserve on each unsold lot; only lots that had a reserve are charged.</li>
                     </ul>
                   </>

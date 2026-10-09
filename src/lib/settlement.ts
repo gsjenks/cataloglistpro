@@ -57,8 +57,12 @@ export const FEE_LABELS: Record<keyof ConsignmentFees, string> = {
   custom: 'Other fees',
 };
 
-// Suggested labels for ad-hoc consignor fees (free-form; not exhaustive).
-export const CUSTOM_FEE_SUGGESTIONS = ['Cleanout', 'Parking', 'Gate', 'Setup', 'Other'];
+// Fee types offered in the consignor/client fee dropdown. Any other name can be
+// typed via "Other…"; every line is saved to fee_schedule.custom.
+export const FEE_TYPES = [
+  'Photography', 'Cataloging', 'Insurance', 'Storage', 'Parking', 'Cleanout',
+  'Charity Representative', 'Gate List', 'Setup', 'Advertising', 'Security', 'Hauling',
+];
 
 export const DEFAULT_BUYIN_RATE = 3; // percent of reserve, on unsold lots
 
