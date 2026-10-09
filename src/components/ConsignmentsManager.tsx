@@ -209,7 +209,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                 <div className="text-xs text-gray-500 flex flex-wrap gap-x-3">
                   {c.commission_rate != null && <span>Commission {c.commission_rate}%</span>}
                   {!isEstate && c.buyers_premium_rate != null && <span>BP {c.buyers_premium_rate}%</span>}
-                  <span>Reserve: {c.reserve_policy ?? 'none'}</span>
+                  {!isEstate && <span>Reserve: {c.reserve_policy ?? 'none'}</span>}
                   {c.lead_source && <span>Source: {c.lead_source}</span>}
                 </div>
               </div>
@@ -293,6 +293,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
               </div>
 
               <div className="grid grid-cols-2 gap-3">
+                {!isEstate && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Reserve policy</label>
                   <select
@@ -305,6 +306,7 @@ export default function ConsignmentsManager({ saleId, companyId, consignments, c
                     <option value="blanket">Blanket</option>
                   </select>
                 </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Lead source</label>
                   <input
