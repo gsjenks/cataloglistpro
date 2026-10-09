@@ -183,7 +183,7 @@ export default function RoomCaptureImport({ saleId, companyId, saleContext = '',
       setResult(res);
       onImported();
       if (job) {
-        cleanupJob(job.id).catch((e) => console.error('[ROOM CAPTURE] cleanup after import:', e));
+        cleanupJob(job).catch((e) => console.error('[ROOM CAPTURE] cleanup after import:', e));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Import failed.');

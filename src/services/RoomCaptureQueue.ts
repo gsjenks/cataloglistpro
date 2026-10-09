@@ -26,10 +26,18 @@ export interface RoomCaptureJob {
   status: JobStatus;
   merged: { clipIds: string[]; lots: unknown[] | null } | null;
   error: string | null;
+  lease_until: string | null; // on a ready room: a device is cutting its photos
   finished_at: string | null;
   created_at: string;
   updated_at: string;
 }
+
+/** The room's folder in the bucket: its clips, and crops/ once photos are cut. */
+export const jobFolder = (job: Pick<RoomCaptureJob, 'id' | 'company_id' | 'sale_id'>) =>
+  `${job.company_id}/${job.sale_id}/${job.id}`;
+
+export const JOB_COLUMNS =
+  'id, company_id, sale_id, room_id, room_code, room_name, status, merged, error, lease_until, finished_at, created_at, updated_at';
 
 export interface RoomCaptureClip {
   id: string;
@@ -383,7 +391,7 @@ export async function hasDeviceCopy(clipId: string): Promise<boolean> {
 export async function listJobs(saleId: string): Promise<RoomCaptureJob[]> {
   const { data, error } = await supabase
     .from('room_capture_jobs')
-    .select('id, company_id, sale_id, room_id, room_code, room_name, status, merged, error, finished_at, created_at, updated_at')
+    .select(JOB_COLUMNS)
     .eq('sale_id', saleId)
     .neq('status', 'imported')
     .order('created_at');
@@ -430,8 +438,16 @@ async function call(action: string, body: Record<string, unknown>) {
 export const kickJob = (jobId: string) => call('kick', { jobId });
 export const finishJob = (jobId: string) => call('finish_job', { jobId });
 export const retryClip = (clipId: string) => call('retry_clip', { clipId });
-/** Delete the room's videos; `discard` also removes the room from the list. */
-export const cleanupJob = (jobId: string, discard = false) => call('cleanup_job', { jobId, discard });
+/** Delete the room's videos and cut photos; `discard` also removes the room from the list. */
+export async function cleanupJob(job: RoomCaptureJob, discard = false) {
+  // The crops are only written by the app, so the app removes them.
+  const dir = `${jobFolder(job)}/crops`;
+  const { data: files } = await supabase.storage.from(ROOM_CAPTURE_BUCKET).list(dir, { limit: 1000 });
+  if (files?.length) {
+    await supabase.storage.from(ROOM_CAPTURE_BUCKET).remove(files.map((f) => `${dir}/${f.name}`)).catch(() => undefined);
+  }
+  return call('cleanup_job', { jobId: job.id, discard });
+}
 
 export async function clipVideoUrl(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(ROOM_CAPTURE_BUCKET).createSignedUrl(path, 3 * 3600);

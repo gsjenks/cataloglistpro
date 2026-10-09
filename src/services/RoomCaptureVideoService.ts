@@ -1,15 +1,19 @@
 // src/services/RoomCaptureVideoService.ts
 // Narrated walkthrough videos -> a room-capture package for the review screen.
 // The clips are uploaded and analysed on the server (RoomCaptureQueue and the
-// room-capture edge function); the server cannot cut photos from a video, so
-// that happens here when a room is opened for review: each item's crop is cut
-// from the sharpest frame near its timestamp, read straight from the stored clip,
-// then the server's room-wide merge turns the items into lots.
-// See docs/room-capture-spec.md.
+// room-capture edge function); the server cannot cut photos from a video, so the
+// app does it, in the background, as soon as a room is ready: each item's crop
+// is cut from the sharpest frame near its timestamp, read straight from the
+// stored clip, and saved to the room's crops/ folder with a manifest. Review then
+// only downloads them, and the server's room-wide merge turns the items into
+// lots. See docs/room-capture-spec.md.
 
 import { supabase } from '../lib/supabase';
 import type { CaptureLot, CaptureMember, CapturePackage } from './RoomCaptureImportService';
-import { clipVideoUrl, type RoomCaptureClip, type RoomCaptureJob } from './RoomCaptureQueue';
+import {
+  clipVideoUrl, jobFolder, listClips, JOB_COLUMNS, ROOM_CAPTURE_BUCKET,
+  type RoomCaptureClip, type RoomCaptureJob,
+} from './RoomCaptureQueue';
 
 export interface ClipItem {
   id: number;
@@ -87,15 +91,29 @@ function loadVideo(src: File | string): Promise<HTMLVideoElement> {
   });
 }
 
+/** Thrown when background cutting has to stop (app hidden); it resumes later. */
+export class CropPaused extends Error {}
+
 function seek(v: HTMLVideoElement, t: number): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    const target = Math.max(0, Math.min(t, (v.duration || t) - 0.05));
+    if (Math.abs(v.currentTime - target) < 0.001 && v.readyState >= 2) {
+      resolve();
+      return;
+    }
     const done = () => {
+      clearTimeout(timer);
       v.removeEventListener('seeked', done);
       resolve();
     };
+    // A seek that never lands (a hidden tab stops decoding) must not hand back
+    // the previous frame as this item's photo.
+    const timer = setTimeout(() => {
+      v.removeEventListener('seeked', done);
+      reject(document.visibilityState === 'visible' ? new Error('The video stopped responding.') : new CropPaused('paused'));
+    }, 8000);
     v.addEventListener('seeked', done);
-    setTimeout(done, 8000);
-    v.currentTime = Math.max(0, Math.min(t, (v.duration || t) - 0.05));
+    v.currentTime = target;
   });
 }
 
@@ -156,6 +174,7 @@ export async function cropItems(
   onProgress: (fraction: number) => void,
   offsets: number[] = [-0.4, -0.2, 0, 0.2, 0.4],
   refine = true,
+  shouldStop?: () => boolean,
 ): Promise<Map<number, Crop>> {
   const crops = new Map<number, Crop>();
   const frames = new Map<number, Frame>();
@@ -168,6 +187,7 @@ export async function cropItems(
     // 1. The sharpest frame near each item's timestamp (motion blur was the
     //    biggest problem in walkthrough frames).
     for (let k = 0; k < items.length; k++) {
+      if (shouldStop?.()) throw new CropPaused('paused');
       const it = items[k];
       const t = tsSeconds(it.timestamp);
       let best = t;
@@ -394,38 +414,251 @@ export function buildRoomPackage(
   return { pkg, images };
 }
 
+// ---- Saved crops ----
+//
+// <room folder>/crops/<clipId>-<itemId>.jpg plus crops/manifest.json, which
+// records per clip the items it was cut for (so a clip analysed again is cut
+// again) and each crop's size (Review flags small crops for a detail shot).
+
+interface CropManifest {
+  version: 1;
+  clips: Record<string, { sig: string; items: Record<string, { path: string; width: number; height: number }> }>;
+}
+
+const manifestPath = (job: RoomCaptureJob) => `${jobFolder(job)}/crops/manifest.json`;
+const clipItems = (c: RoomCaptureClip) =>
+  ((c.result?.items ?? []) as ClipItem[]).filter((i) => i && typeof i.id === 'number');
+const clipSig = (c: RoomCaptureClip) => clipItems(c).map((i) => `${i.id}:${i.name}`).join('|');
+const covered = (m: CropManifest, c: RoomCaptureClip) => m.clips[c.id]?.sig === clipSig(c);
+
+/** The analysed clips in the order the server merged them. */
+function doneClips(job: RoomCaptureJob, clips: RoomCaptureClip[]) {
+  const done = clips.filter((c) => c.job_id === job.id && c.status === 'done' && c.result);
+  const order = job.merged?.clipIds?.length ? job.merged.clipIds : done.map((c) => c.id);
+  return order.map((id) => done.find((c) => c.id === id)).filter((c): c is RoomCaptureClip => !!c);
+}
+
+async function readManifest(job: RoomCaptureJob): Promise<CropManifest> {
+  const { data, error } = await supabase.storage.from(ROOM_CAPTURE_BUCKET).download(manifestPath(job));
+  if (!error && data) {
+    try {
+      const m = JSON.parse(await data.text());
+      if (m?.version === 1 && m.clips && typeof m.clips === 'object') return m as CropManifest;
+    } catch {
+      /* missing or unreadable: start over */
+    }
+  }
+  return { version: 1, clips: {} };
+}
+
+async function writeManifest(job: RoomCaptureJob, m: CropManifest) {
+  const { error } = await supabase.storage
+    .from(ROOM_CAPTURE_BUCKET)
+    .upload(manifestPath(job), new Blob([JSON.stringify(m)], { type: 'application/json' }), { upsert: true, contentType: 'application/json' });
+  if (error) throw new Error(`Could not save the photo list: ${error.message}`);
+}
+
+/** Run `fn` over `list`, `n` at a time. */
+async function pool<T>(list: T[], n: number, fn: (x: T) => Promise<void>) {
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, list.length) }, async () => {
+    while (i < list.length) await fn(list[i++]);
+  }));
+}
+
+// Progress per room, for the Rooms list and Review.
+export interface CropProgress { fraction: number; label: string }
+const cropProgress = new Map<string, CropProgress>();
+/** Rooms whose photos are all cut (keyed by id + updated_at: a re-merge resets it). */
+const cropsDone = new Set<string>();
+const cropListeners = new Set<() => void>();
+const emitCrops = () => cropListeners.forEach((l) => l());
+const doneKey = (job: RoomCaptureJob) => `${job.id}@${job.updated_at}`;
+const setCropProgress = (jobId: string, p: CropProgress | null) => {
+  if (p) cropProgress.set(jobId, p);
+  else cropProgress.delete(jobId);
+  emitCrops();
+};
+
+export function subscribeCrops(fn: () => void): () => void {
+  cropListeners.add(fn);
+  return () => cropListeners.delete(fn);
+}
+
+/** What the Rooms list shows for a ready room's photos. */
+export function cropState(job: RoomCaptureJob):
+  | { kind: 'cutting'; progress: CropProgress }
+  | { kind: 'done' }
+  | { kind: 'elsewhere' }
+  | { kind: 'pending' } {
+  const p = cropProgress.get(job.id);
+  if (p) return { kind: 'cutting', progress: p };
+  if (cropsDone.has(doneKey(job))) return { kind: 'done' };
+  if (job.lease_until && new Date(job.lease_until).getTime() > Date.now()) return { kind: 'elsewhere' };
+  return { kind: 'pending' };
+}
+
+const inflight = new Map<string, Promise<unknown>>();
+
 /**
- * A room the server has finished: cut every item's crop from its stored clip
- * (onProgress: overall 0-1 and a line for the screen), then build the package.
+ * Cut and save the photos of every clip not cut yet. With `load`, also return
+ * every clip's crops (Review); in the background only the cutting is done, and it
+ * stops (CropPaused) when the app is hidden.
+ */
+async function ensureJobCrops(
+  job: RoomCaptureJob,
+  clips: RoomCaptureClip[],
+  opts: { load: boolean; background: boolean },
+): Promise<Map<string, Map<number, Crop>>> {
+  // One run per room on this device; Review waits for a background run, then loads.
+  const running = inflight.get(job.id);
+  if (running) await running.catch(() => undefined);
+  const run = (async () => {
+    const out = new Map<string, Map<number, Crop>>();
+    const ordered = doneClips(job, clips);
+    const m = await readManifest(job);
+    const todo = ordered.filter((c) => !covered(m, c));
+    const stop = opts.background ? () => document.visibilityState !== 'visible' : undefined;
+    try {
+      for (let k = 0; k < todo.length; k++) {
+        const c = todo[k];
+        const label = `Cutting photos: clip ${k + 1} of ${todo.length}`;
+        setCropProgress(job.id, { fraction: k / todo.length, label });
+        const crops = await cropItems(await clipVideoUrl(c.storage_path), clipItems(c), (f) =>
+          setCropProgress(job.id, { fraction: (k + f) / todo.length, label }), undefined, true, stop);
+        const entry: CropManifest['clips'][string] = { sig: clipSig(c), items: {} };
+        await pool([...crops.entries()], 4, async ([id, crop]) => {
+          const path = `${jobFolder(job)}/crops/${c.id}-${id}.jpg`;
+          const { error } = await supabase.storage
+            .from(ROOM_CAPTURE_BUCKET)
+            .upload(path, crop.blob, { upsert: true, contentType: 'image/jpeg' });
+          if (error) throw new Error(`Could not save a photo: ${error.message}`);
+          entry.items[id] = { path, width: crop.width, height: crop.height };
+        });
+        m.clips[c.id] = entry;
+        await writeManifest(job, m); // after every clip, so a pause keeps what is done
+        out.set(c.id, crops);
+      }
+      cropsDone.add(doneKey(job));
+      if (!opts.load) return out;
+      // The clips cut earlier (here or on another device): download their crops.
+      const rest = ordered.filter((c) => !out.has(c.id));
+      const all = rest.flatMap((c) => Object.entries(m.clips[c.id]?.items ?? {}).map(([id, e]) => ({ c, id: Number(id), e })));
+      let got = 0;
+      if (all.length) setCropProgress(job.id, { fraction: 0, label: 'Loading photos' });
+      await pool(all, 6, async ({ c, id, e }) => {
+        const { data } = await supabase.storage.from(ROOM_CAPTURE_BUCKET).download(e.path);
+        // Storage can answer a missing object with a JSON body: only keep images.
+        if (data && data.size > 0 && data.type.startsWith('image/')) {
+          if (!out.has(c.id)) out.set(c.id, new Map());
+          out.get(c.id)!.set(id, { blob: data, width: e.width, height: e.height });
+        }
+        setCropProgress(job.id, { fraction: ++got / all.length, label: 'Loading photos' });
+      });
+      return out;
+    } finally {
+      setCropProgress(job.id, null);
+    }
+  })();
+  inflight.set(job.id, run);
+  try {
+    return await run;
+  } finally {
+    if (inflight.get(job.id) === run) inflight.delete(job.id);
+  }
+}
+
+// ---- Background worker ----
+
+let workerStarted = false;
+let workerBusy = false;
+
+/** Cut the photos of every ready room this device can see. Safe to call any time. */
+export async function cutReadyRooms() {
+  if (workerBusy || document.visibilityState !== 'visible' || !navigator.onLine) return;
+  workerBusy = true;
+  try {
+    const { data, error } = await supabase.from('room_capture_jobs').select(JOB_COLUMNS).eq('status', 'ready').order('updated_at');
+    if (error) throw new Error(error.message);
+    for (const job of (data ?? []) as unknown as RoomCaptureJob[]) {
+      if (document.visibilityState !== 'visible') break;
+      if (cropsDone.has(doneKey(job)) || inflight.has(job.id)) continue;
+      if (job.lease_until && new Date(job.lease_until).getTime() > Date.now()) continue; // another device
+      const clips = await listClips([job.id], true);
+      const m = await readManifest(job);
+      if (doneClips(job, clips).every((c) => covered(m, c))) {
+        cropsDone.add(doneKey(job));
+        emitCrops();
+        continue;
+      }
+      // Claim the room so two devices don't cut the same clips.
+      const now = new Date().toISOString();
+      const { data: claimed } = await supabase
+        .from('room_capture_jobs')
+        .update({ lease_until: new Date(Date.now() + 15 * 60_000).toISOString() })
+        .eq('id', job.id)
+        .eq('status', 'ready')
+        .or(`lease_until.is.null,lease_until.lt.${now}`)
+        .select('id')
+        .maybeSingle();
+      if (!claimed) continue;
+      try {
+        await ensureJobCrops(job, clips, { load: false, background: true });
+      } finally {
+        await supabase.from('room_capture_jobs').update({ lease_until: null }).eq('id', job.id).eq('status', 'ready');
+      }
+    }
+  } catch (e) {
+    if (!(e instanceof CropPaused)) console.error('[ROOM CAPTURE] cutting photos:', e);
+  } finally {
+    workerBusy = false;
+  }
+}
+
+/** Called once at app start: cut photos for ready rooms whenever the app is open. */
+export function startRoomCaptureCropWorker() {
+  if (workerStarted) return;
+  workerStarted = true;
+  setTimeout(cutReadyRooms, 10_000);
+  setInterval(cutReadyRooms, 60_000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') setTimeout(cutReadyRooms, 2000);
+  });
+}
+
+/**
+ * A room the server has finished, for Review: its photos (cut in the
+ * background already, or now), then the package.
  */
 export async function prepareJobPackage(
   job: RoomCaptureJob,
   clips: RoomCaptureClip[],
   onProgress: (fraction: number, label: string) => void,
 ): Promise<{ pkg: CapturePackage; images: Map<string, File> }> {
-  const done = clips.filter((c) => c.status === 'done' && c.result);
-  const order = job.merged?.clipIds?.length ? job.merged.clipIds : done.map((c) => c.id);
-  const ordered = order.map((id) => done.find((c) => c.id === id)).filter((c): c is RoomCaptureClip => !!c);
-  const results: { label: string; result: ClipResult }[] = [];
-  for (let k = 0; k < ordered.length; k++) {
-    const c = ordered[k];
-    const items = ((c.result?.items ?? []) as ClipItem[]).filter((i) => i && typeof i.id === 'number');
-    const label = `Cutting photos: clip ${k + 1} of ${ordered.length}`;
-    onProgress(k / ordered.length, label);
-    let crops = new Map<number, Crop>();
-    try {
-      const url = await clipVideoUrl(c.storage_path);
-      crops = await cropItems(url, items, (f) => onProgress((k + f) / ordered.length, label));
-    } catch (e) {
-      // The lots still come through; they just have no crop yet.
-      console.error(`[ROOM CAPTURE] crops for ${c.file_name}:`, e);
-    }
-    results.push({
-      label: c.file_name,
-      result: { summary: c.result?.summary ?? '', transcript: c.result?.transcript ?? '', items, crops },
-    });
+  const report = () => {
+    const p = cropProgress.get(job.id);
+    if (p) onProgress(p.fraction, p.label);
+  };
+  const unsub = subscribeCrops(report);
+  let crops = new Map<string, Map<number, Crop>>();
+  try {
+    crops = await ensureJobCrops(job, clips, { load: true, background: false });
+  } catch (e) {
+    // The lots still come through; the ones missing a crop just have no photo.
+    console.error('[ROOM CAPTURE] photos for review:', e);
+  } finally {
+    unsub();
   }
   onProgress(1, 'Building the lot list');
+  const results = doneClips(job, clips).map((c) => ({
+    label: c.file_name,
+    result: {
+      summary: c.result?.summary ?? '',
+      transcript: c.result?.transcript ?? '',
+      items: clipItems(c),
+      crops: crops.get(c.id) ?? new Map<number, Crop>(),
+    },
+  }));
   return buildRoomPackage(
     job.room_name || 'Room',
     results,

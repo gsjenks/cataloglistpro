@@ -4,9 +4,10 @@
 // uploads in the background from this device (RoomCaptureQueue) and the
 // room-capture edge function analyses it, so the next room can be filmed while
 // the last one processes. Every room of the sale is listed below with its
-// progress; a finished room opens in the review table (Review), where its photos
-// are cut from the stored clips. The room is picked from the sale room list, so
-// every lot created carries its room code (LR02).
+// progress. Once a room is ready the app cuts its photos from the stored clips in
+// the background (startRoomCaptureCropWorker), so Review opens straight into the
+// table. The room is picked from the sale room list, so every lot created
+// carries its room code (LR02).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Video, Upload, X, Loader2, CheckCircle2, AlertTriangle, RotateCcw, Plus, Flag, Trash2, ListChecks } from 'lucide-react';
@@ -19,7 +20,7 @@ import {
   pumpUploads, removeClip, retryClip, retryUpload, subscribeUploads, uploadProgress,
   type RoomCaptureClip, type RoomCaptureJob,
 } from '../services/RoomCaptureQueue';
-import { prepareJobPackage } from '../services/RoomCaptureVideoService';
+import { cropState, cutReadyRooms, prepareJobPackage, subscribeCrops } from '../services/RoomCaptureVideoService';
 
 interface Props {
   saleId: string;
@@ -106,6 +107,8 @@ export default function RoomCaptureVideoStep({ saleId, companyId, saleContext, o
       const cs = await listClips(js.map((j) => j.id), true);
       setJobs(js);
       setClips(cs);
+      // A room just turned ready: start cutting its photos now, not at the next tick.
+      if (js.some((j) => j.status === 'ready' && cropState(j).kind === 'pending')) cutReadyRooms();
     } catch (e) {
       console.error('[ROOM CAPTURE] refresh:', e);
     }
@@ -127,11 +130,13 @@ export default function RoomCaptureVideoStep({ saleId, companyId, saleContext, o
     const firstKick = setTimeout(kick, 3000);
     const kicks = setInterval(kick, 60_000);
     const unsub = subscribeUploads(() => setTick((t) => t + 1));
+    const unsubCrops = subscribeCrops(() => setTick((t) => t + 1));
     return () => {
       clearInterval(poll);
       clearTimeout(firstKick);
       clearInterval(kicks);
       unsub();
+      unsubCrops();
     };
   }, [refresh]);
 
@@ -219,7 +224,7 @@ export default function RoomCaptureVideoStep({ saleId, companyId, saleContext, o
     setBusyJob(job.id);
     try {
       for (const c of clipsOf(job.id)) await removeClip(c).catch(() => undefined);
-      await cleanupJob(job.id, true);
+      await cleanupJob(job, true);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not discard the room.');
@@ -384,6 +389,7 @@ export default function RoomCaptureVideoStep({ saleId, companyId, saleContext, o
               const cs = clipsOf(j.id);
               const prep = preparing?.jobId === j.id ? preparing : null;
               const anyFailed = cs.some((c) => c.status === 'failed');
+              const photos = j.status === 'ready' && !prep ? cropState(j) : null;
               return (
                 <li key={j.id} className="border border-gray-200 rounded-md">
                   <div className="p-3 flex flex-wrap items-center gap-2">
@@ -418,6 +424,17 @@ export default function RoomCaptureVideoStep({ saleId, companyId, saleContext, o
                       </div>
                     </div>
                   )}
+                  {photos?.kind === 'cutting' && (
+                    <div className="px-3 pb-3">
+                      <p className="text-xs text-gray-600">{photos.progress.label}… {Math.round(photos.progress.fraction * 100)}% (in the background)</p>
+                      <div className="mt-1 h-1.5 bg-gray-100 rounded overflow-hidden">
+                        <div className="h-full bg-indigo-400 transition-all" style={{ width: `${Math.round(photos.progress.fraction * 100)}%` }} />
+                      </div>
+                    </div>
+                  )}
+                  {photos?.kind === 'done' && <p className="px-3 pb-2 text-xs text-green-700">Photos cut; ready to review.</p>}
+                  {photos?.kind === 'elsewhere' && <p className="px-3 pb-2 text-xs text-gray-500">Photos are being cut on another device.</p>}
+                  {photos?.kind === 'pending' && <p className="px-3 pb-2 text-xs text-gray-500">Photos will be cut in the background shortly.</p>}
                   {j.error && <p className="px-3 pb-2 text-xs text-amber-700">{j.error}</p>}
                   {(j.status !== 'ready' || anyFailed) && cs.length > 0 && (
                     <ul className="divide-y divide-gray-100 border-t border-gray-100">

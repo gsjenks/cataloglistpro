@@ -24,6 +24,7 @@ import ContextFooter from "./components/Contextfooter";
 import ConnectivityService from "./services/ConnectivityService";
 import SyncService from "./services/SyncService";
 import { startRoomCaptureUploads } from "./services/RoomCaptureQueue";
+import { startRoomCaptureCropWorker } from "./services/RoomCaptureVideoService";
 import { RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react";
 /*
 import { AuctionRoom } from "./components/AuctionRoom";
@@ -65,9 +66,12 @@ function AppContent() {
   const hasPerformedInitialSync = useRef<boolean>(false);
 
   // Room capture clips recorded earlier and not yet uploaded carry on from
-  // where they stopped, whatever screen the app opens on.
+  // where they stopped, and rooms the server has finished get their photos cut,
+  // whatever screen the app opens on.
   useEffect(() => {
-    if (user) startRoomCaptureUploads();
+    if (!user) return;
+    startRoomCaptureUploads();
+    startRoomCaptureCropWorker();
   }, [user]);
 
   // Background sync on initial load or company switch (NON-BLOCKING)
