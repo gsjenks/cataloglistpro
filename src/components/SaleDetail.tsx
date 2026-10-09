@@ -17,6 +17,7 @@ import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
 import AssignToBasketModal from './AssignToBasketModal';
 import RoomCaptureImport from './RoomCaptureImport';
+import { countReadyRooms } from '../services/RoomCaptureQueue';
 import PrintTagsModal from './PrintTagsModal';
 import { tagOutOfDate } from '../lib/lotTag';
 import SaleCloseSummary from './SaleCloseSummary';
@@ -70,6 +71,8 @@ export default function SaleDetail() {
   const [showRegister, setShowRegister] = useState(false);
   const [showBaskets, setShowBaskets] = useState(false);
   const [showRoomCapture, setShowRoomCapture] = useState(false);
+  // Rooms the server has finished, waiting for review.
+  const [readyRooms, setReadyRooms] = useState(0);
   // Set when handing a basket from the Baskets tool straight to the register.
   const [checkoutBasketId, setCheckoutBasketId] = useState<string | null>(null);
   // The lot being put into a customer's basket via the item-list "Held" control.
@@ -156,6 +159,15 @@ export default function SaleDetail() {
       .catch((e) => console.warn('Room list unavailable:', e));
   }, [saleId, sale?.sale_type]);
 
+  // Estate sales: rooms the server has finished, shown on the Room capture button.
+  useEffect(() => {
+    if (!saleId || sale?.sale_type !== 'estate_sale' || showRoomCapture) return;
+    const load = () => countReadyRooms(saleId).then(setReadyRooms).catch(() => undefined);
+    load();
+    const t = setInterval(load, 60_000);
+    return () => clearInterval(t);
+  }, [saleId, sale?.sale_type, showRoomCapture]);
+
   // Load export stats when Reports tab is active
   useEffect(() => {
     if (activeTab === 'reports' && saleId) {
@@ -197,7 +209,7 @@ export default function SaleDetail() {
                 },
                 {
                   id: 'room-capture',
-                  label: 'Room capture',
+                  label: readyRooms ? `Room capture (${readyRooms} ready)` : 'Room capture',
                   icon: <Images className="w-4 h-4" />,
                   onClick: () => setShowRoomCapture(true),
                   variant: 'secondary' as const,
@@ -283,7 +295,7 @@ export default function SaleDetail() {
     return () => {
       clearActions();
     };
-  }, [activeTab, saleId, sale?.sale_type, setActions, clearActions, navigate, can]);
+  }, [activeTab, saleId, sale?.sale_type, setActions, clearActions, navigate, can, readyRooms]);
 
   // A role that cannot see the current tab (e.g. View as Staff while on
   // Reconciliation) falls back to Items rather than a blank page.
@@ -1257,6 +1269,7 @@ export default function SaleDetail() {
       {showRoomCapture && (
         <RoomCaptureImport
           saleId={saleId!}
+          companyId={sale?.company_id ?? ''}
           saleContext={sale?.location ? `Estate sale in ${sale.location}` : ''}
           consignments={consignments}
           consignorNames={consignorNames}

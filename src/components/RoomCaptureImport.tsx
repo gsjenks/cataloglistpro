@@ -1,10 +1,11 @@
 // src/components/RoomCaptureImport.tsx
 // Review a room-capture package and turn it into lots in this sale. The package
-// (lots.json + crops) comes from the capture/AI step; here staff exclude, combine
-// and re-price rows before anything is written. See docs/room-capture-spec.md.
+// (lots.json + crops) comes from a capture folder or from a room the server
+// analysed (RoomCaptureVideoStep); here staff exclude, combine, split and
+// re-price rows before anything is written. See docs/room-capture-spec.md.
 
 import { useEffect, useMemo, useState } from 'react';
-import { X, FolderOpen, Files, Combine, Check, Ban, Mic, AlertTriangle, Camera, Video } from 'lucide-react';
+import { X, FolderOpen, Files, Combine, Check, Ban, Mic, AlertTriangle, Camera, Video, Split } from 'lucide-react';
 import type { Consignment } from '../types';
 import {
   readCapturePackage,
@@ -16,9 +17,11 @@ import {
   type ImportResult,
 } from '../services/RoomCaptureImportService';
 import RoomCaptureVideoStep from './RoomCaptureVideoStep';
+import { cleanupJob, type RoomCaptureJob } from '../services/RoomCaptureQueue';
 
 interface Props {
   saleId: string;
+  companyId: string;
   /** Where the sale is, for the AI's pricing (e.g. "Estate sale in Richmond, VA"). */
   saleContext?: string;
   consignments: Consignment[];
@@ -37,7 +40,7 @@ const inputCls = 'px-2 py-1 text-sm border border-gray-300 rounded-md focus:outl
 // Folder picking: not in React's input typings.
 const folderProps = { webkitdirectory: '', directory: '' } as Record<string, string>;
 
-export default function RoomCaptureImport({ saleId, saleContext = '', consignments, consignorNames, onClose, onImported }: Props) {
+export default function RoomCaptureImport({ saleId, companyId, saleContext = '', consignments, consignorNames, onClose, onImported }: Props) {
   const [pkg, setPkg] = useState<CapturePackage | null>(null);
   const [images, setImages] = useState<Map<string, File>>(new Map());
   const [rows, setRows] = useState<Row[]>([]);
@@ -49,6 +52,8 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
   const [result, setResult] = useState<ImportResult | null>(null);
   // Walkthrough videos analysed here, instead of a ready-made package.
   const [videoMode, setVideoMode] = useState(false);
+  // The server room being reviewed; its videos are deleted once its lots exist.
+  const [job, setJob] = useState<RoomCaptureJob | null>(null);
 
   // One object URL per image, released when the dialog closes.
   const thumbs = useMemo(() => {
@@ -110,6 +115,45 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
     setRows((rs) => rs.filter((r) => !drop.has(r.key)).map((r) => (r.key === keep.key ? merged : r)));
   };
 
+  // Undo a merge: one row per member view, with that view's own name and price
+  // when the package has them (server rooms), else an even share.
+  const splittable = selected.filter((r) => r.members.length > 1);
+  const split = (only?: Row) => {
+    const targets = new Set((only ? [only] : splittable).map((r) => r.key));
+    if (!targets.size) return;
+    const info = pkg?.members ?? {};
+    setRows((rs) =>
+      rs.flatMap((r) => {
+        if (!targets.has(r.key) || r.members.length < 2) return [r];
+        const n = r.members.length;
+        // Crops are named after their member (crops/V1-3.jpg); a folder package
+        // may name them otherwise: then one each in order, or all on the first.
+        const named = r.members.some((m) => r.photos.some((p) => p.includes(`/${m}.`)));
+        const photosFor = (m: string, i: number) =>
+          named ? r.photos.filter((p) => p.includes(`/${m}.`))
+            : r.photos.length === n ? [r.photos[i]]
+              : i === 0 ? r.photos : [];
+        return r.members.map((m, i): Row => {
+          const mi = info[m];
+          return {
+            ...r,
+            key: `${r.key}.${i + 1}`,
+            name: mi?.name || `${r.name} (${i + 1} of ${n})`,
+            description: mi?.description ?? r.description,
+            narration: mi?.narration ?? r.narration,
+            quantity: mi?.quantity ?? 1,
+            price: mi ? mi.price : Math.round(r.price / n),
+            position: mi?.position ?? r.position,
+            not_for_sale: mi?.not_for_sale ?? r.not_for_sale,
+            members: [m],
+            photos: photosFor(m, i),
+            selected: false,
+          };
+        });
+      }),
+    );
+  };
+
   const applyAdjust = () => {
     const pct = Number(adjustPct);
     if (!Number.isFinite(pct) || pct === 0) return;
@@ -138,6 +182,9 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
       });
       setResult(res);
       onImported();
+      if (job) {
+        cleanupJob(job.id).catch((e) => console.error('[ROOM CAPTURE] cleanup after import:', e));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Import failed.');
     } finally {
@@ -147,9 +194,11 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
 
   const busy = progress !== null;
 
-  // Analysed clips live only in this dialog until lots are created.
+  // Server rooms stay on the server until imported; only review edits are lost.
   const close = () => {
-    if (!result && (videoMode || pkg) && !window.confirm('Close room capture? Anything not yet created as lots will be lost.')) return;
+    if (!result && pkg && !window.confirm(job
+      ? 'Close the review? Your edits are lost, but the room stays ready to review.'
+      : 'Close room capture? Anything not yet created as lots will be lost.')) return;
     onClose();
   };
 
@@ -166,7 +215,7 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
               {pkg
                 ? `${pkg.room?.name || 'Room'}${pkg.room?.code ? ` (${pkg.room.code})` : ''} · ${pkg.source || ''}`
                 : videoMode
-                  ? 'Walkthrough videos: one clip per wall, narrated.'
+                  ? 'Walkthrough videos: film each room, then review it once the server has processed it.'
                   : 'Record walkthrough videos, or pick a capture folder.'}
             </p>
           </div>
@@ -197,7 +246,12 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
             </button>
           </div>
         ) : !pkg && videoMode ? (
-          <RoomCaptureVideoStep saleId={saleId} saleContext={saleContext} onReady={loadPackage} />
+          <RoomCaptureVideoStep
+            saleId={saleId}
+            companyId={companyId}
+            saleContext={saleContext}
+            onReview={(j, p, imgs) => { setJob(j); loadPackage(p, imgs); }}
+          />
         ) : !pkg ? (
           <div className="p-6 flex flex-col sm:flex-row gap-3">
             <button
@@ -231,6 +285,9 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
               <span className="flex-1" />
               <button onClick={combine} disabled={selected.length < 2 || busy} className="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40">
                 <Combine className="w-4 h-4" /> Combine{selected.length > 1 ? ` ${selected.length}` : ''}
+              </button>
+              <button onClick={() => split()} disabled={!splittable.length || busy} className="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40" title="Separate merged views back into their own lots">
+                <Split className="w-4 h-4" /> Split
               </button>
               <button onClick={() => setSelectedIncluded(false)} disabled={!selected.length || busy} className="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40">
                 <Ban className="w-4 h-4" /> Exclude
@@ -327,6 +384,11 @@ export default function RoomCaptureImport({ saleId, saleContext = '', consignmen
                           <button onClick={() => update(r.key, { included: !r.included })} disabled={busy} className="text-xs text-indigo-600 hover:underline">
                             {r.included ? 'Exclude' : 'Include'}
                           </button>
+                          {r.members.length > 1 && (
+                            <button onClick={() => split(r)} disabled={busy} className="block mt-1 text-xs text-indigo-600 hover:underline">
+                              Split
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

@@ -23,6 +23,7 @@ import Header from "./components/Header";
 import ContextFooter from "./components/Contextfooter";
 import ConnectivityService from "./services/ConnectivityService";
 import SyncService from "./services/SyncService";
+import { startRoomCaptureUploads } from "./services/RoomCaptureQueue";
 import { RefreshCw, AlertCircle, CheckCircle2 } from "lucide-react";
 /*
 import { AuctionRoom } from "./components/AuctionRoom";
@@ -62,6 +63,12 @@ function AppContent() {
   // Fixed: Added proper types and initial values
   const syncTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const hasPerformedInitialSync = useRef<boolean>(false);
+
+  // Room capture clips recorded earlier and not yet uploaded carry on from
+  // where they stopped, whatever screen the app opens on.
+  useEffect(() => {
+    if (user) startRoomCaptureUploads();
+  }, [user]);
 
   // Background sync on initial load or company switch (NON-BLOCKING)
   useEffect(() => {

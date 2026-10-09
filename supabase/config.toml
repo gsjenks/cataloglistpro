@@ -17,3 +17,9 @@ entrypoint = "./functions/watched-lot-alert/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/watched-lot-alert/*.html" ]
+
+# room-capture checks callers itself: user actions verify the JWT, and the
+# background steps it chains to itself carry the service key, not a JWT.
+[functions.room-capture]
+enabled = true
+verify_jwt = false

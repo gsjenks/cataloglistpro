@@ -35,6 +35,17 @@ export interface CaptureLot {
   photos: string[];
 }
 
+/** One view of an item before merging (an id in CaptureLot.members), for Split. */
+export interface CaptureMember {
+  name: string;
+  description?: string | null;
+  narration?: string | null;
+  quantity: number;
+  price: number;
+  position?: number | null;
+  not_for_sale?: boolean;
+}
+
 export interface CapturePackage {
   format: 'room-capture';
   version: number;
@@ -42,6 +53,7 @@ export interface CapturePackage {
   captured?: string;
   room?: { code?: string; name?: string };
   lots: CaptureLot[];
+  members?: Record<string, CaptureMember>;
 }
 
 export interface LoadedPackage {
