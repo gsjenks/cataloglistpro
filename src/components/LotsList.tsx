@@ -174,7 +174,9 @@ const LotCard = memo(({
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow">
       <div className="flex items-start gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-start gap-3 mb-3">
+          {/* Wraps: with the location and Detail photo badges a phone has no room
+              left on one line, and the clamped title would shrink to nothing. */}
+          <div className="flex flex-wrap items-start gap-x-3 gap-y-1 mb-3">
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-600 text-white flex-shrink-0">
               #{lot.lot_number || 'TBD'}
             </span>
@@ -191,7 +193,7 @@ const LotCard = memo(({
                 Detail photo
               </span>
             )}
-            <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 flex-1">
+            <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 flex-1 min-w-[10rem]">
               {lot.name}
             </h3>
             {dispo && (
