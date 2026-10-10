@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { writeSaleView } from "../lib/saleViewState";
 import { supabase } from "../lib/supabase";
 import { generateQRCodeForLot } from "../lib/qr";
 import { useFooter, type FooterAction } from "../context/FooterContext";
@@ -119,6 +120,11 @@ const queueLotUpsert = async (lot: Lot, type: "create" | "update") => {
 
 export default function LotDetail() {
   const { saleId, lotId } = useParams<{ saleId: string; lotId: string }>();
+  // The Items list brings this lot back into view when you return to it
+  // (Previous / Next included).
+  useEffect(() => {
+    if (saleId && lotId && lotId !== 'new') writeSaleView(saleId, { lastLotId: lotId });
+  }, [saleId, lotId]);
   const navigate = useNavigate();
   // ?walk=photos: Previous/Next only visit lots that still need photos.
   const [searchParams, setSearchParams] = useSearchParams();

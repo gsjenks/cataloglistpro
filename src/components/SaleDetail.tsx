@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Package, Users, FileText, BarChart3, ArrowLeft, Plus, Upload, ScanLine, ShoppingCart, ShoppingBag, FileCheck, FileWarning, ListChecks, DollarSign, PackageX, Truck, Banknote, Images, Printer, DoorOpen } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -17,6 +17,7 @@ import ScrollableTabs from './ScrollableTabs';
 import LotsList from './LotsList';
 import AssignToBasketModal from './AssignToBasketModal';
 import RoomCaptureImport from './RoomCaptureImport';
+import { readSaleView, writeSaleView } from '../lib/saleViewState';
 import { countReadyRooms } from '../services/RoomCaptureQueue';
 import PrintTagsModal from './PrintTagsModal';
 import { tagOutOfDate } from '../lib/lotTag';
@@ -65,7 +66,11 @@ export default function SaleDetail() {
     });
     return map;
   }, [consignments, contacts]);
-  const [activeTab, setActiveTab] = useState('items');
+  // The view as it was when this sale was last left (tab, search, filters, the
+  // lot you were on), so coming back from a lot lands where you left off.
+  const [savedView] = useState(() => readSaleView(saleId));
+  const [activeTab, setActiveTab] = useState(savedView.activeTab || 'items');
+  const [highlightLotId, setHighlightLotId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showScanner, setShowScanner] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
@@ -93,7 +98,8 @@ export default function SaleDetail() {
     items: '',
     contacts: '',
     documents: '',
-    reports: ''
+    reports: '',
+    ...savedView.searchQueries,
   });
 
   // Filter state - track active filter for each tab
@@ -101,19 +107,20 @@ export default function SaleDetail() {
     items: '',
     contacts: '',
     documents: '',
-    reports: ''
+    reports: '',
+    ...savedView.activeFilters,
   });
 
   // Items: multi-select inventory-status filter (empty = show all). Any
   // combination of Available / Held / Sold.
   type InvStatus = 'available' | 'held' | 'sold';
-  const [statusFilter, setStatusFilter] = useState<Set<InvStatus>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<Set<InvStatus>>(() => new Set((savedView.statusFilter ?? []) as InvStatus[]));
   // Estate: only lots whose Niimbot tag is missing or shows an old price.
-  const [tagFilter, setTagFilter] = useState(false);
+  const [tagFilter, setTagFilter] = useState(!!savedView.tagFilter);
   // Estate: the sale room list, and a filter to one room ('' = all, NO_ROOM = unassigned).
   const [saleRooms, setSaleRooms] = useState<SaleRoom[]>([]);
-  const [roomFilter, setRoomFilter] = useState('');
-  const [detailFilter, setDetailFilter] = useState(false);
+  const [roomFilter, setRoomFilter] = useState(savedView.roomFilter ?? '');
+  const [detailFilter, setDetailFilter] = useState(!!savedView.detailFilter);
   const [showRooms, setShowRooms] = useState(false);
   const NO_ROOM = '__none__';
   const [printTagLots, setPrintTagLots] = useState<Lot[] | null>(null);
@@ -152,6 +159,62 @@ export default function SaleDetail() {
     loadDocuments();
     loadConsignments();
   }, [saleId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Remember the view for this session.
+  useEffect(() => {
+    writeSaleView(saleId, {
+      activeTab,
+      searchQueries,
+      activeFilters,
+      statusFilter: [...statusFilter],
+      tagFilter,
+      roomFilter,
+      detailFilter,
+    });
+  }, [saleId, activeTab, searchQueries, activeFilters, statusFilter, tagFilter, roomFilter, detailFilter]);
+
+  // Remember how far down the page you were (the window scrolls).
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const onScroll = () => {
+      if (t) return;
+      t = setTimeout(() => {
+        t = null;
+        writeSaleView(saleId, { scrollY: window.scrollY });
+      }, 250);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (t) clearTimeout(t);
+    };
+  }, [saleId]);
+
+  // Back from a lot: bring that lot into view and flash it, else the old scroll
+  // position. Once per visit, as soon as the list has rendered (the lots can
+  // arrive from the device first and the server a moment later).
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || loading || lots.length === 0) return;
+    restoredRef.current = true;
+    const lotId = savedView.lastLotId;
+    const y = savedView.scrollY ?? 0;
+    let tries = 0;
+    const attempt = () => {
+      const el = lotId ? document.getElementById(`lot-card-${lotId}`) : null;
+      if (el) {
+        el.scrollIntoView({ block: 'center' });
+        setHighlightLotId(lotId!);
+        setTimeout(() => setHighlightLotId(null), 2500);
+        writeSaleView(saleId, { lastLotId: null });
+      } else if (tries++ < 20) {
+        setTimeout(attempt, 100);
+      } else if (y > 0) {
+        window.scrollTo(0, y);
+      }
+    };
+    if (lotId || y > 0) requestAnimationFrame(attempt);
+  }, [loading, lots.length, saleId, savedView]);
 
   // Estate sales: the room list (room filter, lot locations, tag order).
   useEffect(() => {
@@ -1107,6 +1170,7 @@ export default function SaleDetail() {
               onHoldLot={setAssignLot}
               onRefundLot={handleRefundLot}
               consignorNames={consignorNames}
+              highlightLotId={highlightLotId}
             />
             
             {/* Show "No results" message when a search/filter hides everything */}

@@ -28,6 +28,8 @@ interface LotsListProps {
   onRefundLot?: (lot: Lot) => void;
   // consignment_id -> consignor display name, for the card's Consignor line.
   consignorNames?: Record<string, string>;
+  // Briefly ringed: the lot you just came back from.
+  highlightLotId?: string | null;
 }
 
 // Lazy image component with intersection observer
@@ -129,7 +131,8 @@ const LotCard = memo(({
   onHold,
   onRefund,
   saleId,
-  consignorName
+  consignorName,
+  highlighted
 }: {
   lot: Lot;
   deleting: string | null;
@@ -143,6 +146,7 @@ const LotCard = memo(({
   onRefund?: () => void;
   saleId: string;
   consignorName?: string;
+  highlighted?: boolean;
 }) => {
   const formatCurrency = (value: number | null | undefined) => {
     if (value === null || value === undefined) return '';
@@ -171,7 +175,12 @@ const LotCard = memo(({
   const showUnsold = !lot.disposition && lot.outcome === 'passed';
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow">
+    <div
+      id={`lot-card-${lot.id}`}
+      className={`bg-white rounded-lg shadow-sm border p-4 hover:shadow-md transition-shadow scroll-mt-24 ${
+        highlighted ? 'border-indigo-400 ring-2 ring-indigo-300' : 'border-gray-200'
+      }`}
+    >
       <div className="flex items-start gap-4">
         <div className="flex-1 min-w-0">
           {/* Wraps: with the location and Detail photo badges a phone has no room
@@ -338,7 +347,7 @@ const LotCard = memo(({
 
 LotCard.displayName = 'LotCard';
 
-export default function LotsList({ lots, saleId, onRefresh, saleType, onInventoryChange, onHoldLot, onRefundLot, consignorNames }: LotsListProps) {
+export default function LotsList({ lots, saleId, onRefresh, saleType, onInventoryChange, onHoldLot, onRefundLot, consignorNames, highlightLotId }: LotsListProps) {
   const showInventory = saleType === 'estate_sale';
   const navigate = useNavigate();
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -464,6 +473,7 @@ export default function LotsList({ lots, saleId, onRefresh, saleType, onInventor
         <LotCard
           key={lot.id}
           lot={lot}
+          highlighted={highlightLotId === lot.id}
           deleting={deleting}
           onEdit={handleEdit}
           onDelete={can('delete') ? handleDelete : undefined}
