@@ -18,6 +18,7 @@ import LotsList from './LotsList';
 import AssignToBasketModal from './AssignToBasketModal';
 import RoomCaptureImport from './RoomCaptureImport';
 import { readSaleView, writeSaleView } from '../lib/saleViewState';
+import { deleteLotOnServer } from '../services/LotDeleteService';
 import { countReadyRooms } from '../services/RoomCaptureQueue';
 import PrintTagsModal from './PrintTagsModal';
 import { tagOutOfDate } from '../lib/lotTag';
@@ -124,6 +125,8 @@ export default function SaleDetail() {
   const [showRooms, setShowRooms] = useState(false);
   const NO_ROOM = '__none__';
   const [printTagLots, setPrintTagLots] = useState<Lot[] | null>(null);
+  // Deleting every lot the filters show (e.g. a room to film again).
+  const [bulkDelete, setBulkDelete] = useState<{ done: number; total: number } | null>(null);
   // The same view without the Needs tag filter: already-printed tags to reprint.
   const [printTagPool, setPrintTagPool] = useState<Lot[]>([]);
   const toggleStatusFilter = (s: InvStatus) =>
@@ -390,6 +393,39 @@ export default function SaleDetail() {
       if (local) setSale(local);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Delete the lots the current filters show, one by one through the same path
+  // as a single delete (photo rows, lot, photo files, the device copy). Held and
+  // sold lots are kept: they belong to a shopper or a sale.
+  const deleteShownLots = async (shown: Lot[]) => {
+    const targets = shown.filter((l) => (l.inventory_status ?? 'available') === 'available');
+    const kept = shown.length - targets.length;
+    if (!targets.length) {
+      alert('Every lot shown is held or sold, so none can be deleted here.');
+      return;
+    }
+    const answer = window.prompt(
+      `Delete ${targets.length} lot${targets.length === 1 ? '' : 's'} and their photos?` +
+        (kept ? ` ${kept} held or sold lot${kept === 1 ? ' is' : 's are'} kept.` : '') +
+        `\n\nThis cannot be undone. Type DELETE to confirm.`,
+    );
+    if (answer?.trim().toUpperCase() !== 'DELETE') return;
+    setBulkDelete({ done: 0, total: targets.length });
+    const failed: string[] = [];
+    for (let i = 0; i < targets.length; i++) {
+      try {
+        await deleteLotOnServer(targets[i].id);
+      } catch (e) {
+        failed.push(`#${targets[i].lot_number}: ${e instanceof Error ? e.message : e}`);
+      }
+      setBulkDelete({ done: i + 1, total: targets.length });
+    }
+    setBulkDelete(null);
+    await loadLots();
+    if (failed.length) {
+      alert(`${targets.length - failed.length} deleted; ${failed.length} could not be:\n${failed.slice(0, 8).join('\n')}${failed.length > 8 ? '\n…' : ''}`);
     }
   };
 
@@ -1187,6 +1223,19 @@ export default function SaleDetail() {
                   >
                     Clear all filters
                   </button>
+                  {can('delete') && filteredLots.length > 0 && (
+                    bulkDelete ? (
+                      <span className="font-medium text-red-700">Deleting {bulkDelete.done} of {bulkDelete.total}…</span>
+                    ) : (
+                      <button
+                        onClick={() => deleteShownLots(filteredLots)}
+                        className="font-medium text-red-700 hover:underline"
+                        title="Delete every lot this list shows (held and sold lots are kept)"
+                      >
+                        Delete these lots
+                      </button>
+                    )
+                  )}
                 </div>
               );
             })()}
