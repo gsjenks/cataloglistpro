@@ -90,6 +90,8 @@ export default function RoomCaptureImport({ saleId, companyId, saleContext = '',
   const total = included.reduce((s, r) => s + (r.price || 0), 0);
   const visible = showExcluded ? rows : rows.filter((r) => r.included);
   const missing = rows.reduce((n, r) => n + r.photos.filter((p) => !findImage(images, p)).length, 0);
+  // Lots that came through with no photo at all (the photos could not be cut).
+  const noPhoto = included.filter((r) => r.photos.length === 0).length;
 
   const setSelectedIncluded = (on: boolean) =>
     setRows((rs) => rs.map((r) => (r.selected ? { ...r, included: on, selected: false } : r)));
@@ -182,7 +184,9 @@ export default function RoomCaptureImport({ saleId, companyId, saleContext = '',
       });
       setResult(res);
       onImported();
-      if (job) {
+      // Keep the videos while any lot still lacks its photo, so the photos can be
+      // cut later; Cloud Storage deletes them after 7 days regardless.
+      if (job && noPhoto === 0) {
         cleanupJob(job).catch((e) => console.error('[ROOM CAPTURE] cleanup after import:', e));
       }
     } catch (e) {
@@ -282,6 +286,9 @@ export default function RoomCaptureImport({ saleId, companyId, saleContext = '',
                 <b>{included.length}</b> of {rows.length} lots · {money(total)}
               </span>
               {missing > 0 && <span className="text-amber-700">· {missing} photo(s) missing</span>}
+              {noPhoto > 0 && (
+                <span className="text-red-700 font-medium">· {noPhoto} of {included.length} lots have no photo (the photos could not be cut)</span>
+              )}
               <span className="flex-1" />
               <button onClick={combine} disabled={selected.length < 2 || busy} className="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-40">
                 <Combine className="w-4 h-4" /> Combine{selected.length > 1 ? ` ${selected.length}` : ''}

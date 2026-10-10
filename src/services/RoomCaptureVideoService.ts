@@ -574,6 +574,9 @@ async function ensureJobCrops(
 
 let workerStarted = false;
 let workerBusy = false;
+// Rooms whose cutting failed on this device, and how often: after 3 it stops
+// trying (a missing video would otherwise be asked for every minute).
+const cropFailures = new Map<string, number>();
 
 /** Cut the photos of every ready room this device can see. Safe to call any time. */
 export async function cutReadyRooms() {
@@ -585,6 +588,7 @@ export async function cutReadyRooms() {
     for (const job of (data ?? []) as unknown as RoomCaptureJob[]) {
       if (document.visibilityState !== 'visible') break;
       if (cropsDone.has(doneKey(job)) || inflight.has(job.id)) continue;
+      if ((cropFailures.get(doneKey(job)) ?? 0) >= 3) continue;
       if (job.lease_until && new Date(job.lease_until).getTime() > Date.now()) continue; // another device
       const clips = await listClips([job.id], true);
       const m = await readManifest(job);
@@ -606,6 +610,9 @@ export async function cutReadyRooms() {
       if (!claimed) continue;
       try {
         await ensureJobCrops(job, clips, { load: false, background: true });
+      } catch (e) {
+        if (!(e instanceof CropPaused)) cropFailures.set(doneKey(job), (cropFailures.get(doneKey(job)) ?? 0) + 1);
+        throw e;
       } finally {
         await supabase.from('room_capture_jobs').update({ lease_until: null }).eq('id', job.id).eq('status', 'ready');
       }

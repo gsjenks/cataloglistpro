@@ -655,6 +655,10 @@ serve(async (req) => {
           object: clip.storage_path, size: clip.size, contentType: clip.mime_type, origin: String(body.origin || ""),
         }));
       }
+      // Clips filmed before the move to Cloud Storage live in the Supabase
+      // bucket; signing only succeeds for an object that exists there.
+      const legacy = await admin.storage.from(BUCKET).createSignedUrl(clip.storage_path, 3 * 3600);
+      if (!legacy.error && legacy.data?.signedUrl) return json({ url: legacy.data.signedUrl });
       const e = Math.floor(Date.now() / 1000) + 3 * 3600;
       const s = await hmacHex(`${clip.storage_path}\n${e}`);
       return json({ url: `${WORKER_URL}/video?o=${encodeURIComponent(clip.storage_path)}&e=${e}&s=${s}` });
