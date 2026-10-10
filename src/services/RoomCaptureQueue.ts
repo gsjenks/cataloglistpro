@@ -1,17 +1,20 @@
 // src/services/RoomCaptureQueue.ts
 // Room capture on the server, phone side: each recorded clip is kept on the
-// device (IndexedDB) and uploaded to the private room-capture bucket with the
-// resumable (TUS) protocol, so switching to the camera, losing signal or a reload
-// only pauses it. Once a clip is up, the room-capture edge function analyses it in
-// the background; the phone is free to film the next room. One upload at a time
-// (a phone sending several large videos at once only slows each one down).
-// The worker starts with the app (App.tsx) and on every `online` / foreground.
+// device (IndexedDB) and uploaded straight to Google Cloud Storage through a
+// resumable session (opened by the room-capture worker via the edge function),
+// so switching to the camera, losing signal or a reload only pauses it. Once a
+// clip is up, the servers analyse it and cut its photos in the background; the
+// phone is free to film the next room. One upload at a time (a phone sending
+// several large videos at once only slows each one down). The upload worker
+// starts with the app (App.tsx) and on every `online` / foreground.
 
 import { openDB, type IDBPDatabase } from 'idb';
 import { supabase } from '../lib/supabase';
 
+/** Supabase bucket for the cut photos (crops/ under each room's folder). */
 export const ROOM_CAPTURE_BUCKET = 'room-capture';
-const TUS_CHUNK = 6 * 1024 * 1024; // Supabase requires exactly 6 MB chunks
+// Cloud Storage: every chunk but the last a multiple of 256 KiB.
+const UPLOAD_CHUNK = 8 * 1024 * 1024;
 
 export type JobStatus = 'recording' | 'processing' | 'consolidating' | 'ready' | 'failed' | 'imported';
 export type ClipStatus = 'uploading' | 'uploaded' | 'transferring' | 'waiting' | 'analyzing' | 'done' | 'failed';
@@ -32,7 +35,7 @@ export interface RoomCaptureJob {
   updated_at: string;
 }
 
-/** The room's folder in the bucket: its clips, and crops/ once photos are cut. */
+/** The room's folder: its clips in Cloud Storage, crops/ in the Supabase bucket. */
 export const jobFolder = (job: Pick<RoomCaptureJob, 'id' | 'company_id' | 'sale_id'>) =>
   `${job.company_id}/${job.sale_id}/${job.id}`;
 
@@ -60,7 +63,7 @@ interface PendingUpload {
   path: string;
   blob: Blob;
   type: string;
-  tusUrl?: string;
+  uploadUrl?: string; // the Cloud Storage resumable session
   error?: string; // a permanent failure; skipped until retried
   createdAt: number;
 }
@@ -109,97 +112,72 @@ async function refreshProgressFromStore() {
   emit();
 }
 
-// ---- TUS upload ----
-
-const b64 = (s: string) => btoa(unescape(encodeURIComponent(s)));
-
-async function token(): Promise<string> {
-  const { data } = await supabase.auth.getSession();
-  const t = data.session?.access_token;
-  if (!t) throw new Error('Not signed in.');
-  return t;
-}
-
-const endpoint = () => `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/upload/resumable`;
+// ---- Upload to Google Cloud Storage (resumable) ----
 
 class PermanentError extends Error {}
+class ClipGone extends Error {}
 
-async function tusCreate(u: PendingUpload): Promise<string> {
-  const res = await fetch(endpoint(), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${await token()}`,
-      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-      'Tus-Resumable': '1.0.0',
-      'Upload-Length': String(u.blob.size),
-      'x-upsert': 'true',
-      'Upload-Metadata': [
-        `bucketName ${b64(ROOM_CAPTURE_BUCKET)}`,
-        `objectName ${b64(u.path)}`,
-        `contentType ${b64(u.type || 'video/mp4')}`,
-        `cacheControl ${b64('3600')}`,
-      ].join(','),
-    },
-  });
-  const loc = res.headers.get('Location');
-  if (res.status === 413) throw new PermanentError('This video is larger than the storage upload limit (Storage → Settings).');
-  if (res.status === 401 || res.status === 403) throw new Error(`Upload not allowed (${res.status}).`);
-  if (!res.ok || !loc) throw new Error(`Could not start the upload (${res.status}): ${(await res.text().catch(() => '')).slice(0, 160)}`);
-  return new URL(loc, endpoint()).toString();
+async function startSession(u: PendingUpload): Promise<string> {
+  try {
+    const data = await call('start_upload', { clipId: u.clipId, origin: window.location.origin });
+    if (!data?.uploadUrl) throw new Error('Could not start the upload.');
+    return data.uploadUrl as string;
+  } catch (e) {
+    // The clip was removed (or its room discarded) while it waited.
+    if (e instanceof Error && e.message === 'clip_not_found') throw new ClipGone(e.message);
+    throw e;
+  }
 }
 
-/** Where the server says the upload is; null if the upload session is gone. */
-async function tusOffset(url: string): Promise<number | null> {
-  const res = await fetch(url, {
-    method: 'HEAD',
-    headers: { Authorization: `Bearer ${await token()}`, apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, 'Tus-Resumable': '1.0.0' },
-  });
-  if (res.status === 404 || res.status === 410 || res.status === 403) return null;
-  if (!res.ok) throw new Error(`Upload check failed (${res.status}).`);
-  return Number(res.headers.get('Upload-Offset')) || 0;
+const rangeEnd = (res: Response) => {
+  const m = /bytes=0-(\d+)/.exec(res.headers.get('Range') || '');
+  return m ? Number(m[1]) + 1 : 0;
+};
+
+/** How much of the clip the server has; 'done'; or null if the session is gone. */
+async function sessionOffset(url: string, size: number): Promise<number | 'done' | null> {
+  const res = await fetch(url, { method: 'PUT', headers: { 'Content-Range': `bytes */${size}` } });
+  if (res.status === 200 || res.status === 201) return 'done';
+  if (res.status === 308) return rangeEnd(res);
+  if (res.status === 404 || res.status === 410) return null;
+  throw new Error(`Upload check failed (${res.status}).`);
 }
 
 async function uploadOne(u: PendingUpload) {
-  const p: UploadProgress = { sent: 0, total: u.blob.size, active: true };
+  const size = u.blob.size;
+  const p: UploadProgress = { sent: 0, total: size, active: true };
   progress.set(u.clipId, p);
   emit();
 
-  let url = u.tusUrl;
-  let offset = url ? await tusOffset(url) : null;
-  if (url == null || offset == null) {
-    url = await tusCreate(u);
-    offset = 0;
-    await (await db()).put('uploads', { ...u, tusUrl: url });
+  let url = u.uploadUrl;
+  let at = url ? await sessionOffset(url, size) : null;
+  if (!url || at == null) {
+    url = await startSession(u);
+    at = 0;
+    await (await db()).put('uploads', { ...u, uploadUrl: url });
   }
+  let offset = at === 'done' ? size : at;
   p.sent = offset;
   emit();
 
-  while (offset < u.blob.size) {
-    const end = Math.min(u.blob.size, offset + TUS_CHUNK);
+  while (offset < size) {
+    const end = Math.min(size, offset + UPLOAD_CHUNK);
     const res: Response = await fetch(url, {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${await token()}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        'Tus-Resumable': '1.0.0',
-        'Upload-Offset': String(offset),
-        'Content-Type': 'application/offset+octet-stream',
-      },
+      method: 'PUT',
+      headers: { 'Content-Range': `bytes ${offset}-${end - 1}/${size}` },
       body: u.blob.slice(offset, end),
     });
-    if (res.status === 409) {
-      // Out of step with the server: ask where it is and carry on from there.
-      const at = await tusOffset(url);
-      if (at == null) throw new Error('The upload session expired; starting over.');
-      offset = at;
-      continue;
-    }
-    if (res.status === 404 || res.status === 410) {
-      await (await db()).put('uploads', { ...u, tusUrl: undefined });
+    if (res.status === 200 || res.status === 201) {
+      offset = size;
+    } else if (res.status === 308) {
+      // The server says how much it kept; carry on from there.
+      offset = rangeEnd(res);
+    } else if (res.status === 404 || res.status === 410) {
+      await (await db()).put('uploads', { ...u, uploadUrl: undefined });
       throw new Error('The upload session expired; starting over.');
+    } else {
+      throw new Error(`Upload failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 160)}`);
     }
-    if (!res.ok) throw new Error(`Upload failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 160)}`);
-    offset = Number(res.headers.get('Upload-Offset')) || end;
     p.sent = offset;
     emit();
   }
@@ -236,6 +214,12 @@ export function pumpUploads() {
           const msg = e instanceof Error ? e.message : String(e);
           console.error('[ROOM CAPTURE] upload:', msg);
           const p = progress.get(next.clipId);
+          if (e instanceof ClipGone) {
+            await (await db()).delete('uploads', next.clipId);
+            progress.delete(next.clipId);
+            emit();
+            continue;
+          }
           if (e instanceof PermanentError) {
             await (await db()).put('uploads', { ...next, error: msg });
             await supabase.from('room_capture_clips').update({ status: 'failed', error: msg }).eq('id', next.clipId);
@@ -378,7 +362,7 @@ export async function retryUpload(clipId: string) {
 export async function removeClip(clip: Pick<RoomCaptureClip, 'id' | 'storage_path'>) {
   await (await db()).delete('uploads', clip.id);
   progress.delete(clip.id);
-  await supabase.storage.from(ROOM_CAPTURE_BUCKET).remove([clip.storage_path]).catch(() => undefined);
+  // Anything already uploaded expires from Cloud Storage within 7 days.
   const { error } = await supabase.from('room_capture_clips').delete().eq('id', clip.id);
   emit();
   if (error) throw new Error(error.message);
@@ -449,8 +433,9 @@ export async function cleanupJob(job: RoomCaptureJob, discard = false) {
   return call('cleanup_job', { jobId: job.id, discard });
 }
 
-export async function clipVideoUrl(path: string): Promise<string> {
-  const { data, error } = await supabase.storage.from(ROOM_CAPTURE_BUCKET).createSignedUrl(path, 3 * 3600);
-  if (error || !data?.signedUrl) throw new Error(`Could not open the clip: ${error?.message ?? 'no link'}`);
-  return data.signedUrl;
+export async function clipVideoUrl(clip: Pick<RoomCaptureClip, 'id' | 'storage_path'>): Promise<string> {
+  if (!clip.storage_path) throw new Error('The video was already deleted.');
+  const data = await call('clip_url', { clipId: clip.id });
+  if (!data?.url) throw new Error('Could not open the clip.');
+  return data.url as string;
 }

@@ -1,12 +1,13 @@
 // src/services/RoomCaptureVideoService.ts
 // Narrated walkthrough videos -> a room-capture package for the review screen.
-// The clips are uploaded and analysed on the server (RoomCaptureQueue and the
-// room-capture edge function); the server cannot cut photos from a video, so the
-// app does it, in the background, as soon as a room is ready: each item's crop
-// is cut from the sharpest frame near its timestamp, read straight from the
-// stored clip, and saved to the room's crops/ folder with a manifest. Review then
-// only downloads them, and the server's room-wide merge turns the items into
-// lots. See docs/room-capture-spec.md.
+// The clips are uploaded, analysed and their photos cut on the servers
+// (RoomCaptureQueue, the room-capture edge function and the room-capture worker
+// on Cloud Run), which save the crops to the room's crops/ folder with a
+// manifest. Review only downloads them. If the worker could not cut a room, the
+// app does it here, in the background as soon as the room is ready, from the
+// stored clip: each item's crop from the sharpest frame near its timestamp.
+// Either way the server's room-wide merge turns the items into lots.
+// See docs/room-capture-spec.md.
 
 import { supabase } from '../lib/supabase';
 import type { CaptureLot, CaptureMember, CapturePackage } from './RoomCaptureImportService';
@@ -524,7 +525,8 @@ async function ensureJobCrops(
         const c = todo[k];
         const label = `Cutting photos: clip ${k + 1} of ${todo.length}`;
         setCropProgress(job.id, { fraction: k / todo.length, label });
-        const crops = await cropItems(await clipVideoUrl(c.storage_path), clipItems(c), (f) =>
+        if (!c.storage_path) continue; // video already deleted: nothing to cut from
+        const crops = await cropItems(await clipVideoUrl(c), clipItems(c), (f) =>
           setCropProgress(job.id, { fraction: (k + f) / todo.length, label }), undefined, true, stop);
         const entry: CropManifest['clips'][string] = { sig: clipSig(c), items: {} };
         await pool([...crops.entries()], 4, async ([id, crop]) => {

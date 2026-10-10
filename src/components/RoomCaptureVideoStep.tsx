@@ -36,7 +36,7 @@ const NEW_ROOM = '__new';
 const JOB_LABEL: Record<RoomCaptureJob['status'], string> = {
   recording: 'Filming',
   processing: 'Processing',
-  consolidating: 'Merging clips',
+  consolidating: 'Merging clips, cutting photos',
   ready: 'Ready to review',
   failed: 'Failed',
   imported: 'Imported',
