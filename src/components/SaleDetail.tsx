@@ -1003,6 +1003,9 @@ export default function SaleDetail() {
         onSearch={handleSearch}
         onFilterChange={handleFilterChange}
         onSortChange={handleSortChange}
+        searchValues={searchQueries}
+        filterValues={activeFilters}
+        sortValues={activeSorts}
       />
 
       {/* Tab Content */}
@@ -1077,14 +1080,6 @@ export default function SaleDetail() {
                   </button>
                 );
               })}
-              {statusFilter.size > 0 && (
-                <button
-                  onClick={() => setStatusFilter(new Set())}
-                  className="text-xs text-gray-500 hover:text-indigo-600 underline ml-1"
-                >
-                  Clear
-                </button>
-              )}
             </div>
 
             {/* Estate: rooms. Filter to one room (walking order), find items still
@@ -1160,6 +1155,41 @@ export default function SaleDetail() {
                 </button>
               </div>
             )}
+
+            {/* Filters stack and are kept when coming back from a lot, so say
+                what is narrowing the list and clear them all in one tap. */}
+            {(() => {
+              const active = [
+                searchQueries.items?.trim() && `"${searchQueries.items.trim()}"`,
+                activeFilters.items && activeFilters.items,
+                ...[...statusFilter].map((st) => st[0].toUpperCase() + st.slice(1)),
+                roomFilter && (roomFilter === NO_ROOM ? 'No room' : saleRooms.find((r) => r.room_code === roomFilter)
+                  ? `${roomFilter} ${saleRooms.find((r) => r.room_code === roomFilter)!.name}` : roomFilter),
+                detailFilter && 'Needs detail photo',
+                tagFilter && 'Needs tag',
+              ].filter(Boolean) as string[];
+              if (!active.length) return null;
+              return (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 -mt-2 mb-4 px-3 py-2 rounded-md bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">
+                  <span>
+                    Showing <b>{filteredLots.length}</b> of {lots.length}: {active.join(' · ')}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setSearchQueries((q) => ({ ...q, items: '' }));
+                      setActiveFilters((f) => ({ ...f, items: '' }));
+                      setStatusFilter(new Set());
+                      setRoomFilter('');
+                      setDetailFilter(false);
+                      setTagFilter(false);
+                    }}
+                    className="ml-auto font-medium text-indigo-700 hover:underline"
+                  >
+                    Clear all filters
+                  </button>
+                </div>
+              );
+            })()}
 
             <LotsList
               lots={filteredLots}

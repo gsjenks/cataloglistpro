@@ -37,6 +37,14 @@ interface ScrollableTabsProps {
   onSearch?: (tabId: string, searchQuery: string) => void;
   onFilterChange?: (tabId: string, filterId: string) => void;
   onSortChange?: (tabId: string, sortId: string) => void;
+  /**
+   * The parent's search / filter / sort per tab. When given, the bar shows
+   * these instead of its own copy, so a search the parent restored (the sale
+   * screen remembers its view) is visible and can be cleared.
+   */
+  searchValues?: Record<string, string>;
+  filterValues?: Record<string, string>;
+  sortValues?: Record<string, string>;
 }
 
 export default function ScrollableTabs({ 
@@ -46,14 +54,20 @@ export default function ScrollableTabs({
   tabFilters = {},
   onSearch,
   onFilterChange,
-  onSortChange
+  onSortChange,
+  searchValues,
+  filterValues,
+  sortValues,
 }: ScrollableTabsProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState<string>('');
-  const [selectedSort, setSelectedSort] = useState<string>('');
+  const [localSearch, setSearchQuery] = useState('');
+  const [localFilter, setSelectedFilter] = useState<string>('');
+  const [localSort, setSelectedSort] = useState<string>('');
+  const searchQuery = searchValues ? searchValues[activeTab] ?? '' : localSearch;
+  const selectedFilter = filterValues ? filterValues[activeTab] ?? '' : localFilter;
+  const selectedSort = sortValues ? sortValues[activeTab] ?? '' : localSort;
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [showSortDropdown, setShowSortDropdown] = useState(false);
 
