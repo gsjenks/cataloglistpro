@@ -163,13 +163,6 @@ export default function ScrollableTabs({
     }
   };
 
-  const clearSort = () => {
-    setSelectedSort('');
-    if (onSortChange) {
-      onSortChange(activeTab, '');
-    }
-  };
-
   const showSearchBar = currentTabFilters.showSearch !== false;
   const showFilterButton = currentTabFilters.showFilter && currentTabFilters.filterOptions && currentTabFilters.filterOptions.length > 0;
   const showSortButton = currentTabFilters.showSort && currentTabFilters.sortOptions && currentTabFilters.sortOptions.length > 0;
@@ -281,41 +274,14 @@ export default function ScrollableTabs({
             {/* Sort Dropdown */}
             {showSortButton && (
               <div className="relative">
+                {/* Always just "Sort", like Filter: the chosen order is ticked in the menu. */}
                 <button
                   onClick={() => setShowSortDropdown(!showSortDropdown)}
-                  className={`
-                    flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors
-                    ${selectedSort
-                      ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                    }
-                  `}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                  title={selectedSort ? `Sorted: ${currentTabFilters.sortOptions?.find((o) => o.id === selectedSort)?.label ?? ''}` : undefined}
                 >
                   <ArrowUpDown className="w-4 h-4" />
-                  <span>
-                    {selectedSort 
-                      ? currentTabFilters.sortOptions?.find(s => s.id === selectedSort)?.label 
-                      : 'Sort'}
-                  </span>
-                  {selectedSort && (
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        clearSort();
-                      }}
-                      className="ml-1 hover:bg-indigo-100 rounded-full p-0.5 cursor-pointer inline-flex"
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.stopPropagation();
-                          clearSort();
-                        }
-                      }}
-                    >
-                      <X className="w-3 h-3" />
-                    </span>
-                  )}
+                  <span>Sort</span>
                 </button>
 
                 {/* Sort Dropdown Menu */}
