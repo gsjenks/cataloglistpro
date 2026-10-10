@@ -488,6 +488,40 @@ export default function LotDetail() {
     }
   }, [photos, isOnline]);
 
+  // A real photo is the detail photo the lot was waiting for: clear the flag and
+  // save it at once, so the lot drops off the Items tab's Needs detail photo
+  // list. Other unsaved edits stay unsaved (only this field counts as saved).
+  const clearNeedsDetail = useCallback(async () => {
+    const cur = lotRef.current;
+    if (!cur.needs_detail || !cur.id || !cur.sale_id) return;
+    const updatedAt = new Date().toISOString();
+    const updated = { ...cur, needs_detail: false, updated_at: updatedAt } as Lot;
+    lotRef.current = updated;
+    setLot(updated);
+    try {
+      const saved = JSON.parse(loadedKeyRef.current || "[]");
+      const at = EDIT_FIELDS.indexOf("needs_detail");
+      if (Array.isArray(saved) && saved.length === EDIT_FIELDS.length) {
+        saved[at] = false;
+        loadedKeyRef.current = JSON.stringify(saved);
+      }
+    } catch {
+      /* no saved snapshot: nothing to keep in step */
+    }
+    try {
+      await offlineStorage.upsertLot(updated);
+      if (isOnline) {
+        const { error } = await supabase.from("lots").update({ needs_detail: false, updated_at: updatedAt }).eq("id", cur.id);
+        if (error) throw error;
+      } else {
+        await queueLotUpsert(updated, "update");
+      }
+    } catch (e) {
+      console.error("Clearing needs-detail failed, queued for sync:", e);
+      await queueLotUpsert(updated, "update").catch(() => undefined);
+    }
+  }, [isOnline]);
+
   const handleTakePhoto = useCallback(async () => {
     if (!lotId || isNewLot) {
       alert("Please save the lot first");
@@ -576,6 +610,7 @@ export default function LotDetail() {
               [result.photoId!]: result.blobUrl!,
             }));
             if (isPrimary) await demoteCropPrimaries();
+            if (photoCount === 0) await clearNeedsDetail();
             photoCount++;
 
             // Ask if user wants to take more photos
@@ -592,7 +627,7 @@ export default function LotDetail() {
     } else {
       setShowCameraModal(true);
     }
-  }, [lotId, isNewLot, photos.length, isOnline, takesOverPrimary, demoteCropPrimaries, releasePrimaryClaim]);
+  }, [lotId, isNewLot, photos.length, isOnline, takesOverPrimary, demoteCropPrimaries, releasePrimaryClaim, clearNeedsDetail]);
 
   const handleCaptureFromWebcam = useCallback(
     async (blob: Blob) => {
@@ -617,6 +652,7 @@ export default function LotDetail() {
         setPhotos((prev) => [...prev, metadata]);
         setPhotoUrls((prev) => ({ ...prev, [photoId]: blobUrl }));
         if (isPrimary) await demoteCropPrimaries();
+        await clearNeedsDetail();
 
         if (isOnline) {
           setTimeout(async () => {
@@ -654,7 +690,7 @@ export default function LotDetail() {
         alert("Failed to save photo");
       }
     },
-    [lotId, photos.length, isOnline, takesOverPrimary, demoteCropPrimaries],
+    [lotId, photos.length, isOnline, takesOverPrimary, demoteCropPrimaries, clearNeedsDetail],
   );
 
   const handlePhotoUpload = useCallback(
@@ -687,6 +723,7 @@ export default function LotDetail() {
           });
           setPhotoUrls((prev) => ({ ...prev, ...newUrls }));
           if (takeOver) await demoteCropPrimaries();
+          await clearNeedsDetail();
         } else if (takeOver) {
           releasePrimaryClaim();
         }
@@ -699,7 +736,7 @@ export default function LotDetail() {
         e.target.value = "";
       }
     },
-    [lotId, isNewLot, photos.length, takesOverPrimary, demoteCropPrimaries, releasePrimaryClaim],
+    [lotId, isNewLot, photos.length, takesOverPrimary, demoteCropPrimaries, releasePrimaryClaim, clearNeedsDetail],
   );
 
   const handleSetPrimary = useCallback(
