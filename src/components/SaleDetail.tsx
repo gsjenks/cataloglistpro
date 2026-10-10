@@ -117,6 +117,8 @@ export default function SaleDetail() {
   const [showRooms, setShowRooms] = useState(false);
   const NO_ROOM = '__none__';
   const [printTagLots, setPrintTagLots] = useState<Lot[] | null>(null);
+  // The same view without the Needs tag filter: already-printed tags to reprint.
+  const [printTagPool, setPrintTagPool] = useState<Lot[]>([]);
   const toggleStatusFilter = (s: InvStatus) =>
     setStatusFilter((prev) => {
       const next = new Set(prev);
@@ -562,7 +564,7 @@ export default function SaleDetail() {
   };
 
   // COMPREHENSIVE LOTS FILTER - Searches ALL 20+ metadata fields
-  const getFilteredLots = () => {
+  const getFilteredLots = (ignoreTagFilter = false) => {
     let filtered = [...lots];
     const query = searchQueries.items?.toLowerCase().trim();
     
@@ -605,7 +607,7 @@ export default function SaleDetail() {
       filtered = filtered.filter(lot => statusFilter.has((lot.inventory_status ?? 'available') as InvStatus));
     }
 
-    if (tagFilter) {
+    if (tagFilter && !ignoreTagFilter) {
       filtered = filtered.filter(tagOutOfDate);
     }
 
@@ -1083,12 +1085,15 @@ export default function SaleDetail() {
                   Needs tag <span className="opacity-70">({lots.filter(tagOutOfDate).length})</span>
                 </button>
                 <button
-                  onClick={() => setPrintTagLots(filteredLots)}
+                  onClick={() => {
+                    setPrintTagPool(getFilteredLots(true));
+                    setPrintTagLots(filteredLots);
+                  }}
                   disabled={filteredLots.length === 0}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40"
                 >
                   <Printer className="w-3.5 h-3.5" />
-                  Print {filteredLots.length === lots.length ? 'all' : filteredLots.length} tag{filteredLots.length === 1 ? '' : 's'}
+                  Print tags…
                 </button>
               </div>
             )}
@@ -1257,6 +1262,7 @@ export default function SaleDetail() {
       {printTagLots && (
         <PrintTagsModal
           lots={printTagLots}
+          reprintPool={printTagPool}
           sale={sale}
           roomOrder={saleRooms.map((r) => r.room_code)}
           onClose={() => setPrintTagLots(null)}
