@@ -1345,7 +1345,7 @@ export default function SaleDetail() {
           </>
         )}
 
-        {activeTab === 'reports' && (
+        {activeTab === 'reports' && can('saleInfo') && (
           <SaleReportsTools
             saleId={saleId!}
             saleName={sale?.name || 'Sale'}

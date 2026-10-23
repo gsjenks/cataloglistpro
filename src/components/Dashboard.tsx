@@ -339,13 +339,14 @@ export default function Dashboard() {
     { id: 'contacts', label: 'Contacts', icon: <Users className="w-4 h-4" />, count: filteredContacts.length },
     { id: 'documents', label: 'Documents', icon: <FileText className="w-4 h-4" />, count: filteredDocuments.length },
     { id: 'reports', label: 'Reports & Tools', icon: <FileUp className="w-4 h-4" />, count: 0 },
-  // Documents (contracts, certificates) are manager-only, in the database too.
-  ].filter((t) => can('saleInfo') || t.id !== 'documents'),
+  // Documents (contracts, certificates) are manager-only, in the database too;
+  // Reports & Tools is manager-only like the sale's own Reports tab.
+  ].filter((t) => can('saleInfo') || (t.id !== 'documents' && t.id !== 'reports')),
   [filteredSales.length, filteredContacts.length, filteredDocuments.length, can]);
 
   // A role that cannot see the current tab falls back to Sales.
   useEffect(() => {
-    if (!can('saleInfo') && activeTab === 'documents') setActiveTab('sales');
+    if (!can('saleInfo') && (activeTab === 'documents' || activeTab === 'reports')) setActiveTab('sales');
   }, [activeTab, can]);
 
   // Static tab filters config
@@ -501,7 +502,7 @@ export default function Dashboard() {
                 onRefresh={loadDashboardData} 
               />
             )}
-            {activeTab === 'reports' && <ReportsAndTools />}
+            {activeTab === 'reports' && can('saleInfo') && <ReportsAndTools />}
           </div>
         </div>
       </div>
