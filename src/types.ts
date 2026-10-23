@@ -139,6 +139,11 @@ export interface Lot {
   buyer?: LotBuyer;
   buyers_premium?: number;
   la_invoice_id?: string;
+  // Appraisal (20261023000000_lot_appraisal.sql). Staff-side only.
+  appraised_value?: number | null;
+  appraisal_date?: string | null;          // YYYY-MM-DD
+  appraisal_document_id?: string | null;   // documents.id, type 'appraisal'
+  appraiser_contact_id?: string | null;    // contacts.id
   created_at?: string;
   updated_at?: string;
 }

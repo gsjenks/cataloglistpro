@@ -29,7 +29,7 @@ import {
   getLACreators,
   getLAMaterials,
 } from "../services/LiveAuctioneersData";
-import type { Lot, Photo, Consignment, Contact, SaleRoom } from "../types";
+import type { Lot, Photo, Consignment, Contact, SaleRoom, Document as SaleDocument } from "../types";
 import { listSaleRooms } from "../services/SaleRoomService";
 import { listConsignments } from "../services/ConsignmentService";
 import { toTitleCase } from "../utils/titleCase";
@@ -168,6 +168,8 @@ export default function LotDetail() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [consignments, setConsignments] = useState<Consignment[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [appraisers, setAppraisers] = useState<Contact[]>([]);
+  const [appraisalDocuments, setAppraisalDocuments] = useState<SaleDocument[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   // Public URL per photo, used if the blob URL fails to render.
   const [photoFallbackUrls, setPhotoFallbackUrls] = useState<Record<string, string>>({});
@@ -229,6 +231,35 @@ export default function LotDetail() {
         setContacts(cts || []);
       } catch (e) {
         console.error("Error loading consignors:", e);
+      }
+    })();
+  }, [saleId]);
+
+  // Appraisal pickers: appraisers on this sale or its company, and the sale's
+  // appraisal documents.
+  useEffect(() => {
+    if (!saleId) return;
+    (async () => {
+      try {
+        const { data: s } = await supabase.from("sales").select("company_id").eq("id", saleId).maybeSingle();
+        const companyId = (s as { company_id?: string } | null)?.company_id;
+        const [{ data: people }, { data: docs }] = await Promise.all([
+          supabase
+            .from("contacts")
+            .select("*")
+            .eq("contact_type", "appraiser")
+            .or(companyId ? `sale_id.eq.${saleId},company_id.eq.${companyId}` : `sale_id.eq.${saleId}`),
+          supabase
+            .from("documents")
+            .select("*")
+            .eq("sale_id", saleId)
+            .eq("document_type", "appraisal")
+            .order("created_at", { ascending: false }),
+        ]);
+        setAppraisers((people as Contact[] | null) || []);
+        setAppraisalDocuments((docs as SaleDocument[] | null) || []);
+      } catch (e) {
+        console.warn("Appraisal pickers unavailable:", e);
       }
     })();
   }, [saleId]);
@@ -1595,6 +1626,8 @@ export default function LotDetail() {
         consignments={consignments}
         rooms={isEstateSale ? saleRooms : undefined}
         contacts={contacts}
+        appraisers={appraisers}
+        appraisalDocuments={appraisalDocuments}
       />
 
       {aiResearch && (

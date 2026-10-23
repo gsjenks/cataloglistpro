@@ -192,6 +192,8 @@ export default function SaleStatistics({ sale, lots, consignments, consignorName
     const askSum = comparable.reduce((t, l) => t + askOf(l), 0);
     const realisedSum = comparable.reduce((t, l) => t + (l.sold_price ?? 0), 0);
     const openPriced = lots.filter((l) => !isSoldLot(l) && !l.disposition);
+    const appraised = lots.filter((l) => (l.appraised_value ?? 0) > 0);
+    const appraisedSold = appraised.filter((l) => isSoldLot(l) && (l.sold_price ?? 0) > 0);
     return {
       sold,
       prices,
@@ -209,6 +211,14 @@ export default function SaleStatistics({ sale, lots, consignments, consignorName
       located: lots.filter((l) => !!l.room).length,
       estLow: lots.reduce((t, l) => t + (l.estimate_low ?? 0), 0),
       estHigh: lots.reduce((t, l) => t + (l.estimate_high ?? 0), 0),
+      appraisedCount: appraised.length,
+      appraisedTotal: appraised.reduce((t, l) => t + (l.appraised_value ?? 0), 0),
+      appraisedSoldCount: appraisedSold.length,
+      appraisedSoldValue: appraisedSold.reduce((t, l) => t + (l.appraised_value ?? 0), 0),
+      appraisedSoldFor: appraisedSold.reduce((t, l) => t + (l.sold_price ?? 0), 0),
+      appraisedOpenValue: appraised
+        .filter((l) => !isSoldLot(l) && !l.disposition)
+        .reduce((t, l) => t + (l.appraised_value ?? 0), 0),
     };
   }, [lots, isEstate]);
 
@@ -371,6 +381,23 @@ export default function SaleStatistics({ sale, lots, consignments, consignorName
               <Stat label={isEstate ? 'Unsold at asking' : 'Unsold at low estimate'} value={money(s.openValue)} />
               <Stat label="House revenue" value={money(recon.houseRevenue)} />
               <Stat label={isEstate ? 'Owner payouts' : 'Consignor payouts'} value={money(recon.payoutsDue)} sub={`${money(recon.outstanding)} outstanding`} />
+            </div>
+          </Section>
+        )}
+
+        {showMoney && s.appraisedCount > 0 && (
+          <Section title={`Appraisals (${s.appraisedCount})`}>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Stat label="Total appraised value" value={money(s.appraisedTotal)} strong />
+              <Stat label="Appraised items sold" value={String(s.appraisedSoldCount)} sub={pct(s.appraisedSoldCount, s.appraisedCount)} />
+              {s.appraisedSoldCount > 0 && (
+                <Stat
+                  label="Sold vs appraised"
+                  value={pct(s.appraisedSoldFor, s.appraisedSoldValue)}
+                  sub={`${money(s.appraisedSoldFor)} on ${money(s.appraisedSoldValue)} appraised`}
+                />
+              )}
+              <Stat label="Appraised, still unsold" value={money(s.appraisedOpenValue)} />
             </div>
           </Section>
         )}
