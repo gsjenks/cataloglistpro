@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Images,
   BarChart3,
+  BookOpen,
 } from "lucide-react";
 import LiveAuctioneersUpload from "./LiveAuctioneersUpload";
 import EOAProcessing from "./EOAProcessing";
@@ -19,6 +20,7 @@ import { QRCodeLabelGenerator } from "./QRCodeLabelGenerator";
 import EstateDispositionReport from "./EstateDispositionReport";
 import EstateSalesNetExport from "./EstateSalesNetExport";
 import SaleStatistics from "./SaleStatistics";
+import PrintCatalog from "./PrintCatalog";
 import type { Sale, Consignment, SaleRoom } from "../types";
 import { useRole } from "../context/RoleContext";
 
@@ -30,7 +32,8 @@ type ToolView =
   | "qr-labels"
   | "dispo-report"
   | "esn-photos"
-  | "stats";
+  | "stats"
+  | "catalog";
 
 interface SaleReportsToolsProps {
   saleId: string;
@@ -88,6 +91,13 @@ export default function SaleReportsTools({
             `Sell-through, sales, catalog progress, and breakdowns by category${isEstate ? ", room and day" : ""}. Printable.`,
           icon: <BarChart3 className="w-6 h-6 text-indigo-600" />,
           view: "stats" as ToolView,
+        }, {
+          id: "catalog",
+          title: "Print Catalog",
+          description:
+            `A printable PDF of every lot with photo, title, ${isEstate ? "price" : "estimate"} and description; logo, sale date and page numbers on every page.`,
+          icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
+          view: "catalog" as ToolView,
         }]
       : []),
     {
@@ -142,6 +152,10 @@ export default function SaleReportsTools({
   ]
     .filter((t) => !(isEstate && LA_TOOL_IDS.has(t.id)))
     .filter((t) => canMoney || !MONEY_TOOL_IDS.has(t.id));
+
+  if (activeView === "catalog" && sale) {
+    return <PrintCatalog sale={sale} lots={lots} rooms={saleRooms} onBack={() => setActiveView("menu")} />;
+  }
 
   if (activeView === "stats" && sale) {
     return (
