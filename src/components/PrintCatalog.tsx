@@ -24,6 +24,7 @@ export default function PrintCatalog({ sale, lots, rooms, onBack }: Props) {
   );
   const [includePhotos, setIncludePhotos] = useState(true);
   const [includePrices, setIncludePrices] = useState(true);
+  const [includeAppraisal, setIncludeAppraisal] = useState(false);
   const [order, setOrder] = useState<'lot' | 'walking'>(isEstate && rooms.length ? 'walking' : 'lot');
   const [skipSold, setSkipSold] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -43,6 +44,7 @@ export default function PrintCatalog({ sale, lots, rooms, onBack }: Props) {
   }, [company, sale.company_id]);
 
   const count = lots.filter((l) => !(isEstate && skipSold && l.inventory_status === 'sold')).length;
+  const appraisedCount = lots.filter((l) => l.appraised_value != null).length;
   const saleDate = catalogSaleDate(sale);
 
   const run = async () => {
@@ -59,6 +61,7 @@ export default function PrintCatalog({ sale, lots, rooms, onBack }: Props) {
         logoUrl: company?.logo_url,
         includePhotos,
         includePrices,
+        includeAppraisal,
         order,
         skipSold,
         onProgress: (done, total) => setProgress({ done, total }),
@@ -109,6 +112,14 @@ export default function PrintCatalog({ sale, lots, rooms, onBack }: Props) {
             onChange={setIncludePrices}
             label={isEstate ? 'Include prices' : 'Include estimates'}
             hint="Leave out for a catalog without any prices."
+          />
+          <Check
+            checked={includeAppraisal}
+            onChange={setIncludeAppraisal}
+            label="Include appraised value"
+            hint={appraisedCount
+              ? `Prints "Appraised $…" beside the price on the ${appraisedCount} ${appraisedCount === 1 ? 'lot' : 'lots'} that have one.`
+              : 'No lot in this sale has an appraised value yet.'}
           />
           {isEstate && (
             <Check checked={skipSold} onChange={setSkipSold} label="Leave out sold items" />

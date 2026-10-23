@@ -9,8 +9,8 @@
 // lot; and the closing line stays with the last lot. A lot too long for one page
 // has its description shortened with "…" rather than spilling over.
 //
-// Prices are the estimate (auctions) or the asking price (estate sales). Never the
-// reserve, sold price, buyer or consignor.
+// Prices are the estimate (auctions) or the asking price (estate sales), plus the
+// appraised value when asked for. Never the reserve, sold price, buyer or consignor.
 
 import { supabase } from '../lib/supabase';
 import type { Lot, Sale, SaleRoom } from '../types';
@@ -27,6 +27,8 @@ export interface CatalogOptions {
   logoUrl?: string | null;
   includePhotos: boolean;
   includePrices: boolean;
+  /** Add the lot's appraised value (lots.appraised_value) beside its price. */
+  includeAppraisal: boolean;
   /** 'lot' = lot number order; 'walking' = estate walking order with room headings. */
   order: 'lot' | 'walking';
   /** Estate sales: leave out lots already sold. */
@@ -180,7 +182,7 @@ function safeName(s: string) {
 }
 
 export async function buildCatalogPdf(opts: CatalogOptions): Promise<CatalogResult> {
-  const { sale, rooms, includePhotos, includePrices } = opts;
+  const { sale, rooms, includePhotos, includePrices, includeAppraisal } = opts;
   const isEstate = sale.sale_type === 'estate_sale';
   const walking = isEstate && opts.order === 'walking';
 
@@ -220,7 +222,10 @@ export async function buildCatalogPdf(opts: CatalogOptions): Promise<CatalogResu
   const maxBlockH = CONTENT_BOTTOM - CONTENT_TOP - 0.45; // leaves room for a heading
   const measure = (lot: Lot, maxH = maxBlockH): Block => {
     const head = wrap(pdfText(`Lot ${lot.lot_number ?? ''}  ${lot.name || 'Untitled'}`), 'bold', 11, textW);
-    const price = includePrices ? pdfText(priceLine(lot, isEstate)) : '';
+    const price = pdfText([
+      includePrices ? priceLine(lot, isEstate) : '',
+      includeAppraisal && lot.appraised_value != null ? `Appraised ${money(lot.appraised_value)}` : '',
+    ].filter(Boolean).join('   ·   '));
     let desc = wrap(pdfText(lot.description), 'normal', 9, textW);
     const metaParts = [
       dimensions(lot),
