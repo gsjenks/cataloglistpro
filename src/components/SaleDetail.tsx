@@ -23,7 +23,6 @@ import { countReadyRooms } from '../services/RoomCaptureQueue';
 import PrintTagsModal from './PrintTagsModal';
 import { tagOutOfDate } from '../lib/lotTag';
 import SaleCloseSummary from './SaleCloseSummary';
-import SaleStatistics from './SaleStatistics';
 import QRScanner from './QRScanner';
 import PointOfSale from './PointOfSale';
 import BasketManager from './BasketManager';
@@ -58,7 +57,6 @@ export default function SaleDetail() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [consignments, setConsignments] = useState<Consignment[]>([]);
-  const [showStats, setShowStats] = useState(false);
   const [showCatalogueImport, setShowCatalogueImport] = useState(false);
 
   // consignment_id -> consignor display name, for lot cards.
@@ -237,11 +235,6 @@ export default function SaleDetail() {
     const t = setInterval(load, 60_000);
     return () => clearInterval(t);
   }, [saleId, sale?.sale_type, showRoomCapture]);
-
-  // Leaving Documents closes the statistics page.
-  useEffect(() => {
-    if (activeTab !== 'documents') setShowStats(false);
-  }, [activeTab]);
 
   // Load export stats when Reports tab is active
   useEffect(() => {
@@ -1330,35 +1323,8 @@ export default function SaleDetail() {
           </>
         )}
 
-        {activeTab === 'documents' && sale && showStats && (
-          <SaleStatistics
-            sale={sale}
-            lots={lots}
-            consignments={consignments}
-            consignorNames={consignorNames}
-            saleRooms={saleRooms}
-            onBack={() => setShowStats(false)}
-          />
-        )}
-
-        {activeTab === 'documents' && !showStats && (
+        {activeTab === 'documents' && (
           <>
-            {/* Built-in report: always here, never uploaded. */}
-            <button
-              onClick={() => setShowStats(true)}
-              className="w-full mb-4 flex items-center gap-3 p-4 bg-white rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 text-left"
-            >
-              <span className="w-10 h-10 rounded-md bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                <BarChart3 className="w-5 h-5" />
-              </span>
-              <span className="min-w-0">
-                <span className="block font-semibold text-gray-900">Sale statistics</span>
-                <span className="block text-sm text-gray-500">
-                  Sell-through, sales, catalog progress, and breakdowns by category{sale?.sale_type === 'estate_sale' ? ', room and day' : ''}. Printable.
-                </span>
-              </span>
-            </button>
-
             <DocumentsList
               documents={filteredDocuments}
               saleId={saleId!}
@@ -1385,6 +1351,10 @@ export default function SaleDetail() {
             saleName={sale?.name || 'Sale'}
             saleType={sale?.sale_type}
             lots={lots}
+            sale={sale ?? undefined}
+            consignments={consignments}
+            consignorNames={consignorNames}
+            saleRooms={saleRooms}
             exporting={exporting}
             exportMessage={exportMessage}
             exportStats={exportStats}

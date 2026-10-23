@@ -1,5 +1,5 @@
 // src/components/SaleStatistics.tsx
-// Sale statistics, opened from the Documents tab: items and sell-through, how
+// Sale statistics, opened from Reports & Tools: items and sell-through, how
 // complete the catalog is, the money (same figures as Reconciliation: refunds
 // counted once, see lib/reconciliation.ts), the register (estate) or buyers
 // (auction), and breakdowns by category, room and day. Read-only and printable.
@@ -299,7 +299,7 @@ export default function SaleStatistics({ sale, lots, consignments, consignorName
 
       <div className="no-print flex items-center justify-between">
         <button onClick={onBack} className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:underline">
-          <ArrowLeft className="w-4 h-4" /> Back to documents
+          <ArrowLeft className="w-4 h-4" /> Back to tools
         </button>
         <button onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700">
           <Printer className="w-4 h-4" /> Print

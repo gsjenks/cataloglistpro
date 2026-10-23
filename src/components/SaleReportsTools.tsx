@@ -11,12 +11,15 @@ import {
   QrCode,
   ClipboardList,
   Images,
+  BarChart3,
 } from "lucide-react";
 import LiveAuctioneersUpload from "./LiveAuctioneersUpload";
 import EOAProcessing from "./EOAProcessing";
 import { QRCodeLabelGenerator } from "./QRCodeLabelGenerator";
 import EstateDispositionReport from "./EstateDispositionReport";
 import EstateSalesNetExport from "./EstateSalesNetExport";
+import SaleStatistics from "./SaleStatistics";
+import type { Sale, Consignment, SaleRoom } from "../types";
 import { useRole } from "../context/RoleContext";
 
 type ToolView =
@@ -26,13 +29,19 @@ type ToolView =
   | "invoice-import"
   | "qr-labels"
   | "dispo-report"
-  | "esn-photos";
+  | "esn-photos"
+  | "stats";
 
 interface SaleReportsToolsProps {
   saleId: string;
   saleName: string;
   saleType?: 'estate_sale' | 'auction' | 'social';
   lots?: import('../types').Lot[];
+  // Sale statistics needs the sale and its consignments; hidden without them.
+  sale?: Sale;
+  consignments?: Consignment[];
+  consignorNames?: Record<string, string>;
+  saleRooms?: SaleRoom[];
   exporting: boolean;
   exportMessage: { type: "success" | "error" | "info"; text: string } | null;
   exportStats: {
@@ -49,6 +58,10 @@ export default function SaleReportsTools({
   saleName,
   saleType,
   lots = [],
+  sale,
+  consignments = [],
+  consignorNames = {},
+  saleRooms = [],
   exporting,
   exportMessage,
   exportStats,
@@ -67,6 +80,16 @@ export default function SaleReportsTools({
 
   // Tool menu items
   const tools = [
+    ...(sale
+      ? [{
+          id: "stats",
+          title: "Sale Statistics",
+          description:
+            `Sell-through, sales, catalog progress, and breakdowns by category${isEstate ? ", room and day" : ""}. Printable.`,
+          icon: <BarChart3 className="w-6 h-6 text-indigo-600" />,
+          view: "stats" as ToolView,
+        }]
+      : []),
     {
       id: "la-export",
       title: "LiveAuctioneers Export",
@@ -119,6 +142,19 @@ export default function SaleReportsTools({
   ]
     .filter((t) => !(isEstate && LA_TOOL_IDS.has(t.id)))
     .filter((t) => canMoney || !MONEY_TOOL_IDS.has(t.id));
+
+  if (activeView === "stats" && sale) {
+    return (
+      <SaleStatistics
+        sale={sale}
+        lots={lots}
+        consignments={consignments}
+        consignorNames={consignorNames}
+        saleRooms={saleRooms}
+        onBack={() => setActiveView("menu")}
+      />
+    );
+  }
 
   if (activeView === "esn-photos") {
     return <EstateSalesNetExport saleId={_saleId} saleName={saleName} lots={lots} onBack={() => setActiveView("menu")} />;
